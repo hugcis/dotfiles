@@ -44,7 +44,7 @@ ZSH_THEME="agnoster"
 # Uncomment the following line if you want to disable marking untracked files
 # under VCS as dirty. This makes repository status check for large repositories
 # much, much faster.
-# DISABLE_UNTRACKED_FILES_DIRTY="true"
+DISABLE_UNTRACKED_FILES_DIRTY="true"
 
 # Uncomment the following line if you want to change the command execution time
 # stamp shown in the history command output.
@@ -65,7 +65,7 @@ ZSH_THEME="agnoster"
 plugins=(
   git,
   brew,
-  z
+  z,
 )
 
 source $ZSH/oh-my-zsh.sh
@@ -99,15 +99,16 @@ source $ZSH/oh-my-zsh.sh
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 #
-alias ls='ls -GFh'
+alias ls='lsd -F'
 alias la='ls -a'
-alias ssize="du -hs * | sort -h"
+alias ssize="du -hs * .* | sort -h"
 
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
 # include Z
 . ~/z.sh
 
 alias config='/usr/bin/git --git-dir=$HOME/.cfg/ --work-tree=$HOME'
+
+test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
+
+alias python='$HOME/anaconda3/bin/python'
