@@ -1,0 +1,5 @@
+# Dotfiles
+
+## Installation
+
+`curl -Lks https://gist.github.com/73191d55b6bc77815fc4df3b9a62a9a3.git | /bin/bash`
