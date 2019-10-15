@@ -27,3 +27,6 @@ export PATH="$PATH:$HOME/anaconda3/bin"
 
 export VISUAL=vim
 export EDITOR="$VISUAL"
+export PATH="/usr/local/bin:$PATH"
+export PATH="/Library/TeX/texbin:$PATH"
+export BAT_PAGER="less -R"
