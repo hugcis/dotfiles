@@ -116,3 +116,5 @@ alias config='/usr/bin/git --git-dir=$HOME/.cfg/ --work-tree=$HOME'
 test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
 
 alias python='$HOME/anaconda3/bin/python'
+alias pip='$HOME/anaconda3/bin/pip'
+export PATH="/usr/local/opt/make/libexec/gnubin:$PATH"
