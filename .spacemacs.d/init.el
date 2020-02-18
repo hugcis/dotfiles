@@ -29,7 +29,8 @@ This function should only modify configuration layer settings."
    dotspacemacs-configuration-layer-path '()
    ;; List of configuration layers to load.
    dotspacemacs-configuration-layers
-   '(yaml
+   '(lua
+     yaml
      csv
      haskell
      javascript
@@ -58,6 +59,7 @@ This function should only modify configuration layer settings."
      python
      (c-c++ :variables
             c-c++-enable-clang-support t)
+     semantic
      rust
      )
    ;; List of additional packages that will be installed without being
@@ -71,6 +73,7 @@ This function should only modify configuration layer settings."
      synosaurus
      popup
      exec-path-from-shell
+     org-clock-csv
      zotxt
      )
    ;; A list of packages that cannot be updated.
@@ -252,7 +255,7 @@ It should only modify the values of Spacemacs settings."
 
    ;; If non-nil then the last auto saved layouts are resumed automatically upon
    ;; start. (default nil)
-   dotspacemacs-auto-resume-layouts nil
+   dotspacemacs-auto-resume-layouts t
 
    ;; If non-nil, auto-generate layout name when creating new layouts. Only has
    ;; effect when using the "jump to layout by number" commands. (default nil)
@@ -310,7 +313,7 @@ It should only modify the values of Spacemacs settings."
    ;; If non-nil the frame is maximized when Emacs starts up.
    ;; Takes effect only if `dotspacemacs-fullscreen-at-startup' is nil.
    ;; (default nil) (Emacs 24.4+ only)
-   dotspacemacs-maximized-at-startup nil
+   dotspacemacs-maximized-at-startup t
 
    ;; If non-nil the frame is undecorated when Emacs starts up. Combine this
    ;; variable with `dotspacemacs-maximized-at-startup' in OSX to obtain
@@ -482,24 +485,19 @@ you should place your code here."
   (setq magit-display-buffer-function #'magit-display-buffer-fullframe-status-v1)
 
   (global-set-key (kbd "<C-tab>") 'yas-expand)
+  (global-set-key (kbd "H-r") 'next-multiframe-window)
+
   (setq reftex-external-file-finders
         '(("tex" . "kpsewhich -format=.tex %f")
           ("bib" . "kpsewhich -format=.bib %f")))
-  (setq-default org-enforce-todo-dependencies t)
-  (setq-default org-icalendar-include-todo t)
-
-  (setq org-agenda-clockreport-parameter-plist
-        (quote (:link t :maxlevel 5 :fileskip0 t :compact t :narrow 80)))
-  (setq org-agenda-files '("~/org"))
-  (add-hook 'org-mode-hook '(lambda () (setq fill-column 80)))
-  (add-hook 'org-mode-hook 'turn-on-auto-fill)
-  (add-hook 'org-mode-hook (lambda () (org-zotxt-mode 1)))
-  (setq zotxt-default-bibliography-style "emacs-zotxt")
-  (define-key org-mode-map
-    (kbd "C-c \" \"") (lambda () (interactive)
-                        (org-zotxt-insert-reference-link '(4))))
-
+  (add-hook 'markdown-mode-hook 'turn-on-auto-fill)
+  (add-hook 'markdown-mode-hook
+            (lambda ()
+              (setq fill-column 80)))
+  (add-hook 'c-mode-hook 'flycheck-mode)
   (exec-path-from-shell-initialize)
+  (setq python-lsp-server "mspyls")
+  (load  (expand-file-name "org-config.el" dotspacemacs-directory) )
   )
 
 (defun dotspacemacs/emacs-custom-settings ()
@@ -515,14 +513,25 @@ This function is called at the very end of Spacemacs initialization."
  '(ns-use-native-fullscreen t)
  '(org-agenda-files
    (quote
-    ("/Users/hugo/org/reading_list.org" "/Users/hugo/org/calendar.org" "/Users/hugo/org/citations.org" "/Users/hugo/org/inbox.org" "/Users/hugo/org/personal.org" "/Users/hugo/org/wiki.org" "/Users/hugo/org/work.org")))
+    ("/Users/hugo/org/calendar.org" "/Users/hugo/org/inbox.org" "/Users/hugo/org/personal.org" "/Users/hugo/org/wiki.org" "/Users/hugo/org/work.org")))
  '(org-journal-dir "~/org/journal")
  '(package-selected-packages
    (quote
-    (lsp-ui lsp-treemacs lsp-python-ms helm-lsp dap-mode bui tree-mode cquery company-lsp ccls ansi package-build shut-up git commander intero hlint-refactor hindent helm-hoogle haskell-snippets flycheck-haskell company-ghci company-ghc ghc haskell-mode company-cabal cmm-mode pdf-tools tablist synosaurus keyfreq web-beautify livid-mode skewer-mode simple-httpd json-mode json-snatcher json-reformat js2-refactor multiple-cursors js2-mode js-doc company-tern tern coffee-mode web-mode tagedit slim-mode scss-mode sass-mode pug-mode helm-css-scss haml-mode emmet-mode company-web web-completion-data lv helm-gtags ggtags disaster company-c-headers cmake-mode clang-format toml-mode racer flycheck-rust cargo rust-mode yapfify pyvenv pytest pyenv-mode py-isort pip-requirements org-projectile org-category-capture org-present org-pomodoro alert log4e gntp org-mime org-download live-py-mode hy-mode dash-functional htmlize helm-pydoc gnuplot flycheck-pos-tip pos-tip flycheck cython-mode company-anaconda anaconda-mode pythonic key-chord flyspell-correct-helm flyspell-correct auto-dictionary unfill mwim reveal-in-osx-finder pbcopy osx-trash osx-dictionary launchctl xterm-color shell-pop multi-term eshell-z eshell-prompt-extras esh-help helm-company helm-c-yasnippet fuzzy company-statistics company-auctex company auto-yasnippet yasnippet ac-ispell auto-complete smeargle orgit mmm-mode markdown-toc markdown-mode magit-gitflow magit-popup helm-gitignore gitignore-mode gitconfig-mode gitattributes-mode git-timemachine git-messenger git-link gh-md evil-magit magit transient git-commit with-editor auctex-latexmk auctex ws-butler winum which-key volatile-highlights vi-tilde-fringe uuidgen use-package toc-org spaceline powerline restart-emacs request rainbow-delimiters popwin persp-mode pcre2el paradox spinner org-plus-contrib org-bullets open-junk-file neotree move-text macrostep lorem-ipsum linum-relative link-hint indent-guide hydra hungry-delete hl-todo highlight-parentheses highlight-numbers parent-mode highlight-indentation helm-themes helm-swoop helm-projectile projectile pkg-info epl helm-mode-manager helm-make helm-flx helm-descbinds helm-ag google-translate golden-ratio flx-ido flx fill-column-indicator fancy-battery eyebrowse expand-region exec-path-from-shell evil-visualstar evil-visual-mark-mode evil-unimpaired evil-tutor evil-surround evil-search-highlight-persist highlight evil-numbers evil-nerd-commenter evil-mc evil-matchit evil-lisp-state smartparens evil-indent-plus evil-iedit-state iedit evil-exchange evil-escape evil-ediff evil-args evil-anzu anzu evil goto-chg undo-tree eval-sexp-fu elisp-slime-nav dumb-jump f dash s diminish define-word column-enforce-mode clean-aindent-mode bind-map bind-key auto-highlight-symbol auto-compile packed aggressive-indent adaptive-wrap ace-window ace-link ace-jump-helm-line helm avy helm-core popup async)))
+    (org-clock-csv stickyfunc-enhance srefactor ripgrep ox-hugo org-super-agenda ts counsel-gtags counsel swiper ivy company-lua lua-mode lsp-ui lsp-treemacs lsp-python-ms helm-lsp dap-mode bui tree-mode cquery company-lsp ccls ansi package-build shut-up git commander intero hlint-refactor hindent helm-hoogle haskell-snippets flycheck-haskell company-ghci company-ghc ghc haskell-mode company-cabal cmm-mode pdf-tools tablist synosaurus keyfreq web-beautify livid-mode skewer-mode simple-httpd json-mode json-snatcher json-reformat js2-refactor multiple-cursors js2-mode js-doc company-tern tern coffee-mode web-mode tagedit slim-mode scss-mode sass-mode pug-mode helm-css-scss haml-mode emmet-mode company-web web-completion-data lv helm-gtags ggtags disaster company-c-headers cmake-mode clang-format toml-mode racer flycheck-rust cargo rust-mode yapfify pyvenv pytest pyenv-mode py-isort pip-requirements org-projectile org-category-capture org-present org-pomodoro alert log4e gntp org-mime org-download live-py-mode hy-mode dash-functional htmlize helm-pydoc gnuplot flycheck-pos-tip pos-tip flycheck cython-mode company-anaconda anaconda-mode pythonic key-chord flyspell-correct-helm flyspell-correct auto-dictionary unfill mwim reveal-in-osx-finder pbcopy osx-trash osx-dictionary launchctl xterm-color shell-pop multi-term eshell-z eshell-prompt-extras esh-help helm-company helm-c-yasnippet fuzzy company-statistics company-auctex company auto-yasnippet yasnippet ac-ispell auto-complete smeargle orgit mmm-mode markdown-toc markdown-mode magit-gitflow magit-popup helm-gitignore gitignore-mode gitconfig-mode gitattributes-mode git-timemachine git-messenger git-link gh-md evil-magit magit transient git-commit with-editor auctex-latexmk auctex ws-butler winum which-key volatile-highlights vi-tilde-fringe uuidgen use-package toc-org spaceline powerline restart-emacs request rainbow-delimiters popwin persp-mode pcre2el paradox spinner org-plus-contrib org-bullets open-junk-file neotree move-text macrostep lorem-ipsum linum-relative link-hint indent-guide hydra hungry-delete hl-todo highlight-parentheses highlight-numbers parent-mode highlight-indentation helm-themes helm-swoop helm-projectile projectile pkg-info epl helm-mode-manager helm-make helm-flx helm-descbinds helm-ag google-translate golden-ratio flx-ido flx fill-column-indicator fancy-battery eyebrowse expand-region exec-path-from-shell evil-visualstar evil-visual-mark-mode evil-unimpaired evil-tutor evil-surround evil-search-highlight-persist highlight evil-numbers evil-nerd-commenter evil-mc evil-matchit evil-lisp-state smartparens evil-indent-plus evil-iedit-state iedit evil-exchange evil-escape evil-ediff evil-args evil-anzu anzu evil goto-chg undo-tree eval-sexp-fu elisp-slime-nav dumb-jump f dash s diminish define-word column-enforce-mode clean-aindent-mode bind-map bind-key auto-highlight-symbol auto-compile packed aggressive-indent adaptive-wrap ace-window ace-link ace-jump-helm-line helm avy helm-core popup async)))
  '(safe-local-variable-values
    (quote
-    ((company-c-headers-path-user "." "~/Users/hugo/Work/ciirc_internship/src/*")
+    ((eval setq flycheck-clang-include-path
+           (list
+            (expand-file-name "~/Work/ciirc_internship/src/")))
+     (eval setq flycheck-clang-include-path
+           (list
+            (expand-file-name "./src/")))
+     (javascript-backend . tern)
+     (javascript-backend . lsp)
+     (eval setq flycheck-clang-include-path
+           (list
+            (expand-file-name "~/Work/evolving-structures-in-complex-systems/src/")))
+     (company-c-headers-path-user "." "~/Users/hugo/Work/ciirc_internship/src/*")
      (company-c-headers-path-user "." "~/Users/hugo/Work/ciirc_internship/src/")
      (company-c-headers-path-user append
                                   (quote company-c-headers-path-user)
