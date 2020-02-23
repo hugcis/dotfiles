@@ -8,7 +8,7 @@ export ZSH="/Users/hugo/.oh-my-zsh"
 # load a random theme each time oh-my-zsh is loaded, in which case,
 # to know which specific one was loaded, run: echo $RANDOM_THEME
 # See https://github.com/robbyrussell/oh-my-zsh/wiki/Themes
-ZSH_THEME="agnoster-custom"
+ZSH_THEME="agnoster"
 
 # Set list of themes to pick from when loading at random
 # Setting this variable when ZSH_THEME=random will cause zsh to load
@@ -63,10 +63,10 @@ DISABLE_UNTRACKED_FILES_DIRTY="true"
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
 plugins=(
-  git,
-  brew,
-  z,
-  shrink-path,
+  git
+  brew
+  z
+  shrink-path
   zsh-autosuggestions
 )
 
@@ -107,6 +107,9 @@ alias ls='lsd -F'
 alias la='ls -a'
 alias ssize="find -X . -depth 1| xargs du -hs |sort -h"
 
+alias -g G='| egrep'
+alias -g H='| head'
+alias -g HL='|& head -20'
 
 # include Z
 . ~/z.sh
