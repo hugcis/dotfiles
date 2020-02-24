@@ -19,7 +19,14 @@
 (setq calendar-week-start-day 1)
 
 (setq org-ref-default-bibliography '("~/Papers/library.bib"))
+(setq org-ref-pdf-directory "~/Papers/pdf/")
+
+(setq bibtex-completion-pdf-field "file")
+(setq bibtex-completion-pdf-symbol "⌘")
+(setq bibtex-completion-notes-symbol "✎")
+
 (setq org-refile-targets '((org-agenda-files . (:maxlevel . 6))))
+(setq org-refile-allow-creating-parent-nodes 'confirm)
 
 (defun my-buffer-face-mode-variable ()
   "Set font to a variable width (proportional) fonts in current buffer"
@@ -38,3 +45,19 @@
          (file "~/org/inbox.org") "* TODO %^{Title}")
         ("w" "Work TODO" entry
          (file "~/org/work.org") "* TODO %^{Title}")))
+
+(setq org-journal-dir "~/org/journal/")
+(setq org-bullets-bullet-list '("◉" "○" "♢" "☐" "►" "◄" "△" "×"))
+(defun org-journal-save-entry-and-exit()
+  "Simple convenience function.
+  Saves the buffer of the current day's entry and kills the window
+  Similar to org-capture like behavior"
+  (interactive)
+  (save-buffer)
+  (kill-buffer-and-window))
+(define-key org-journal-mode-map (kbd "C-x C-s") 'org-journal-save-entry-and-exit)
+
+(setq org-agenda-category-icon-alist
+      `(("Work" ,(list (all-the-icons-faicon "cogs")) nil nil :ascent center)
+        ("Personal" ,(list (all-the-icons-material "person")) nil nil :ascent center)
+        ("Reading" ,(list (all-the-icons-faicon "book")) nil nil :ascent center)))

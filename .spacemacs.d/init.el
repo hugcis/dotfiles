@@ -42,7 +42,8 @@ This function should only modify configuration layer settings."
      git
      (markdown :variables markdown-live-preview-engine 'vmd)
      (org :variables
-          org-enable-org-journal-support t)
+          org-enable-org-journal-support t
+          org-journal-enable-agenda-integration t)
      (shell :variables
             shell-default-height 30
             shell-default-position 'bottom)
@@ -366,14 +367,15 @@ It should only modify the values of Spacemacs settings."
    ;;   :size-limit-kb 1000)
    ;; When used in a plist, `visual' takes precedence over `relative'.
    ;; (default nil)
-   dotspacemacs-line-numbers '(:relative nil :visual nil
+   dotspacemacs-line-numbers '(:relative nil
+                                         :enabled-for-modes prog-mode
                                          :disabled-for-modes dired-mode
                                          doc-view-mode
                                          markdown-mode
                                          org-mode
                                          pdf-view-mode
                                          text-mode
-     :size-limit-kb 1000)
+                                         :size-limit-kb 1000)
    ;; Code folding method. Possible values are `evil' and `origami'.
    ;; (default 'evil)
    dotspacemacs-folding-method 'evil
@@ -507,7 +509,7 @@ you should place your code here."
               (setq fill-column 80)))
   (add-hook 'c-mode-hook 'flycheck-mode)
   (exec-path-from-shell-initialize)
-  (setq python-lsp-server "mspyls")
+  ;; (setq python-lsp-server "mspyls")
   (load  (expand-file-name "org-config.el" dotspacemacs-directory) )
   )
 
@@ -528,7 +530,7 @@ This function is called at the very end of Spacemacs initialization."
  '(org-journal-dir "~/org/journal")
  '(package-selected-packages
    (quote
-    (org-ref helm-bibtex parsebib biblio biblio-core org-clock-csv stickyfunc-enhance srefactor ripgrep ox-hugo org-super-agenda ts counsel-gtags counsel swiper ivy company-lua lua-mode lsp-ui lsp-treemacs lsp-python-ms helm-lsp dap-mode bui tree-mode cquery company-lsp ccls ansi package-build shut-up git commander intero hlint-refactor hindent helm-hoogle haskell-snippets flycheck-haskell company-ghci company-ghc ghc haskell-mode company-cabal cmm-mode pdf-tools tablist synosaurus keyfreq web-beautify livid-mode skewer-mode simple-httpd json-mode json-snatcher json-reformat js2-refactor multiple-cursors js2-mode js-doc company-tern tern coffee-mode web-mode tagedit slim-mode scss-mode sass-mode pug-mode helm-css-scss haml-mode emmet-mode company-web web-completion-data lv helm-gtags ggtags disaster company-c-headers cmake-mode clang-format toml-mode racer flycheck-rust cargo rust-mode yapfify pyvenv pytest pyenv-mode py-isort pip-requirements org-projectile org-category-capture org-present org-pomodoro alert log4e gntp org-mime org-download live-py-mode hy-mode dash-functional htmlize helm-pydoc gnuplot flycheck-pos-tip pos-tip flycheck cython-mode company-anaconda anaconda-mode pythonic key-chord flyspell-correct-helm flyspell-correct auto-dictionary unfill mwim reveal-in-osx-finder pbcopy osx-trash osx-dictionary launchctl xterm-color shell-pop multi-term eshell-z eshell-prompt-extras esh-help helm-company helm-c-yasnippet fuzzy company-statistics company-auctex company auto-yasnippet yasnippet ac-ispell auto-complete smeargle orgit mmm-mode markdown-toc markdown-mode magit-gitflow magit-popup helm-gitignore gitignore-mode gitconfig-mode gitattributes-mode git-timemachine git-messenger git-link gh-md evil-magit magit transient git-commit with-editor auctex-latexmk auctex ws-butler winum which-key volatile-highlights vi-tilde-fringe uuidgen use-package toc-org spaceline powerline restart-emacs request rainbow-delimiters popwin persp-mode pcre2el paradox spinner org-plus-contrib org-bullets open-junk-file neotree move-text macrostep lorem-ipsum linum-relative link-hint indent-guide hydra hungry-delete hl-todo highlight-parentheses highlight-numbers parent-mode highlight-indentation helm-themes helm-swoop helm-projectile projectile pkg-info epl helm-mode-manager helm-make helm-flx helm-descbinds helm-ag google-translate golden-ratio flx-ido flx fill-column-indicator fancy-battery eyebrowse expand-region exec-path-from-shell evil-visualstar evil-visual-mark-mode evil-unimpaired evil-tutor evil-surround evil-search-highlight-persist highlight evil-numbers evil-nerd-commenter evil-mc evil-matchit evil-lisp-state smartparens evil-indent-plus evil-iedit-state iedit evil-exchange evil-escape evil-ediff evil-args evil-anzu anzu evil goto-chg undo-tree eval-sexp-fu elisp-slime-nav dumb-jump f dash s diminish define-word column-enforce-mode clean-aindent-mode bind-map bind-key auto-highlight-symbol auto-compile packed aggressive-indent adaptive-wrap ace-window ace-link ace-jump-helm-line helm avy helm-core popup async)))
+    (org-sticky-header org-ref helm-bibtex parsebib biblio biblio-core org-clock-csv stickyfunc-enhance srefactor ripgrep ox-hugo org-super-agenda ts counsel-gtags counsel swiper ivy company-lua lua-mode lsp-ui lsp-treemacs lsp-python-ms helm-lsp dap-mode bui tree-mode cquery company-lsp ccls ansi package-build shut-up git commander intero hlint-refactor hindent helm-hoogle haskell-snippets flycheck-haskell company-ghci company-ghc ghc haskell-mode company-cabal cmm-mode pdf-tools tablist synosaurus keyfreq web-beautify livid-mode skewer-mode simple-httpd json-mode json-snatcher json-reformat js2-refactor multiple-cursors js2-mode js-doc company-tern tern coffee-mode web-mode tagedit slim-mode scss-mode sass-mode pug-mode helm-css-scss haml-mode emmet-mode company-web web-completion-data lv helm-gtags ggtags disaster company-c-headers cmake-mode clang-format toml-mode racer flycheck-rust cargo rust-mode yapfify pyvenv pytest pyenv-mode py-isort pip-requirements org-projectile org-category-capture org-present org-pomodoro alert log4e gntp org-mime org-download live-py-mode hy-mode dash-functional htmlize helm-pydoc gnuplot flycheck-pos-tip pos-tip flycheck cython-mode company-anaconda anaconda-mode pythonic key-chord flyspell-correct-helm flyspell-correct auto-dictionary unfill mwim reveal-in-osx-finder pbcopy osx-trash osx-dictionary launchctl xterm-color shell-pop multi-term eshell-z eshell-prompt-extras esh-help helm-company helm-c-yasnippet fuzzy company-statistics company-auctex company auto-yasnippet yasnippet ac-ispell auto-complete smeargle orgit mmm-mode markdown-toc markdown-mode magit-gitflow magit-popup helm-gitignore gitignore-mode gitconfig-mode gitattributes-mode git-timemachine git-messenger git-link gh-md evil-magit magit transient git-commit with-editor auctex-latexmk auctex ws-butler winum which-key volatile-highlights vi-tilde-fringe uuidgen use-package toc-org spaceline powerline restart-emacs request rainbow-delimiters popwin persp-mode pcre2el paradox spinner org-plus-contrib org-bullets open-junk-file neotree move-text macrostep lorem-ipsum linum-relative link-hint indent-guide hydra hungry-delete hl-todo highlight-parentheses highlight-numbers parent-mode highlight-indentation helm-themes helm-swoop helm-projectile projectile pkg-info epl helm-mode-manager helm-make helm-flx helm-descbinds helm-ag google-translate golden-ratio flx-ido flx fill-column-indicator fancy-battery eyebrowse expand-region exec-path-from-shell evil-visualstar evil-visual-mark-mode evil-unimpaired evil-tutor evil-surround evil-search-highlight-persist highlight evil-numbers evil-nerd-commenter evil-mc evil-matchit evil-lisp-state smartparens evil-indent-plus evil-iedit-state iedit evil-exchange evil-escape evil-ediff evil-args evil-anzu anzu evil goto-chg undo-tree eval-sexp-fu elisp-slime-nav dumb-jump f dash s diminish define-word column-enforce-mode clean-aindent-mode bind-map bind-key auto-highlight-symbol auto-compile packed aggressive-indent adaptive-wrap ace-window ace-link ace-jump-helm-line helm avy helm-core popup async)))
  '(safe-local-variable-values
    (quote
     ((eval setq flycheck-clang-include-path
