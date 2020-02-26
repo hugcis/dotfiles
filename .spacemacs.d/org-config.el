@@ -4,7 +4,10 @@
 
 (setq org-agenda-clockreport-parameter-plist
       (quote (:link t :maxlevel 5 :fileskip0 t :compact t :narrow 80)))
-(setq org-agenda-files '("~/org"))
+(setq org-agenda-files (list
+                        "~/org"
+                        "~/org/notes"))
+
 (add-hook 'org-mode-hook 'turn-on-auto-fill)
 (add-hook 'org-mode-hook
           (lambda ()
@@ -18,14 +21,16 @@
 
 (setq calendar-week-start-day 1)
 
-(setq org-ref-default-bibliography '("~/Papers/library.bib"))
-(setq org-ref-pdf-directory "~/Papers/pdf/")
+(setq org-ref-default-bibliography '("~/Papers/library.bib")
+      org-ref-pdf-directory "~/Papers/pdf/"
+      org-ref-bibliography-notes "~/Papers/reading_list.org")
 
 (setq bibtex-completion-pdf-field "file")
 (setq bibtex-completion-pdf-symbol "⌘")
 (setq bibtex-completion-notes-symbol "✎")
 
 (setq org-refile-targets '((org-agenda-files . (:maxlevel . 6))))
+(setq org-refile-use-outline-path 'file)
 (setq org-refile-allow-creating-parent-nodes 'confirm)
 
 (defun my-buffer-face-mode-variable ()

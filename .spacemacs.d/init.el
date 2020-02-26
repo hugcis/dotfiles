@@ -526,7 +526,7 @@ This function is called at the very end of Spacemacs initialization."
  '(ns-use-native-fullscreen t)
  '(org-agenda-files
    (quote
-    ("/Users/hugo/org/calendar.org" "/Users/hugo/org/inbox.org" "/Users/hugo/org/personal.org" "/Users/hugo/org/wiki.org" "/Users/hugo/org/work.org")))
+    ("~/org/notes/ca.org" "~/Papers/reading_list.org" "/Users/hugo/org/books.org" "/Users/hugo/org/calendar.org" "/Users/hugo/org/citations.org" "/Users/hugo/org/inbox.org" "/Users/hugo/org/personal.org" "/Users/hugo/org/wiki.org" "/Users/hugo/org/work.org" "/Users/hugo/org/journal/20200225")))
  '(org-journal-dir "~/org/journal")
  '(package-selected-packages
    (quote
