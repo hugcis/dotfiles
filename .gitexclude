@@ -1,0 +1,13 @@
+*.log
+*.fdb_latexmk
+*.fls
+*.log
+*.nav
+*.out
+*.snm
+*.aux
+*.synctex.gz
+auto/*.el
+*.toc
+.DS_Store
+.ipynb_checkpoints/
