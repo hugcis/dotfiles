@@ -65,8 +65,10 @@ DISABLE_UNTRACKED_FILES_DIRTY="true"
 
 plugins=(
   git
+  brew
   z
   shrink-path
+  zsh-autosuggestions
 )
 
 HOST=$(hostname)
@@ -106,6 +108,9 @@ alias ls='lsd -F'
 alias la='ls -a'
 alias ssize="find -X . -depth 1| xargs du -hs |sort -h"
 
+alias -g G='| egrep'
+alias -g H='| head'
+alias -g HL='|& head -20'
 
 # include Z
 . ~/z.sh

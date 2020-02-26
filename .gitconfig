@@ -1,3 +1,22 @@
 [user]
 	name = hugcis
 	email = hmj.cisneros@gmail.com
+
+[core]
+	excludesfile = ~/.gitexclude
+
+[filter "lfs"]
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+	clean = git-lfs clean -- %f
+
+[alias]
+        co = checkout
+        ci = commit
+        st = status
+        br = branch
+        hist = log --pretty=format:\"%h %ad | %s%d [%an]\" --graph --date=short
+        type = cat-file -t
+        dump = cat-file -p
+        la = log --all --graph --oneline --decorate

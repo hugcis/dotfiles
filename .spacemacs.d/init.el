@@ -42,7 +42,8 @@ This function should only modify configuration layer settings."
      git
      (markdown :variables markdown-live-preview-engine 'vmd)
      (org :variables
-          org-enable-org-journal-support t)
+          org-enable-org-journal-support t
+          org-journal-enable-agenda-integration t)
      (shell :variables
             shell-default-height 30
             shell-default-position 'bottom)
@@ -51,6 +52,7 @@ This function should only modify configuration layer settings."
             latex-enable-folding t
             latex-enable-auto-fill t
             latex-build-command "LatexMk")
+     bibtex
      (osx :variables
           osx-option-as 'none
           osx-function-as 'meta
@@ -76,6 +78,7 @@ This function should only modify configuration layer settings."
      popup
      exec-path-from-shell
      org-clock-csv
+     fill-column-indicator
      zotxt
      )
    ;; A list of packages that cannot be updated.
@@ -366,7 +369,15 @@ It should only modify the values of Spacemacs settings."
    ;;   :size-limit-kb 1000)
    ;; When used in a plist, `visual' takes precedence over `relative'.
    ;; (default nil)
-   dotspacemacs-line-numbers t
+   dotspacemacs-line-numbers '(:relative nil
+                                         :enabled-for-modes prog-mode
+                                         :disabled-for-modes dired-mode
+                                         doc-view-mode
+                                         markdown-mode
+                                         org-mode
+                                         pdf-view-mode
+                                         text-mode
+                                         :size-limit-kb 1000)
    ;; Code folding method. Possible values are `evil' and `origami'.
    ;; (default 'evil)
    dotspacemacs-folding-method 'evil
@@ -492,13 +503,15 @@ you should place your code here."
   (setq reftex-external-file-finders
         '(("tex" . "kpsewhich -format=.tex %f")
           ("bib" . "kpsewhich -format=.bib %f")))
+  (setq bibtex-completion-pdf-field "file")
+
   (add-hook 'markdown-mode-hook 'turn-on-auto-fill)
   (add-hook 'markdown-mode-hook
             (lambda ()
               (setq fill-column 80)))
   (add-hook 'c-mode-hook 'flycheck-mode)
   (exec-path-from-shell-initialize)
-  (setq python-lsp-server "mspyls")
+  ;; (setq python-lsp-server "mspyls")
   (load  (expand-file-name "org-config.el" dotspacemacs-directory) )
   )
 
