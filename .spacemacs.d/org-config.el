@@ -2,6 +2,7 @@
 (setq-default org-enforce-todo-dependencies t)
 (setq-default org-icalendar-include-todo t)
 
+(setq org-journal-dir "~/org/journal")
 (setq org-agenda-clockreport-parameter-plist
       (quote (:link t :maxlevel 5 :fileskip0 t :compact t :narrow 80)))
 (setq org-agenda-files (list
@@ -13,9 +14,15 @@
           (lambda ()
             (setq fill-column 80)
             (org-zotxt-mode 1)
-            (define-key org-mode-map (kbd "H-i") 'org-clock-in)
-            (define-key org-mode-map (kbd "H-o") 'org-clock-out)
+            (define-key org-mode-map
+              (kbd (cond ((eq system-type 'darwin) "H-i")
+                         ((eq system-type 'gnu/linux) "s-i"))) 'org-clock-in)
+            (define-key org-mode-map
+              (kbd (cond ((eq system-type 'darwin) "H-o")
+                         ((eq system-type 'gnu/linux) "s-o"))) 'org-clock-out)
             (define-key org-mode-map (kbd "H-d") 'org-todo)
+            (define-key org-mode-map (kbd "M-+") 'text-scale-increase)
+            (define-key org-mode-map (kbd "M-°") 'text-scale-decrease)
             (define-key org-mode-map (kbd "C-c \" \"")
               (lambda () (interactive) (org-zotxt-insert-reference-link '(4))))))
 
@@ -37,7 +44,7 @@
   "Set font to a variable width (proportional) fonts in current buffer"
   (interactive)
   (setq buffer-face-mode-face '(:family "Roboto Slab"
-                                        :height 150
+                                        :height 120
                                         :width normal))
   (buffer-face-mode))
 (add-hook 'org-mode-hook 'my-buffer-face-mode-variable)
@@ -60,6 +67,7 @@
   (interactive)
   (save-buffer)
   (kill-buffer-and-window))
+
 (define-key org-journal-mode-map (kbd "C-x C-s") 'org-journal-save-entry-and-exit)
 
 (setq org-agenda-category-icon-alist
