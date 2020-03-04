@@ -31,3 +31,7 @@ export PATH="/usr/local/bin:$PATH"
 export PATH="/Library/TeX/texbin:$PATH"
 export BAT_PAGER="less -R"
 export DEFAULT_USER="hugo"
+
+export PATH="/usr/local/opt/make/libexec/gnubin:$PATH"
+
+eval $(keychain --eval --quiet id_ed25519 id_rsa)

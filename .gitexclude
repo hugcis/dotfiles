@@ -11,3 +11,4 @@ auto/*.el
 *.toc
 .DS_Store
 .ipynb_checkpoints/
+/roam/ltximg/*.png

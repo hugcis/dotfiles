@@ -32,6 +32,7 @@ This function should only modify configuration layer settings."
    '(lua
      yaml
      csv
+     deft
      haskell
      javascript
      html
@@ -73,7 +74,6 @@ This function should only modify configuration layer settings."
    ;; configuration in `dotspacemacs/user-config'.
    dotspacemacs-additional-packages
    '(
-     deft
      key-chord
      keyfreq
      synosaurus
@@ -513,7 +513,9 @@ you should place your code here."
   (add-hook 'markdown-mode-hook
             (lambda ()
               (setq fill-column 80)))
+
   (add-hook 'c-mode-hook 'flycheck-mode)
+
   (exec-path-from-shell-initialize)
   (exec-path-from-shell-copy-env "SSH_AGENT_PID")
   (exec-path-from-shell-copy-env "SSH_AUTH_SOCK")
@@ -532,7 +534,33 @@ This function is called at the very end of Spacemacs initialization."
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  '(deft-directory "/home/hugo/org/roam/")
+ '(deft-use-filename-as-title nil t)
+ '(evil-want-Y-yank-to-eol nil)
+ '(hl-todo-keyword-faces
+   (quote
+    (("TODO" . "#dc752f")
+     ("NEXT" . "#dc752f")
+     ("THEM" . "#2d9574")
+     ("PROG" . "#4f97d7")
+     ("OKAY" . "#4f97d7")
+     ("DONT" . "#f2241f")
+     ("FAIL" . "#f2241f")
+     ("DONE" . "#86dc2f")
+     ("NOTE" . "#b1951d")
+     ("KLUDGE" . "#b1951d")
+     ("HACK" . "#b1951d")
+     ("TEMP" . "#b1951d")
+     ("FIXME" . "#dc752f")
+     ("XXX+" . "#dc752f")
+     ("\\?\\?\\?+" . "#dc752f"))))
  '(ns-use-native-fullscreen t)
+ '(org-file-apps
+   (quote
+    ((auto-mode . emacs)
+     ("\\.mm\\'" . default)
+     ("\\.x?html?\\'" . default)
+     ("\\.pdf\\'" . "evince %s"))))
+ '(org-roam-directory "~/org/roam")
  '(package-selected-packages
    (quote
     (deft org-roam emacsql-sqlite emacsql fill-column-indicator zotxt yasnippet-snippets yapfify yaml-mode xterm-color ws-butler writeroom-mode winum which-key web-mode web-beautify vterm volatile-highlights vmd-mode vi-tilde-fringe uuidgen use-package unfill treemacs-projectile treemacs-persp treemacs-magit treemacs-evil toml-mode toc-org terminal-here tagedit synosaurus symon symbol-overlay string-inflection stickyfunc-enhance srefactor spaceline-all-the-icons smeargle slim-mode shell-pop scss-mode sass-mode reveal-in-osx-finder restart-emacs rainbow-delimiters racer pytest pyenv-mode py-isort pug-mode prettier-js popwin pippel pipenv pip-requirements pcre2el password-generator paradox overseer osx-trash osx-dictionary osx-clipboard orgit org-ref org-projectile org-present org-pomodoro org-mime org-journal org-download org-clock-csv org-cliplink org-bullets org-brain open-junk-file nodejs-repl nameless mwim multi-term mu4e-maildirs-extension mu4e-alert move-text monokai-theme mmm-mode markdown-toc magit-svn magit-section magit-gitflow macrostep lsp-haskell lorem-ipsum livid-mode live-py-mode link-hint launchctl keyfreq json-navigator json-mode js2-refactor js-doc intero indent-guide importmagic impatient-mode hybrid-mode hungry-delete hlint-refactor hl-todo hindent highlight-parentheses highlight-numbers highlight-indentation helm-xref helm-themes helm-swoop helm-rtags helm-pydoc helm-purpose helm-projectile helm-org-rifle helm-org helm-mu helm-mode-manager helm-make helm-ls-git helm-hoogle helm-gitignore helm-git-grep helm-flx helm-descbinds helm-css-scss helm-company helm-c-yasnippet helm-ag haskell-snippets google-translate google-c-style golden-ratio gnuplot gitignore-templates gitconfig-mode gitattributes-mode git-timemachine git-messenger git-link gh-md fuzzy font-lock+ flyspell-correct-helm flycheck-ycmd flycheck-rust flycheck-rtags flycheck-pos-tip flycheck-package flycheck-haskell flycheck-elsa flx-ido fancy-battery eyebrowse expand-region exec-path-from-shell evil-visualstar evil-visual-mark-mode evil-unimpaired evil-tutor evil-textobj-line evil-surround evil-org evil-numbers evil-nerd-commenter evil-matchit evil-magit evil-lisp-state evil-lion evil-indent-plus evil-iedit-state evil-goggles evil-exchange evil-escape evil-ediff evil-cleverparens evil-args evil-anzu eval-sexp-fu eshell-z eshell-prompt-extras esh-help emmet-mode elisp-slime-nav editorconfig dumb-jump dotenv-mode doom-themes doom-modeline disaster diminish devdocs dante cython-mode csv-mode cpp-auto-include company-ycmd company-web company-tern company-rtags company-reftex company-lua company-ghci company-ghc company-cabal company-c-headers company-auctex company-anaconda column-enforce-mode color-theme-sanityinc-solarized cmm-mode clean-aindent-mode clang-format centered-cursor-mode cargo blacken auto-yasnippet auto-highlight-symbol auto-dictionary auto-compile auctex-latexmk attrap aggressive-indent ace-link ace-jump-helm-line ac-ispell)))
@@ -559,5 +587,5 @@ This function is called at the very end of Spacemacs initialization."
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
- '(org-roam-link ((t (:box (:line-width 2 :color "grey75"))))))
+ '(org-roam-link ((t (:foreground "orange red" :underline t :weight bold)))))
 )

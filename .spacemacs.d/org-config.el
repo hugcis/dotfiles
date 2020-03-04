@@ -25,12 +25,21 @@
             (define-key org-mode-map (kbd "M-°") 'text-scale-decrease)
             (define-key org-mode-map (kbd "C-c \" \"")
               (lambda () (interactive) (org-zotxt-insert-reference-link '(4))))))
+(add-hook 'org-journal-mode-hook
+          (lambda ()
+            (define-key org-journal-mode-map
+              (kbd "C-x C-s") 'org-journal-save-entry-and-exit)))
 
 (setq calendar-week-start-day 1)
 
+(setq reftex-default-bibliography '("~/Papers/library.bib"))
 (setq org-ref-default-bibliography '("~/Papers/library.bib")
       org-ref-pdf-directory "~/Papers/pdf/"
       org-ref-bibliography-notes "~/Papers/reading_list.org")
+(setq bibtex-completion-pdf-open-function
+      (lambda (fpath)
+        (cond ((eq system-type 'darwin) (start-process "open" "*open*" "open" fpath))
+              ((eq system-type 'gnu/linux) (start-process "evince" "*evince*" "evince" fpath)))))
 
 (setq bibtex-completion-pdf-field "file")
 (setq bibtex-completion-pdf-symbol "⌘")
@@ -68,7 +77,6 @@
   (save-buffer)
   (kill-buffer-and-window))
 
-(define-key org-journal-mode-map (kbd "C-x C-s") 'org-journal-save-entry-and-exit)
 
 (setq org-agenda-category-icon-alist
       `(("Work" ,(list (all-the-icons-faicon "cogs")) nil nil :ascent center)
