@@ -7,8 +7,13 @@
 *.snm
 *.aux
 *.synctex.gz
+*.bcf
+*.run.xml
+.dir-locals.el
 auto/*.el
 *.toc
 .DS_Store
 .ipynb_checkpoints/
 /roam/ltximg/*.png
+auto/
+/_region_.tex

@@ -131,3 +131,16 @@ alias pip='$HOME/anaconda3/bin/pip'
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+
+unameOut="$(uname -s)"
+case "${unameOut}" in
+    Darwin*)
+alias make='/usr/local/opt/make/libexec/gnubin/make'
+            ;;
+esac
+
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+
+export PATH="/Users/hugo/.pyenv/bin:$PATH"
+eval "$(pyenv init -)"
+eval "$(pyenv virtualenv-init -)"

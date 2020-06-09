@@ -34,4 +34,9 @@ export DEFAULT_USER="hugo"
 
 export PATH="/usr/local/opt/make/libexec/gnubin:$PATH"
 
+unameOut="$(uname -s)"
+case "${unameOut}" in
+    Linux*)     
 eval $(keychain --eval --quiet id_ed25519 id_rsa)
+;;
+esac
