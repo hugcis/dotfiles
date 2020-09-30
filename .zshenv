@@ -23,7 +23,7 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
-export PATH="$PATH:$HOME/anaconda3/bin"
+#export PATH="$PATH:$HOME/anaconda3/bin"
 
 export VISUAL=vim
 export EDITOR="$VISUAL"
@@ -40,3 +40,7 @@ case "${unameOut}" in
 eval $(keychain --eval --quiet id_ed25519 id_rsa)
 ;;
 esac
+
+export PATH="$PATH:/Users/hugo/Library/Python/3.8/bin"
+export PATH="$PATH:/Applications/Julia-1.5.app/Contents/Resources/julia/bin/"
+export PATH="/usr/local/sbin:$PATH"

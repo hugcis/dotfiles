@@ -119,6 +119,8 @@ alias -g G='| egrep'
 alias -g H='| head'
 alias -g HL='|& head -20'
 
+alias rot13="tr 'A-Za-z' 'N-ZA-Mn-za-m'"
+
 # include Z
 . ~/z.sh
 
@@ -126,8 +128,8 @@ alias config='/usr/bin/git --git-dir=$HOME/.cfg/ --work-tree=$HOME'
 
 #test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
 
-alias python='$HOME/anaconda3/bin/python'
-alias pip='$HOME/anaconda3/bin/pip'
+#alias python='$HOME/anaconda3/bin/python'
+#alias pip='$HOME/anaconda3/bin/pip'
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh

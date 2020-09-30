@@ -41,6 +41,7 @@ This function should only modify configuration layer settings."
      haskell
      javascript
      html
+     ;; ivy
      helm
      auto-completion
      better-defaults
@@ -51,7 +52,8 @@ This function should only modify configuration layer settings."
           org-enable-org-journal-support t
           org-journal-dir "~/org/journal/"
           org-journal-enable-agenda-integration t
-          org-journal-encrypt-journal t)
+          org-journal-encrypt-journal t
+          org-enable-hugo-support t)
      org-roam
      (shell :variables
             shell-default-height 30
@@ -76,6 +78,7 @@ This function should only modify configuration layer settings."
      (spacemacs-layouts :variables
                         persp-autokill-buffer-on-remove 'kill-weak
                         spacemacs-layouts-restrict-spc-tab t)
+     gnus
      )
 
    ;; List of additional packages that will be installed without being
@@ -94,6 +97,9 @@ This function should only modify configuration layer settings."
      fill-column-indicator
      zotxt
      ox-hugo
+     org-super-agenda
+     org-caldav
+     citeproc-org
      )
    ;; A list of packages that cannot be updated.
    dotspacemacs-frozen-packages '()
@@ -246,7 +252,7 @@ It should only modify the values of Spacemacs settings."
 
    ;; Default font or prioritized list of fonts.
    dotspacemacs-default-font '("Fira Mono for Powerline"
-                               :size 13
+                               :size 12
                                :weight normal
                                :width normal)
    ;; The leader key (default "SPC")
@@ -523,6 +529,23 @@ layers configuration.
 This is the place where most of your configurations should be done. Unless it is
 explicitly specified that a variable should be set before a package is loaded,
 you should place your code here."
+  ;; Stop polluting the directory with auto-saved files and backup
+  (setq auto-save-default nil)
+  (setq make-backup-files nil)
+  (setq auto-save-list-file-prefix nil)
+
+  ;; Well, it's more so that you know this option
+  (setq kill-whole-line t)
+  (setq kill-read-only-ok t)
+  (setq require-final-newline t)
+
+  ;; Scrolling done right
+  (setq scroll-error-top-bottom t)
+
+  ;; Number of lines of continuity when scrolling by screenfulls
+  (setq next-screen-context-lines 0)
+
+  (setq helm-buffer-list-reorder-fn #'helm-buffers-reorder-buffer-list)
   (defvar bootstrap-version)
   (let ((bootstrap-file
          (expand-file-name "straight/repos/straight.el/bootstrap.el" user-emacs-directory))
@@ -569,7 +592,18 @@ you should place your code here."
 
   (setq epa-pinentry-mode 'loopback)
 
-  (load  (expand-file-name "org-config.el" dotspacemacs-directory))
+  (setq nnrss-ignore-article-fields '(description slash:comments
+                                                  slash:hit_parade))
+
+  (defun python-symbols()
+    (mapc (lambda (pair) (push pair prettify-symbols-alist))
+          '(;; Syntax
+            ("->" . "➔")
+            ))
+    (prettify-symbols-mode +1))
+  (add-hook 'python-mode-hook 'python-symbols)
+
+  (with-eval-after-load 'org (load  (expand-file-name "org-config.el" dotspacemacs-directory)))
   )
 
 ;; Do not write anything past this comment. This is where Emacs will
@@ -589,9 +623,6 @@ This function is called at the very end of Spacemacs initialization."
  '(doom-modeline-env-version nil)
  '(doom-modeline-mode t)
  '(doom-modeline-persp-name nil)
- '(org-agenda-files
-   (quote
-    ("~/org/work_calendar.org" "/Users/hugo/org/books.org" "/Users/hugo/org/calendar.org" "/Users/hugo/org/citations.org" "/Users/hugo/org/inbox.org" "/Users/hugo/org/personal.org" "/Users/hugo/org/work.org" "~/Papers/reading_list.org")))
  '(org-pomodoro-format "Pdr %s")
  '(org-pomodoro-long-break-length 30)
  '(package-selected-packages
@@ -599,7 +630,14 @@ This function is called at the very end of Spacemacs initialization."
     (fill-column-indicator zotxt yasnippet-snippets yapfify yaml-mode xterm-color ws-butler writeroom-mode winum which-key web-mode web-beautify vterm volatile-highlights vmd-mode vi-tilde-fringe uuidgen use-package unfill treemacs-projectile treemacs-persp treemacs-magit treemacs-evil toml-mode toc-org terminal-here tagedit synosaurus symon symbol-overlay string-inflection stickyfunc-enhance srefactor spaceline-all-the-icons smeargle slim-mode shell-pop scss-mode sass-mode reveal-in-osx-finder restart-emacs rainbow-delimiters racer pytest pyenv-mode py-isort pug-mode prettier-js popwin pippel pipenv pip-requirements pcre2el password-generator paradox ox-hugo overseer osx-trash osx-dictionary osx-clipboard orgit org-roam org-ref org-projectile org-present org-pomodoro org-mime org-journal org-download org-clock-csv org-cliplink org-bullets org-brain open-junk-file nodejs-repl nameless mwim multi-term move-text monokai-theme mmm-mode markdown-toc magit-svn magit-section magit-gitflow macrostep lsp-haskell lorem-ipsum livid-mode live-py-mode link-hint launchctl keyfreq json-navigator json-mode js2-refactor js-doc intero indent-guide importmagic impatient-mode hybrid-mode hungry-delete hlint-refactor hl-todo hindent highlight-parentheses highlight-numbers highlight-indentation helm-xref helm-themes helm-swoop helm-rtags helm-pydoc helm-purpose helm-projectile helm-org-rifle helm-org helm-mode-manager helm-make helm-ls-git helm-hoogle helm-gitignore helm-git-grep helm-flx helm-descbinds helm-css-scss helm-company helm-c-yasnippet helm-ag haskell-snippets google-translate google-c-style golden-ratio gnuplot gitignore-templates gitconfig-mode gitattributes-mode git-timemachine git-messenger git-link gh-md fuzzy font-lock+ flyspell-correct-helm flycheck-ycmd flycheck-rust flycheck-rtags flycheck-pos-tip flycheck-package flycheck-haskell flycheck-elsa flx-ido fancy-battery eyebrowse expand-region exec-path-from-shell evil-visualstar evil-visual-mark-mode evil-unimpaired evil-tutor evil-textobj-line evil-surround evil-org evil-numbers evil-nerd-commenter evil-matchit evil-magit evil-lisp-state evil-lion evil-indent-plus evil-iedit-state evil-goggles evil-exchange evil-escape evil-ediff evil-cleverparens evil-args evil-anzu eval-sexp-fu eshell-z eshell-prompt-extras esh-help emmet-mode elisp-slime-nav editorconfig dumb-jump dotenv-mode doom-themes doom-modeline disaster diminish devdocs deft dante cython-mode csv-mode cpp-auto-include company-ycmd company-web company-tern company-rtags company-reftex company-lua company-ghci company-ghc company-cabal company-c-headers company-auctex company-anaconda column-enforce-mode color-theme-sanityinc-solarized cmm-mode clean-aindent-mode clang-format centered-cursor-mode cargo blacken auto-yasnippet auto-highlight-symbol auto-dictionary auto-compile auctex-latexmk attrap aggressive-indent ace-link ace-jump-helm-line ac-ispell)))
  '(safe-local-variable-values
    (quote
-    ((eval setq flycheck-clang-include-path
+    ((setq org-export-with-todo-keywords nil)
+     (eval let
+           ((org-export-with-todo-keywords nil))
+           (org-hugo-auto-export-mode))
+     (eval let
+           ((org-export-with-todo-keywords f))
+           (org-hugo-auto-export-mode))
+     (eval setq flycheck-clang-include-path
            (list
             (expand-file-name "~/Work/ciirc_internship/src/")))
      (javascript-backend . tide)
@@ -616,7 +654,9 @@ This function is called at the very end of Spacemacs initialization."
  '(doom-modeline-project-dir ((t (:inherit (font-lock-string-face bold) :width condensed))))
  '(mode-line ((t (:background "#1c1e24" :foreground "#bbc2cf" :box nil :height 0.9))))
  '(mode-line-buffer-id ((t (:weight bold :width condensed))))
- '(org-date ((t (:foreground "#ECBE7B" :height 0.8))))
+ '(org-date ((t (:foreground "#ECBE7B" :box (:line-width 1 :color "gray80") :height 0.8))))
+ '(org-document-title ((t (:foreground "DarkOrange3" :weight bold :height 1.3))))
+ '(org-ellipsis ((t (:foreground "#4f747a" :underline nil))))
  '(org-roam-link ((t (:foreground "orange red" :underline t :weight bold))))
  '(variable-pitch ((t (:family "Roboto Slab" :height 1.2)))))
 )

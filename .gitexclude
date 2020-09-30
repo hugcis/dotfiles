@@ -17,3 +17,5 @@ auto/*.el
 /roam/ltximg/*.png
 auto/
 /_region_.tex
+*.bbl
+*.blg
