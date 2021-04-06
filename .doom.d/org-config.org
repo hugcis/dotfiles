@@ -5,6 +5,9 @@
 #+TITLE: Org config for spacemacs
 
 * Setting up "TODO" keywords
+:PROPERTIES:
+:ID:       13fad434-4e85-438e-a021-3127227764de
+:END:
 Those keywords are from "Organize your life in plain text!". There are three
 "main" keywords and a ~WAITING~, ~HOLD~ and ~CANCELLED~ keyword that each require a
 note for justifying moving to these states.
@@ -15,6 +18,9 @@ note for justifying moving to these states.
 #+END_SRC
 
 ** "TODO" faces and export settings
+:PROPERTIES:
+:ID:       2b5b8d2a-5f93-472b-b948-6bdde1613849
+:END:
 This sets the colors of keywords.
 #+BEGIN_SRC elisp :tangle org-config.el
   (setq org-todo-keyword-faces
@@ -31,28 +37,33 @@ This sets the colors of keywords.
 #+END_SRC
 
 ** Org "TODO" bullets
+:PROPERTIES:
+:ID:       f35ce7da-f778-4131-a1f6-0aa87a9c8861
+:END:
 I use [[https://github.com/integral-dw/org-superstar-mode][org-superstar]] to remove the keywords from my org files and replace them
 with nice icons.
 #+BEGIN_SRC elisp :tangle org-config.el
   (with-eval-after-load 'org-superstar
     ;; Every non-TODO headline now have no bullet
-    (setq org-superstar-headline-bullets-list '("\u200b"))
-    (setq org-superstar-leading-bullet "\u200b")
+    ;; (setq org-superstar-headline-bullets-list '("\u200b"))
+    ;; (setq org-superstar-leading-bullet "\u200b")
     (setq org-superstar-item-bullet-alist
           '((?* . ?•)
             (?+ . ?➤)
             (?- . ?•)))
     ;; Enable custom bullets for TODO items
+    (setq org-superstar-headline-bullets-list '(?\s))
     (setq org-superstar-special-todo-items t)
+    (setq org-superstar-remove-leading-stars t)
     (setq org-superstar-todo-bullet-alist
-          '(("TODO" "☐")
-            ("NEXT" "✒")
-            ("HOLD" "✰")
-            ("WAITING" "☕")
-            ("CANCELLED" "✘")
-            ("DONE" "✔")))
+          '(("TODO" . ?☐)
+            ("NEXT" . ?✒)
+            ("HOLD" . ?✰)
+            ("WAITING" . ?☕)
+            ("CANCELLED" . ?✘)
+            ("DONE" . ?✔)))
     (org-superstar-restart))
-  (setq org-ellipsis "⤵")
+  (setq org-ellipsis " ▼ ")
 #+END_SRC
 
 This results in the following appearance for different keywords:
@@ -61,6 +72,9 @@ This results in the following appearance for different keywords:
 * General style
 This section covers the general look and feel of my org files.
 ** Proportional width
+:PROPERTIES:
+:ID:       68c97f27-0976-4238-8598-a508ca9e20b9
+:END:
 I use a function that I add as a hook to all the files I want to automatically
 set to variable width.
 #+BEGIN_SRC elisp :tangle org-config.el
@@ -68,80 +82,110 @@ set to variable width.
     "Set font to a variable width (proportional) fonts in current buffer"
     (interactive)
     (setq buffer-face-mode-face '(:family "Roboto Slab"
-                                          :height 130
+                                          :height 150
                                           :width normal))
     (buffer-face-mode))
 #+END_SRC
 
 ** Hide face characters
+:PROPERTIES:
+:ID:       1bdd4bd4-6cf3-43e0-9c75-d178d6133031
+:END:
 Hide ~*~ and ~/~ in org text.
 #+BEGIN_SRC elisp :tangle org-config.el
- (setq org-hide-emphasis-markers t)
+  (setq org-hide-emphasis-markers t)
 #+END_SRC
 
 ** Faces setup
+:PROPERTIES:
+:ID:       2bbbd408-2a14-4347-9472-b50edb8c76c6
+:END:
 #+BEGIN_SRC elisp :tangle org-config.el
-  (defun my/style-org ()
-    ;; I have removed indentation to make the file look cleaner
-    (org-indent-mode -1)
-    (my/buffer-face-mode-variable)
-    (setq line-spacing 0.1
-          org-pretty-entities t
-          org-startup-indented t)
-    (variable-pitch-mode +1)
-    (mapc
-      (lambda (face) ;; Other fonts that require it are set to fixed-pitch.
-        (set-face-attribute face nil :inherit 'fixed-pitch))
-      (list 'org-block
-            'org-table
-            'org-verbatim
-            'org-block-begin-line
-            'org-block-end-line
-            'org-meta-line
-            'org-document-info-keyword))
-    (mapc ;; This sets the fonts to a smaller size
-      (lambda (face)
-        (set-face-attribute face nil :height 0.7))
-      (list 'org-document-info-keyword
-            'org-block-begin-line
-            'org-block-end-line
-            'org-meta-line))
-    (set-face-attribute 'org-indent nil :inherit '(org-hide fixed-pitch))
-    (set-face-attribute 'org-code nil :inherit '(shadow fixed-pitch))
-    ;; Without indentation the headlines need to be different to be visible
-    (set-face-attribute 'org-level-1 nil
-                        :height 1.15
-                        :foreground "#BEA4DB")
-    (set-face-attribute 'org-level-2 nil
-                        :height 1.1
-                        :foreground "#A382FF"
-                        :slant 'italic)
-    (set-face-attribute 'org-level-3 nil
-                        :height 1.05
-                        :foreground "#5E65CC"
-                        :slant 'italic)
-    (set-face-attribute 'org-level-4 nil
-                        :foreground "#ABABFF")
-    (set-face-attribute 'org-level-5 nil
-                        :foreground "#2843FB")
-    (mapc (lambda (pair) (push pair prettify-symbols-alist))
-          '(;; Syntax
-            ("TODO" .     "")
-            ("DONE" .     "")
-            ("WAITING" .  "")
-            ("HOLD" .     "")
-            ("NEXT" .     "")
-            ("CANCELLED" . "")
-            ("#+begin_quote" . "“")
-            ("#+end_quote" . "”")
-            ))
-    (prettify-symbols-mode +1)
-  )
+      (defun my/style-org ()
+        ;; I have removed indentation to make the file look cleaner
+        (org-indent-mode -1)
+        (my/buffer-face-mode-variable)
+        (setq line-spacing 0.1
+              org-pretty-entities t
+              org-startup-indented t
+              org-adapt-indentation nil)
+        (variable-pitch-mode +1)
+        (mapc
+          (lambda (face) ;; Other fonts that require it are set to fixed-pitch.
+            (set-face-attribute face nil :inherit 'fixed-pitch))
+          (list 'org-block
+                'org-table
+                'org-verbatim
+                'org-block-begin-line
+                'org-block-end-line
+                'org-meta-line
+                'org-date
+                'org-drawer
+                'org-property-value
+                'org-special-keyword
+                'org-document-info-keyword))
+        (mapc ;; This sets the fonts to a smaller size
+          (lambda (face)
+            (set-face-attribute face nil :height 0.8))
+          (list 'org-document-info-keyword
+                'org-block-begin-line
+                'org-block-end-line
+                'org-meta-line
+                'org-drawer
+                'org-property-value
+                ))
+        ;; (set-face-attribute 'org-indent nil
+                            ;; :inherit '(org-hide fixed-pitch))
+        (set-face-attribute 'org-code nil
+                            :inherit '(shadow fixed-pitch))
+        ;; Without indentation the headlines need to be different to be visible
+        (set-face-attribute 'org-level-1 nil
+                            :height 1.25
+                            :foreground "#BEA4DB")
+        (set-face-attribute 'org-level-2 nil
+                            :height 1.15
+                            :foreground "#A382FF"
+                            :slant 'italic)
+        (set-face-attribute 'org-level-3 nil
+                            :height 1.1
+                            :foreground "#5E65CC"
+                            :slant 'italic)
+        (set-face-attribute 'org-level-4 nil
+                            :height 1.05
+                            :foreground "#ABABFF")
+        (set-face-attribute 'org-level-5 nil
+                            :foreground "#2843FB")
+        (set-face-attribute 'org-date nil
+                            :foreground "#ECBE7B"
+                            :height 0.8)
+        (set-face-attribute 'org-document-title nil
+                            :foreground "DarkOrange3"
+                            :height 1.3)
+        (set-face-attribute 'org-ellipsis nil
+                            :foreground "#4f747a" :underline nil)
+        (set-face-attribute 'variable-pitch nil
+                            :family "Roboto Slab" :height 1.2)
+        (mapc (lambda (pair) (push pair prettify-symbols-alist))
+              '(;; Syntax
+                ("TODO" .     "")
+                ("DONE" .     "")
+                ("WAITING" .  "")
+                ("HOLD" .     "")
+                ("NEXT" .     "")
+                ("CANCELLED" . "")
+                ("#+begin_quote" . "“")
+                ("#+end_quote" . "”")))
+        (prettify-symbols-mode +1)
+        (org-superstar-mode +1)
+      )
 
-  (add-hook 'org-mode-hook 'my/style-org)
+      (add-hook 'org-mode-hook 'my/style-org)
 #+END_SRC
 
 * Org agenda
+:PROPERTIES:
+:ID:       791ef7c3-10fc-47dd-8cf9-ee62bfbb6f10
+:END:
 #+BEGIN_SRC elisp :tangle org-config.el
   (setq spacemacs-theme-org-agenda-height nil
         org-agenda-skip-scheduled-if-done t
@@ -150,25 +194,22 @@ Hide ~*~ and ~/~ in org text.
         org-agenda-block-separator #x2501
         org-agenda-compact-blocks t
         org-agenda-start-with-log-mode t)
-
-  (setq-default org-icalendar-include-todo t)
-  (setq org-agenda-files '("~/org" "~/org/roam/notes/"))
-
   (with-eval-after-load 'org-journal
-    (add-to-list 'org-agenda-files org-journal-dir)
-    )
+    (setq org-agenda-files '("~/org" "~/org/roam/notes/")))
   (setq org-agenda-clockreport-parameter-plist
         (quote (:link t :maxlevel 5 :fileskip0 t :compact t :narrow 80)))
   (setq org-agenda-deadline-faces
         '((1.0001 . org-warning)              ; due yesterday or before
           (0.0    . org-upcoming-deadline)))  ; due today or later
 
+  (setq-default org-icalendar-include-todo t)
   (setq org-combined-agenda-icalendar-file "~/org/calendar.ics")
   (setq org-icalendar-combined-name "Hugo Org")
   (setq org-icalendar-use-scheduled '(todo-start event-if-todo event-if-not-todo))
   (setq org-icalendar-use-deadline '(todo-due event-if-todo event-if-not-todo))
   (setq org-icalendar-timezone "Europe/Paris")
   (setq org-icalendar-store-UID t)
+  (setq org-icalendar-alarm-time 30)
   (setq french-holiday
     '((holiday-fixed 1 1 "Jour de l'an")
       (holiday-fixed 5 8 "Victoire 45")
@@ -212,6 +253,9 @@ Hide ~*~ and ~/~ in org text.
 #+END_SRC
 
 ** Agenda style
+:PROPERTIES:
+:ID:       2f63962f-178e-47d2-896a-7ed5f13e3f22
+:END:
 Those settings adjust the look and feel of the org-agenda.
 #+BEGIN_SRC elisp :tangle org-config.el
     (defun my/style-org-agenda()
@@ -223,7 +267,7 @@ Those settings adjust the look and feel of the org-agenda.
     (add-hook 'org-agenda-mode-hook 'my/style-org-agenda)
 
     (setq org-agenda-breadcrumbs-separator " ❱ "
-          org-agenda-current-time-string "⮜┈┈┈┈┈┈┈┈┈┈┈ now"
+          org-agenda-current-time-string "⏰ ┈┈┈┈┈┈┈┈┈┈┈ now"
           org-agenda-time-grid '((weekly today require-timed)
                                  (800 1000 1200 1400 1600 1800 2000)
                                  "---" "┈┈┈┈┈┈┈┈┈┈┈┈┈")
@@ -246,6 +290,9 @@ Those settings adjust the look and feel of the org-agenda.
 #+END_SRC
 
 ** Super agenda
+:PROPERTIES:
+:ID:       09536d35-6df5-4ba3-9880-eb4bc0bb4f1f
+:END:
 [[https://github.com/alphapapa/org-super-agenda][Org super agenda]] is a powerful package for easily filtering and grouping agenda
 items in your views.
 #+BEGIN_SRC  elisp :tangle org-config.el
@@ -270,9 +317,9 @@ items in your views.
                                    :and (:deadline past :todo ("TODO" "WAITING" "HOLD" "NEXT"))
                                    :face (:background "#7f1b19"))
                             (:name "Work important"
-                                   :and (:priority "A" :category "Work" :todo "TODO"))
+                                   :and (:priority>= "B" :category "Work" :todo ("TODO" "NEXT")))
                             (:name "Work other"
-                                   :and (:category "Work" :todo "TODO"))
+                                   :and (:category "Work" :todo ("TODO" "NEXT")))
                             (:name "Important"
                                    :priority "A")
                             (:priority<= "B"
@@ -291,20 +338,39 @@ items in your views.
   (add-hook 'org-agenda-mode-hook 'org-super-agenda-mode)
 #+END_SRC
 
+* Org clock
+:PROPERTIES:
+:ID:       dc2ba8d6-9af4-483c-9260-3c1f342faf10
+:END:
+#+BEGIN_SRC elisp :tangle org-config.el
+  ;; Resume clocking task when emacs is restarted
+  (org-clock-persistence-insinuate)
+  ;; Show lot of clocking history so it's easy to pick items off the C-F11 list
+  (setq org-clock-history-length 23)
+  ;; Resume clocking task on clock-in if the clock is open
+  (setq org-clock-in-resume t)
+  ;; Sometimes I change tasks I'm clocking quickly - this removes clocked tasks with 0:00 duration
+  (setq org-clock-out-remove-zero-time-clocks t)
+  ;; Clock out when moving task to a done state
+  (setq org-clock-out-when-done t)
+  ;; Save the running clock and all clock history when exiting Emacs, load it on startup
+  (setq org-clock-persist t)
+  ;; Include current clocking task in clock reports
+  (setq org-clock-report-include-clocking-task t)
+#+END_SRC
+
 * Org custom commands
+:PROPERTIES:
+:ID:       a0fce65b-b082-48d1-860c-644c5f3f1c43
+:END:
 #+BEGIN_SRC elisp :tangle org-config.el
   (add-hook 'org-mode-hook 'turn-on-auto-fill)
   (add-hook 'org-mode-hook
             (lambda ()
               (setq fill-column 80)
-              (org-zotxt-mode 1)
-              (define-key org-mode-map
-                (kbd (cond ((eq system-type 'darwin) "H-i")
-                           ((eq system-type 'gnu/linux) "s-i"))) 'org-clock-in)
-              (define-key org-mode-map
-                (kbd (cond ((eq system-type 'darwin) "H-o")
-                           ((eq system-type 'gnu/linux) "s-o"))) 'org-clock-out)
-              (define-key org-mode-map (kbd "H-d") 'org-todo)
+              (define-key org-mode-map (kbd "s-i") 'org-clock-in)
+              (define-key org-mode-map (kbd "s-o") 'org-clock-out)
+              (define-key org-mode-map (kbd "s-d") 'org-todo)
               (define-key org-mode-map (kbd "M-+") 'text-scale-increase)
               (define-key org-mode-map (kbd "M-°") 'text-scale-decrease)
               (define-key org-mode-map (kbd "C-c \" \"")
@@ -312,6 +378,9 @@ items in your views.
 #+END_SRC
 
 ** Close journal on exit
+:PROPERTIES:
+:ID:       011cbc97-990d-41d5-93b9-98c4a1a9c7c4
+:END:
 #+BEGIN_SRC elisp :tangle org-config.el
   (defun org-journal-save-entry-and-exit()
     "Simple convenience function.
@@ -328,6 +397,9 @@ items in your views.
 #+END_SRC
 
 * Org Ref and Bibtex
+:PROPERTIES:
+:ID:       82ab4c82-180f-4f7e-826f-3816b52b1375
+:END:
 #+BEGIN_SRC elisp :tangle org-config.el
   (with-eval-after-load 'org-ref
     (setq reftex-default-bibliography '("~/Papers/library.bib"))
@@ -358,6 +430,9 @@ bibliography:~/Papers/library_bibtex.bib")
 #+END_SRC
 
 * Org capture
+:PROPERTIES:
+:ID:       8d580337-f14d-4838-aa74-537a6d523083
+:END:
 #+BEGIN_SRC elisp :tangle org-config.el
   (setq org-capture-templates
         '(("n" "Notes" entry
@@ -367,12 +442,15 @@ bibliography:~/Papers/library_bibtex.bib")
           ("t" "TODO" entry
            (file "~/org/inbox.org") "* TODO %^{Title}")
           ("e" "Event" entry
-           (file "~/org/calendar.org") "* %^{Is it a todo?| |TODO |NEXT }%^{Title}\n%^t\n%?")
+           (file "~/org/calendar.org") "* %^{Is it a todo?||TODO |NEXT }%^{Title}\n%^t\n%?")
           ("w" "Work TODO" entry
            (file "~/org/work.org") "* TODO %^{Title}")))
 #+END_SRC
 
 * Org Refile
+:PROPERTIES:
+:ID:       f22b134d-7da1-4ff5-b7b2-c14f27b4b5a4
+:END:
 #+BEGIN_SRC elisp :tangle org-config.el
   (setq org-refile-targets '((org-agenda-files . (:maxlevel . 6))))
   (setq org-refile-use-outline-path 'file)
@@ -382,12 +460,24 @@ bibliography:~/Papers/library_bibtex.bib")
 * Org Roam
 I use [[https://github.com/org-roam/org-roam][org-roam]] a lot to take notes and link between them. A large portion of
 this configuration is heavily borrowed from [[https://github.com/jethrokuan/dots][jethrokuan's dot files]].
+
+** Configuration
+:PROPERTIES:
+:ID:       209c3fe3-4049-4a82-a525-b919938ec095
+:END:
+You'll find the  exported notes on [[https://hugocisneros.com/notes/][my notes page]].
 #+BEGIN_SRC elisp :tangle org-config.el
   (with-eval-after-load 'org-roam
-    (add-hook 'org-roam-backlinks-mode-hook 'my/style-org)
+    ;; Style the backlinks buffer like an org-mode file
+    ;; (add-hook 'org-roam-backlinks-mode-hook 'my/style-org)
+    ;; Roam is always one level deep in my org-directory
+    (setq org-roam-directory (concat org-directory "/roam/"))
+    ;; Graphing options
     (setq org-roam-graphviz-executable (executable-find "neato"))
     (setq org-roam-graphviz-extra-options '(("overlap" . "false")))
+
     (setq org-roam-completion-system 'helm)
+
     (setq org-roam-capture-templates
           '(("d" "default" plain #'org-roam--capture-get-point "%?"
              :file-name "${slug}"
@@ -398,17 +488,24 @@ this configuration is heavily borrowed from [[https://github.com/jethrokuan/dots
              :file-name "%<%Y%m%d%H%M%S>-${slug}"
              :head "#+TITLE: ${title}\n#+HUGO_BASE_DIR: ~/website/personal-\
   website/\n#+HUGO_SECTION: notes\n#+hugo_lastmod: Time-stamp: <>\n\n"
-             :unnarrowed t))))
+             :unnarrowed t)))
+    ;; Org-roam v2
+    (setq org-roam-mode-sections
+          (list #'org-roam-backlinks-insert-section
+                #'org-roam-reflinks-insert-section
+                #'org-roam-unlinked-references-insert-section))
+    )
+    (setq org-id-extra-files (org-roam--list-files org-roam-directory))
+#+END_SRC
 
+** Ox-Hugo export
+:PROPERTIES:
+:ID:       60cda826-c6ae-4f97-a883-265a7632439b
+:END:
+I use [[https://ox-hugo.scripter.co/][ox-hugo]] to export my org-roam notes to markdown and then to web pages. The
+~my/org-export-all-roam~ loops through all the org files and exports them one by one.
+#+BEGIN_SRC elisp :tangle org-config.el
   (with-eval-after-load 'ox-hugo
-    (setq python-graph-script-location "/Users/hugo/scripts/dot_to_json.py")
-    (setq json-graph-location
-          "/Users/hugo/website/personal-website/static/js/graph.json")
-    (defun my/run-python-script-roam-graph (graph-fname output-fname)
-      (insert (shell-command-to-string (format "python %s %s %s"
-                                               python-graph-script-location
-                                               graph-fname
-                                               output-fname))))
     (defun my/org-export-all-roam ()
       (interactive)
       (mapc (lambda (fPath)
@@ -416,64 +513,52 @@ this configuration is heavily borrowed from [[https://github.com/jethrokuan/dots
                                (find-file-read-only fPath)
                                (org-hugo-export-to-md)
                                (kill-buffer))))
-            (org-roam--list-files "/Users/hugo/org/roam")))
+            (org-roam--list-files org-roam-directory)))
     (citeproc-org-setup))
   ;; Using Deft in org-mode
   (setq deft-directory "~/org/roam/")
 #+END_SRC
 
-** Org roam export backlinks
-This function makes sure all the Backlinks of the current org-buffer are being
-exported and appended to the end of the resulting file. Files with a name
-containing ~private~ will not be exported.
+#+RESULTS:
+: ~/org/roam/
+
+
+* Org Caldav
+:PROPERTIES:
+:ID:       3428c7db-ac82-4efa-9333-537f7e587552
+:END:
+I use this function to sync my calendar with a remote calendar on a server
+running Nextcloud with the [[https://github.com/dengste/org-caldav][org-caldav]]  package. This should also work with
+Google calendar. It allows me to get my org-mode calendar on all my devices and
+get notifications of upcoming events.
 #+BEGIN_SRC elisp :tangle org-config.el
-  (defun my/org-roam--backlinks-list (file)
-    (if (org-roam--org-roam-file-p file)
-        (--reduce-from
-         (concat acc (format "- [[file:%s][%s]]\n"
-                             (file-relative-name (car it) org-roam-directory)
-                             (org-roam--get-title-or-slug (car it))))
-         "" (delete-dups
-             (org-roam-sql [:select [from] :from links :where (= to $s1)
-                                    :and from :not :like $s2]
-                           file "%private%"))) ""))
-
-  (defun my/org-export-preprocessor (_backend)
-    (let ((links (my/org-roam--backlinks-list (buffer-file-name))))
-      (unless (string= links "")
-        (save-excursion
-          (goto-char (point-max))
-          (insert (concat "\n* Backlinks\n" links))))))
-  (add-hook 'org-export-before-processing-hook 'my/org-export-preprocessor)
+  (defun my/caldav-sync-perso ()
+  "Sync my local calendar in ~/org/calendar.org with my remote calendar"
+    (interactive)
+    (let ((org-caldav-inbox "~/org/cal_inbox.org")
+          (org-caldav-calendar-id "org")
+          (org-caldav-url "https://cld.hugocisneros.com/remote.php/dav/calendars/ncp/")
+          (org-caldav-files '("~/org/calendar.org")))
+      (call-interactively 'org-caldav-sync)))
 #+END_SRC
-
-# ** Org roam bibtex
-# #+BEGIN_SRC elisp :tangle org-config.el
-#   (with-eval-after-load 'org-roam-bibtex
-#     (setq orb-preformat-templates t)
-#     (setq org-roam-bibtex-preformat-keywords '("=key=" "title" "author-or-editor" "year"))
-#     (setq orb-preformat-keywords '("=key=" "title" "author-or-editor" "year"))
-#     (setq orb-templates
-#           '(("r" "reference" plain (function org-roam-capture--get-point)
-#              "#+TITLE: Notes on: ${title} by ${author-or-editor} (${year})\n#+HUGO_BASE_DIR: ~/website/personal-website/
-#   ,#+HUGO_SECTION: notes\n#+hugo_lastmod: Time-stamp: <>\n#+ROAM_KEY: cite:${=key=}\n\n- source :: cite:${=key=}
-#   \n\n* TODO Summary\n* TODO Comments\n\n
-#   bibliography:~/Papers/library_bibtex.bib
-#   "
-#              :file-name "notes/${=key=}"
-#              :unnarrowed t))))
-# #+END_SRC
 
 * Misc
 ** Timestamp on save
+:PROPERTIES:
+:ID:       9e543d5c-bc94-44f5-b003-c2b5dcd90456
+:END:
 Org-roam notes are created with a ~#+hugo_lastmod: Time-stamp: <>~ line in the
 beginning. The hook below makes sure the current time is inserted between the
-brackets each time I save a file.
+brackets each time I save a file. This is useful to keep track of when I last
+edited a note.
 #+BEGIN_SRC elisp :tangle org-config.el
   (add-hook 'before-save-hook 'time-stamp)
 #+END_SRC
 
 ** Make markdown mode variable width
+:PROPERTIES:
+:ID:       ce730c2b-2874-46c4-84fa-ac9bd8b0211f
+:END:
 This is not part of the org-mode configuration, but applies variable width mode
 to markdown files when I (rarely) edit one.
 #+BEGIN_SRC elisp :tangle org-config.el

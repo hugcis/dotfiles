@@ -41,6 +41,10 @@ eval $(keychain --eval --quiet id_ed25519 id_rsa)
 ;;
 esac
 
-export PATH="$PATH:/Users/hugo/Library/Python/3.8/bin"
+export PATH="$HOME/.poetry/bin:$PATH"
 export PATH="$PATH:/Applications/Julia-1.5.app/Contents/Resources/julia/bin/"
 export PATH="/usr/local/sbin:$PATH"
+export PATH="/Users/hugo/.pyenv/bin:$PATH"
+export PATH="/Users/hugo/.local/bin:$PATH"
+
+export OPENBLAS="$(brew --prefix openblas)"

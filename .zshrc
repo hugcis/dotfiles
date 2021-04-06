@@ -73,6 +73,7 @@ DISABLE_UNTRACKED_FILES_DIRTY="true"
 plugins=(
   git
   brew
+  poetry
   z
   shrink-path
   zsh-autosuggestions
@@ -126,11 +127,6 @@ alias rot13="tr 'A-Za-z' 'N-ZA-Mn-za-m'"
 
 alias config='/usr/bin/git --git-dir=$HOME/.cfg/ --work-tree=$HOME'
 
-#test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
-
-#alias python='$HOME/anaconda3/bin/python'
-#alias pip='$HOME/anaconda3/bin/pip'
-
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
@@ -143,6 +139,18 @@ esac
 
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
-export PATH="/Users/hugo/.pyenv/bin:$PATH"
-eval "$(pyenv init -)"
-eval "$(pyenv virtualenv-init -)"
+alias python='python3'
+
+vpn_on() {
+   networksetup -setdnsservers Wi-Fi 10.6.0.2 
+   scutil --nc start "PIVPN DNS"
+}
+ 
+vpn_off() {
+   scutil --nc stop "PIVPN DNS"
+   networksetup -setdnsservers Wi-Fi 208.67.222.222 1.1.1.1 1.0.0.1 2606:4700:4700::1111 2606:4700:4700::1001
+}
+
+vpn_full() {
+   scutil --nc start "PIVPN"
+}

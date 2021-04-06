@@ -19,3 +19,5 @@ auto/
 /_region_.tex
 *.bbl
 *.blg
+__pycache__/
+*.pyc
