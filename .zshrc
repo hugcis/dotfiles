@@ -85,33 +85,13 @@ source $ZSH/oh-my-zsh.sh
 
 # User configuration
 
-# export MANPATH="/usr/local/man:$MANPATH"
-
 # You may need to manually set your language environment
 export LANG=en_US.UTF-8
-
-# Preferred editor for local and remote sessions
-# if [[ -n $SSH_CONNECTION ]]; then
-#   export EDITOR='vim'
-# else
-#   export EDITOR='mvim'
-# fi
 
 # Compilation flags
 export ARCHFLAGS="-arch x86_64"
 
-# ssh
-# export SSH_KEY_PATH="~/.ssh/rsa_id"
-
-# Set personal aliases, overriding those provided by oh-my-zsh libs,
-# plugins, and themes. Aliases can be placed here, though oh-my-zsh
-# users are encouraged to define aliases within the ZSH_CUSTOM folder.
-# For a full list of active aliases, run `alias`.
-#
-# Example aliases
-# alias zshconfig="mate ~/.zshrc"
-# alias ohmyzsh="mate ~/.oh-my-zsh"
-#
+# Sime aliase I like
 alias ls='lsd -F'
 alias la='ls -a'
 alias ssize="find -X . -depth 1| xargs du -hs |sort -h"
@@ -121,6 +101,7 @@ alias -g H='| head'
 alias -g HL='|& head -20'
 
 alias rot13="tr 'A-Za-z' 'N-ZA-Mn-za-m'"
+alias python='python3'
 
 # include Z
 . ~/z.sh
@@ -130,6 +111,7 @@ alias config='/usr/bin/git --git-dir=$HOME/.cfg/ --work-tree=$HOME'
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
+# Fix a make path issue with homebrew
 unameOut="$(uname -s)"
 case "${unameOut}" in
     Darwin*)
@@ -137,20 +119,19 @@ alias make='/usr/local/opt/make/libexec/gnubin/make'
             ;;
 esac
 
+# Use fzf
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
-alias python='python3'
 
+# Some handy functions to switch between internet setups I often use.
 vpn_on() {
    networksetup -setdnsservers Wi-Fi 10.6.0.2 
    scutil --nc start "PIVPN DNS"
 }
- 
 vpn_off() {
    scutil --nc stop "PIVPN DNS"
    networksetup -setdnsservers Wi-Fi 208.67.222.222 1.1.1.1 1.0.0.1 2606:4700:4700::1111 2606:4700:4700::1001
 }
-
 vpn_full() {
    scutil --nc start "PIVPN"
 }
