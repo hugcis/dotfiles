@@ -55,7 +55,7 @@
 (use-package! evil-escape
   :config
   (setq-default evil-escape-key-sequence "fd")
-  (setq-default evil-escape-delay 0.1)
+  (setq-default evil-escape-delay 0.15)
   (setq-default evil-escape-unordered-key-sequence nil)
   (setq-default evil-escape-inhibit-functions nil)
   (evil-escape-mode))
@@ -81,6 +81,8 @@
 (use-package! org-ref
   :after org)
 (use-package! citeproc-org
+  :after org)
+(use-package! org-caldav
   :after org)
 (use-package! org-super-agenda
   :hook (org-agenda-mode . org-super-agenda-mode))
@@ -125,18 +127,23 @@
 (setq bibtex-completion-pdf-field "file")
 
 (add-hook 'text-mode-hook 'turn-on-auto-fill)
-(add-hook 'text-mode-hook
-        (lambda ()
-        (setq fill-column 80)
-        (setq isearch-regexp-lax-whitespace t)
-        (setq search-whitespace-regexp "[ \t\r\n]+")))
+(defun my/cleanup-text-mode ()
+  (setq fill-column 80)
+  (display-line-numbers-mode -1)
+  (display-fill-column-indicator-mode -1)
+  (setq isearch-regexp-lax-whitespace t)
+  (setq search-whitespace-regexp "[ \t\r\n]+"))
+(add-hook 'text-mode-hook #'my/cleanup-text-mode)
+(add-hook 'org-mode-hook #'my/cleanup-text-mode)
+(add-hook 'markdown-mode-hook #'my/cleanup-text-mode)
 
 (add-hook 'c-mode-hook 'flycheck-mode)
 
 (setq exec-path-from-shell-variables
       '("PATH" "MANPATH" "SSH_AGENT_PID"  "SSH_AUTH_SOCK"))
 (setq exec-path-from-shell-arguments nil)
-(exec-path-from-shell-initialize)
+(when (memq window-system '(mac ns x))
+  (exec-path-from-shell-initialize))
 
 (setq epg-pinentry-mode 'loopback)
 
@@ -144,23 +151,13 @@
                                                 slash:hit_parade))
 
 (defun python-symbols()
-(mapc (lambda (pair) (push pair prettify-symbols-alist))
-        '(;; Syntax
-        ("->" . "➔")
-        ))
-(prettify-symbols-mode +1))
+  (mapc (lambda (pair) (push pair prettify-symbols-alist)) '(("->" . "➔")))
+  (prettify-symbols-mode +1))
 (defun rust-symbols()
-(mapc (lambda (pair) (push pair prettify-symbols-alist))
-        '(;; Syntax
-        ("->" . "➔")
-        ))
-(prettify-symbols-mode +1))
+  (mapc (lambda (pair) (push pair prettify-symbols-alist)) '(("->" . "➔")))
+  (prettify-symbols-mode +1))
 (add-hook 'rust-mode-hook 'rust-symbols)
 (add-hook 'python-mode-hook (lambda () (python-symbols)))
-        ;; (lsp-mode -1)
-        ;; (flycheck-select-checker 'python-flake8)
-        ;; (setq flycheck-disabled-checkers '(lsp))))
-;; (remove-hook 'python-mode-hook 'importmagic-mode)
 
 (with-eval-after-load 'tramp '(setenv "SHELL" "/bin/bash"))
 

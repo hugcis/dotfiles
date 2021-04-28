@@ -56,9 +56,11 @@
 (package! org-roam :recipe (:host github
                             :repo "org-roam/org-roam"
                             :branch "v2"))
-(package! ox-hugo)
+(package! ox-hugo :recipe (:host github
+                           :repo "hugcis/ox-hugo"))
 (package! org-ref)
 (package! org-super-agenda)
+(package! org-caldav)
 (package! citeproc-org)
 
 (package! lsp-pyright)
