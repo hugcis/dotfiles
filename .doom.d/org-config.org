@@ -4,6 +4,9 @@
 #+toc: headlines 2
 #+TITLE: Org config for Emacs
 
+This is my org-mode configuration. You will find the rest of my dotfiles
+(including my full Doom Emacs configuration) on [[https://github.com/hugcis/dotfiles][Github]].
+
 * Setting up "TODO" keywords
 :PROPERTIES:
 :ID:       13fad434-4e85-438e-a021-3127227764de
