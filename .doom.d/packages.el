@@ -52,15 +52,22 @@
 (package! evil-surround)
 
 (package! exec-path-from-shell)
-
 (package! org-roam :recipe (:host github
-                            :repo "org-roam/org-roam"
-                            :branch "v2"))
+                            :repo "org-roam/org-roam"))
 (package! ox-hugo :recipe (:host github
                            :repo "hugcis/ox-hugo"))
+(package! citeproc-org)
 (package! org-ref)
+(package! org-ref-cite :recipe (:host github
+                                :repo "jkitchin/org-ref-cite"))
 (package! org-super-agenda)
 (package! org-caldav)
-(package! citeproc-org)
+(package! org-superstar)
+(package! org-journal)
+(package! org-pomodoro)
+(package! org-fancy-priorities)
+(package! org-pdftools)
+(package! org-plus-contrib)
+(package! helm-org)
 
 (package! lsp-pyright)

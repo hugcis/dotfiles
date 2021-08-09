@@ -7,6 +7,10 @@
 This is my org-mode configuration. You will find the rest of my dotfiles
 (including my full Doom Emacs configuration) on [[https://github.com/hugcis/dotfiles][Github]].
 
+If you want to use this file for configuration, open it in Emacs and run
+~org-babel-tangle~, or ~C-c C-v t~ (you need to have org-mode and org-babel
+installed).
+
 * Setting up "TODO" keywords
 :PROPERTIES:
 :ID:       13fad434-4e85-438e-a021-3127227764de
@@ -406,6 +410,7 @@ A small function to make journaling faster by closing the buffer when I save it.
 :ID:       82ab4c82-180f-4f7e-826f-3816b52b1375
 :END:
 #+BEGIN_SRC elisp :tangle org-config.el
+(setq org-cite-global-bibliography '("~/Papers/library.bib"))
 (with-eval-after-load 'org-ref
   (setq reftex-default-bibliography '("~/Papers/library.bib"))
   (setq org-ref-default-bibliography '("~/Papers/library.bib")
@@ -474,11 +479,8 @@ You'll find the  exported notes on [[https://hugocisneros.com/notes/][my notes p
 #+BEGIN_SRC elisp :tangle org-config.el
 (with-eval-after-load 'org-roam
   ;; Roam is always one level deep in my org-directory
-  (setq org-roam-directory (concat org-directory "/roam/"))
-  ;; Graphing options
-  (setq org-roam-graphviz-executable (executable-find "neato"))
-  (setq org-roam-graphviz-extra-options '(("overlap" . "false")))
-
+  (setq org-roam-directory (expand-file-name "~/org/roam"))
+  (setq org-id-link-to-org-use-id t)
   (setq org-roam-completion-system 'helm)
   (add-to-list 'display-buffer-alist
                '(("\\*org-roam\\*"
@@ -502,11 +504,11 @@ You'll find the  exported notes on [[https://hugocisneros.com/notes/][my notes p
                               "#+TITLE: ${title}\n")
            :immediate-finish t
            :unnarrowed t)))
-  ;; Org-roam v2
   (setq org-roam-mode-sections
         (list #'org-roam-backlinks-insert-section
               #'org-roam-reflinks-insert-section
               #'org-roam-unlinked-references-insert-section))
+  (org-roam-setup)
   )
 (setq org-id-extra-files (org-roam--list-files org-roam-directory))
 #+END_SRC

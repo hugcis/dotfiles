@@ -64,6 +64,8 @@
   (global-evil-surround-mode 1))
 
 (use-package! org-roam
+  :config
+  (setq org-roam-directory (expand-file-name "~/org/roam"))
   :init
   (map! :leader
         :prefix "n"
@@ -74,14 +76,37 @@
         :desc "org-roam-show-graph" "g" #'org-roam-show-graph
         :desc "org-roam-capture" "c" #'org-roam-capture
         :desc "org-roam-dailies-capture-today" "j" #'org-roam-dailies-capture-today)
-  (setq org-id-link-to-org-use-id t)
   :after org)
+
 (use-package! ox-hugo
   :after ox)
 (use-package! org-ref
   :after org)
+;; (use-package! citeproc)
+;; (use-package! org-cite)
+;; (use-package! oc-csl
+;;   :after org-cite)
+;; (use-package! helm-bibtex)
+;; (use-package! org-ref-cite
+;;   :after org,org-cite
+;;   :config
+;;   (setq
+;;    org-cite-global-bibliography '("/Users/hugo/Papers/library.bib")
+;;    org-cite-csl-locales-dir "/Users/hugo/.doom.d/locales"
+;;    org-cite-insert-processor 'helm-bibtex
+;;    org-cite-follow-processor 'org-ref-cite
+;;    org-cite-activate-processor 'org-ref-cite
+;;    org-cite-export-processors '((md csl "/Users/hugo/custom-org-citeproc-export.csl")
+;;                                 (latex org-ref-cite)
+;;                                 (t basic))))
+
 (use-package! citeproc-org
-  :after org)
+  :after ox-hugo
+  :config
+  (citeproc-org-setup)
+  (setq
+  citeproc-org-default-style-file "/Users/hugo/custom-org-citeproc-export.csl"))
+
 (use-package! org-caldav
   :after org)
 (use-package! org-super-agenda
@@ -112,6 +137,13 @@
 (setq helm-buffer-list-reorder-fn #'helm-buffers-reorder-buffer-list)
 
 (setq ispell-program-name "aspell")
+(setq flycheck-textlint-config "/Users/hugo/.textlintrc")
+(setq flycheck-textlint-executable "/Users/hugo/node_modules/.bin/textlint")
+(setq flycheck-textlint-plugin-alist '((markdown-mode . "@textlint/markdown")
+                                       (gfm-mode . "@textlint/markdown")
+                                       (latex-mode . "latex2e")
+                                       (t . "@textlint/text")))
+(add-hook! 'latex-mode-hook (flycheck-add-next-checker 'lsp 'textlint))
 (display-time-mode 1)
 
 (setq magit-display-buffer-function #'magit-display-buffer-fullframe-status-v1)

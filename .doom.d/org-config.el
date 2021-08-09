@@ -297,6 +297,7 @@
             (define-key org-journal-mode-map
               (kbd "C-x C-s") 'org-journal-save-entry-and-exit)))
 
+(setq org-cite-global-bibliography '("~/Papers/library.bib"))
 (with-eval-after-load 'org-ref
   (setq reftex-default-bibliography '("~/Papers/library.bib"))
   (setq org-ref-default-bibliography '("~/Papers/library.bib")
@@ -341,11 +342,8 @@ bibliography:~/Papers/library_bibtex.bib")
 
 (with-eval-after-load 'org-roam
   ;; Roam is always one level deep in my org-directory
-  (setq org-roam-directory (concat org-directory "/roam/"))
-  ;; Graphing options
-  (setq org-roam-graphviz-executable (executable-find "neato"))
-  (setq org-roam-graphviz-extra-options '(("overlap" . "false")))
-
+  (setq org-roam-directory (expand-file-name "~/org/roam"))
+  (setq org-id-link-to-org-use-id t)
   (setq org-roam-completion-system 'helm)
   (add-to-list 'display-buffer-alist
                '(("\\*org-roam\\*"
@@ -369,11 +367,11 @@ bibliography:~/Papers/library_bibtex.bib")
                               "#+TITLE: ${title}\n")
            :immediate-finish t
            :unnarrowed t)))
-  ;; Org-roam v2
   (setq org-roam-mode-sections
         (list #'org-roam-backlinks-insert-section
               #'org-roam-reflinks-insert-section
               #'org-roam-unlinked-references-insert-section))
+  (org-roam-setup)
   )
 (setq org-id-extra-files (org-roam--list-files org-roam-directory))
 
