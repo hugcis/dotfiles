@@ -82,24 +82,6 @@
   :after ox)
 (use-package! org-ref
   :after org)
-;; (use-package! citeproc)
-;; (use-package! org-cite)
-;; (use-package! oc-csl
-;;   :after org-cite)
-;; (use-package! helm-bibtex)
-;; (use-package! org-ref-cite
-;;   :after org,org-cite
-;;   :config
-;;   (setq
-;;    org-cite-global-bibliography '("/Users/hugo/Papers/library.bib")
-;;    org-cite-csl-locales-dir "/Users/hugo/.doom.d/locales"
-;;    org-cite-insert-processor 'helm-bibtex
-;;    org-cite-follow-processor 'org-ref-cite
-;;    org-cite-activate-processor 'org-ref-cite
-;;    org-cite-export-processors '((md csl "/Users/hugo/custom-org-citeproc-export.csl")
-;;                                 (latex org-ref-cite)
-;;                                 (t basic))))
-
 (use-package! citeproc-org
   :after ox-hugo
   :config
@@ -122,7 +104,8 @@
 (setq auto-save-default nil)
 (setq make-backup-files nil)
 (setq auto-save-list-file-prefix nil)
-
+;; Prompt for local variables
+(setq-default enable-local-variables t)
 ;; Well, it's more so that you know this option
 (setq kill-whole-line t)
 (setq kill-read-only-ok t)
@@ -148,7 +131,11 @@
 
 (setq magit-display-buffer-function #'magit-display-buffer-fullframe-status-v1)
 
-(define-key evil-insert-state-map (kbd "<C-tab>") 'yas-expand)
+(after! evil-maps
+  (define-key evil-insert-state-map (kbd "<C-tab>") 'yas-expand)
+  (define-key evil-motion-state-map (kbd "SPC") nil)
+  (define-key evil-motion-state-map (kbd "RET") nil))
+
 (global-set-key (kbd (cond
                 ((eq system-type 'darwin) "s-r")
                 ((eq system-type 'gnu/linux) "M-²"))) 'next-multiframe-window)
@@ -191,6 +178,5 @@
 (add-hook 'rust-mode-hook 'rust-symbols)
 (add-hook 'python-mode-hook (lambda () (python-symbols)))
 
-(with-eval-after-load 'tramp '(setenv "SHELL" "/bin/bash"))
-
+(after! tramp (setenv "SHELL" "/bin/bash"))
 (after! org (load! "org-config.el"))

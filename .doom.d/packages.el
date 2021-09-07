@@ -55,11 +55,13 @@
 (package! org-roam :recipe (:host github
                             :repo "org-roam/org-roam"))
 (package! ox-hugo :recipe (:host github
-                           :repo "hugcis/ox-hugo"))
-(package! citeproc-org)
+                           :repo "kaushalmodi/ox-hugo"))
+(package! citeproc-org :recipe (:host github
+                                :repo "andras-simonyi/citeproc-org"
+                                :branch "org_cite_backports"))
 (package! org-ref)
-(package! org-ref-cite :recipe (:host github
-                                :repo "jkitchin/org-ref-cite"))
+;; (package! org-ref-cite :recipe (:host github
+                                ;; :repo "jkitchin/org-ref-cite"))
 (package! org-super-agenda)
 (package! org-caldav)
 (package! org-superstar)

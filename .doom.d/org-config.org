@@ -2,7 +2,7 @@
 #+HUGO_SECTION: org-config
 #+EXPORT_FILE_NAME: _index.md
 #+toc: headlines 2
-#+TITLE: Org config for Emacs
+#+TITLE: Org-mode configuration for Emacs
 
 This is my org-mode configuration. You will find the rest of my dotfiles
 (including my full Doom Emacs configuration) on [[https://github.com/hugcis/dotfiles][Github]].
@@ -24,11 +24,18 @@ note for justifying moving to these states.
             (sequence "WAITING(w@/!)" "HOLD(h@/!)" "|" "CANCELLED(c@/!)"))))
 #+END_SRC
 
+This is so I cannot set a headline to ~DONE~ if children aren't ~DONE~.
+#+BEGIN_SRC elisp :tangle org-config.el
+  (setq-default org-enforce-todo-dependencies t)
+#+END_SRC
+
 ** "TODO" faces and export settings
 :PROPERTIES:
 :ID:       2b5b8d2a-5f93-472b-b948-6bdde1613849
 :END:
-This sets the colors of keywords.
+This sets the colors of keywords. Not that important because I also hide them
+with ~org-superstar~. The keywords are still shown when placing the cursor on
+them.
 #+BEGIN_SRC elisp :tangle org-config.el
 (setq org-todo-keyword-faces
     (quote (("TODO" :foreground "red" :weight bold)
@@ -39,8 +46,8 @@ This sets the colors of keywords.
             ("CANCELLED" :foreground "forest green" :weight bold)
             ("MEETING" :foreground "forest green" :weight bold)
             ("PHONE" :foreground "forest green" :weight bold))))
+;; I don't wan't the keywords in my exports
 (setq-default org-export-with-todo-keywords nil)
-(setq-default org-enforce-todo-dependencies t)
 #+END_SRC
 
 ** Org "TODO" bullets
@@ -48,20 +55,19 @@ This sets the colors of keywords.
 :ID:       f35ce7da-f778-4131-a1f6-0aa87a9c8861
 :END:
 I use [[https://github.com/integral-dw/org-superstar-mode][org-superstar]] to remove the keywords from my org files and replace them
-with nice icons.
+with nice icons. This also hides the stars at the beginning of headlines.
+Different headline levels are recognized with the font-size, formatting and
+color. This is defined later.
 #+BEGIN_SRC elisp :tangle org-config.el
 (with-eval-after-load 'org-superstar
-  ;; Every non-TODO headline now have no bullet
-  ;; (setq org-superstar-headline-bullets-list '("\u200b"))
-  ;; (setq org-superstar-leading-bullet "\u200b")
   (setq org-superstar-item-bullet-alist
         '((?* . ?•)
           (?+ . ?➤)
           (?- . ?•)))
-  ;; Enable custom bullets for TODO items
   (setq org-superstar-headline-bullets-list '(?\s))
   (setq org-superstar-special-todo-items t)
   (setq org-superstar-remove-leading-stars t)
+  ;; Enable custom bullets for TODO items
   (setq org-superstar-todo-bullet-alist
         '(("TODO" . ?☐)
           ("NEXT" . ?✒)
@@ -83,7 +89,9 @@ This section covers the general look and feel of my org files.
 :ID:       68c97f27-0976-4238-8598-a508ca9e20b9
 :END:
 I use a function that I add as a hook to all the files I want to automatically
-set to variable width. You need to have the font installed for this to work.
+set to variable width (text-like font by opposition with programming fonts). You
+need to have the font installed for this to work.
+
 #+BEGIN_SRC elisp :tangle org-config.el
 (defun my/buffer-face-mode-variable ()
   "Set font to a variable width (proportional) fonts in current buffer"
@@ -98,7 +106,8 @@ set to variable width. You need to have the font installed for this to work.
 :PROPERTIES:
 :ID:       1bdd4bd4-6cf3-43e0-9c75-d178d6133031
 :END:
-Hide ~*~ and ~/~ in org text.
+Hide ~*~, ~~~ and ~/~ in org text.
+
 #+BEGIN_SRC elisp :tangle org-config.el
 (setq org-hide-emphasis-markers t)
 #+END_SRC
@@ -107,6 +116,7 @@ Hide ~*~ and ~/~ in org text.
 :PROPERTIES:
 :ID:       2bbbd408-2a14-4347-9472-b50edb8c76c6
 :END:
+
 #+BEGIN_SRC elisp :tangle org-config.el
 (defun my/style-org ()
   ;; I have removed indentation to make the file look cleaner
@@ -477,40 +487,42 @@ this configuration is heavily borrowed from [[https://github.com/jethrokuan/dots
 :END:
 You'll find the  exported notes on [[https://hugocisneros.com/notes/][my notes page]].
 #+BEGIN_SRC elisp :tangle org-config.el
-(with-eval-after-load 'org-roam
-  ;; Roam is always one level deep in my org-directory
-  (setq org-roam-directory (expand-file-name "~/org/roam"))
-  (setq org-id-link-to-org-use-id t)
-  (setq org-roam-completion-system 'helm)
-  (add-to-list 'display-buffer-alist
-               '(("\\*org-roam\\*"
-                  (display-buffer-in-direction)
-                  (direction . right)
-                  (window-width . 0.33)
-                  (window-height . fit-window-to-buffer))))
-  (setq org-roam-capture-templates
-        '(("d" "default" plain "%?"
-           :immediate-finish t
-           :if-new (file+head "${slug}.org"
-                              "#+TITLE: ${title}\n#+hugo_lastmod: Time-stamp: <>\n\n")
-           :unnarrowed t)
-          ("t" "temp" plain "%?"
-           :if-new(file+head "%<%Y%m%d%H%M%S>-${slug}.org"
-                             "#+TITLE: ${title}\n#+hugo_lastmod: Time-stamp: <>\n\n")
-           :immediate-finish t
-           :unnarrowed t)
-          ("p" "private" plain "%?"
-           :if-new (file+head "${slug}-private.org"
-                              "#+TITLE: ${title}\n")
-           :immediate-finish t
-           :unnarrowed t)))
-  (setq org-roam-mode-sections
-        (list #'org-roam-backlinks-insert-section
-              #'org-roam-reflinks-insert-section
-              #'org-roam-unlinked-references-insert-section))
-  (org-roam-setup)
-  )
-(setq org-id-extra-files (org-roam--list-files org-roam-directory))
+  (with-eval-after-load 'org-roam
+    ;; Roam is always one level deep in my org-directory
+    (setq org-roam-directory (expand-file-name "~/org/roam"))
+    (setq org-id-link-to-org-use-id t)
+    (setq org-roam-completion-system 'helm)
+    (add-to-list 'display-buffer-alist
+                 '(("\\*org-roam\\*"
+                    (display-buffer-in-direction)
+                    (direction . right)
+                    (window-width . 0.33)
+                    (window-height . fit-window-to-buffer))))
+    (setq org-roam-capture-templates
+          '(("d" "default" plain "%?"
+             :immediate-finish t
+             :if-new (file+head "${slug}.org"
+                                "#+TITLE: ${title}\n#+hugo_lastmod: Time-stamp: <>\n\n")
+             :unnarrowed t)
+            ("t" "temp" plain "%?"
+             :if-new(file+head "%<%Y%m%d%H%M%S>-${slug}.org"
+                               "#+TITLE: ${title}\n#+hugo_lastmod: Time-stamp: <>\n\n")
+             :immediate-finish t
+             :unnarrowed t)
+            ("p" "private" plain "%?"
+             :if-new (file+head "${slug}-private.org"
+                                "#+TITLE: ${title}\n")
+             :immediate-finish t
+             :unnarrowed t)))
+    (setq org-roam-mode-sections
+          (list #'org-roam-backlinks-insert-section
+                #'org-roam-reflinks-insert-section
+                #'org-roam-unlinked-references-insert-section))
+    (org-roam-setup)
+    (org-roam-db-autosync-mode)
+    (setq org-roam-v2-ack t)
+    )
+  (setq org-id-extra-files (org-roam--list-files org-roam-directory))
 #+END_SRC
 
 
@@ -554,4 +566,12 @@ This is not part of the org-mode configuration, but applies variable width mode
 to markdown files when I (rarely) edit one.
 #+BEGIN_SRC elisp :tangle org-config.el
 (add-hook 'markdown-mode-hook 'my/buffer-face-mode-variable)
+#+END_SRC
+
+** Use return to follow links in org-mode
+:PROPERTIES:
+:ID:       42BED96F-6943-4B3A-928F-A1F6EBB13649
+:END:
+#+BEGIN_SRC elisp :tangle org-config.el
+(setq org-return-follows-link t)
 #+END_SRC

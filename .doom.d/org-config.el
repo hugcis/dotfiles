@@ -2,6 +2,8 @@
     (quote ((sequence "TODO(t)" "NEXT(n)" "|" "DONE(d)")
             (sequence "WAITING(w@/!)" "HOLD(h@/!)" "|" "CANCELLED(c@/!)"))))
 
+(setq-default org-enforce-todo-dependencies t)
+
 (setq org-todo-keyword-faces
     (quote (("TODO" :foreground "red" :weight bold)
             ("NEXT" :foreground "blue" :weight bold)
@@ -11,21 +13,18 @@
             ("CANCELLED" :foreground "forest green" :weight bold)
             ("MEETING" :foreground "forest green" :weight bold)
             ("PHONE" :foreground "forest green" :weight bold))))
+;; I don't wan't the keywords in my exports
 (setq-default org-export-with-todo-keywords nil)
-(setq-default org-enforce-todo-dependencies t)
 
 (with-eval-after-load 'org-superstar
-  ;; Every non-TODO headline now have no bullet
-  ;; (setq org-superstar-headline-bullets-list '("\u200b"))
-  ;; (setq org-superstar-leading-bullet "\u200b")
   (setq org-superstar-item-bullet-alist
         '((?* . ?•)
           (?+ . ?➤)
           (?- . ?•)))
-  ;; Enable custom bullets for TODO items
   (setq org-superstar-headline-bullets-list '(?\s))
   (setq org-superstar-special-todo-items t)
   (setq org-superstar-remove-leading-stars t)
+  ;; Enable custom bullets for TODO items
   (setq org-superstar-todo-bullet-alist
         '(("TODO" . ?☐)
           ("NEXT" . ?✒)
@@ -372,6 +371,8 @@ bibliography:~/Papers/library_bibtex.bib")
               #'org-roam-reflinks-insert-section
               #'org-roam-unlinked-references-insert-section))
   (org-roam-setup)
+  (org-roam-db-autosync-mode)
+  (setq org-roam-v2-ack t)
   )
 (setq org-id-extra-files (org-roam--list-files org-roam-directory))
 
@@ -387,3 +388,5 @@ bibliography:~/Papers/library_bibtex.bib")
 (add-hook 'before-save-hook 'time-stamp)
 
 (add-hook 'markdown-mode-hook 'my/buffer-face-mode-variable)
+
+(setq org-return-follows-link t)
