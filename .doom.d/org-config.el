@@ -45,7 +45,7 @@
 
 (setq org-hide-emphasis-markers t)
 
-(defun my/style-org ()
+(defun my/set-general-faces-org ()
   ;; I have removed indentation to make the file look cleaner
   (org-indent-mode -1)
   (my/buffer-face-mode-variable)
@@ -77,9 +77,9 @@
          'org-meta-line
          'org-drawer
          'org-property-value
-         ))
-  ;; (set-face-attribute 'org-indent nil
-  ;; :inherit '(org-hide fixed-pitch))
+         )))
+
+(defun my/set-specific-faces-org ()
   (set-face-attribute 'org-code nil
                       :inherit '(shadow fixed-pitch))
   ;; Without indentation the headlines need to be different to be visible
@@ -108,7 +108,9 @@
   (set-face-attribute 'org-ellipsis nil
                       :foreground "#4f747a" :underline nil)
   (set-face-attribute 'variable-pitch nil
-                      :family "Roboto Slab" :height 1.2)
+                      :family "Roboto Slab" :height 1.2))
+
+(defun my/set-keyword-faces-org ()
   (mapc (lambda (pair) (push pair prettify-symbols-alist))
         '(;; Syntax
           ("TODO" .     "")
@@ -123,6 +125,11 @@
   (org-superstar-mode +1)
   )
 
+(defun my/style-org ()
+  (my/set-general-faces-org)
+  (my/set-specific-faces-org)
+  (my/set-keyword-faces-org)
+  )
 (add-hook 'org-mode-hook 'my/style-org)
 
 (setq org-agenda-skip-scheduled-if-done t
@@ -296,7 +303,8 @@
             (define-key org-journal-mode-map
               (kbd "C-x C-s") 'org-journal-save-entry-and-exit)))
 
-(setq org-cite-global-bibliography '("~/Papers/library.bib"))
+(setq org-cite-global-bibliography '("~/Papers/library.json"))
+(require 'oc-csl)
 (with-eval-after-load 'org-ref
   (setq reftex-default-bibliography '("~/Papers/library.bib"))
   (setq org-ref-default-bibliography '("~/Papers/library.bib")
@@ -384,6 +392,9 @@ bibliography:~/Papers/library_bibtex.bib")
         (org-caldav-url "https://cld.hugocisneros.com/remote.php/dav/calendars/ncp/")
         (org-caldav-files '("~/org/calendar.org")))
     (call-interactively 'org-caldav-sync)))
+
+(setq org-journal-dir "~/org/journal/")
+(setq org-journal-enable-encryption t)
 
 (add-hook 'before-save-hook 'time-stamp)
 

@@ -69,7 +69,7 @@
 (package! org-pomodoro)
 (package! org-fancy-priorities)
 (package! org-pdftools)
-(package! org-plus-contrib)
+;; (package! org-plus-contrib)
 (package! helm-org)
 
 (package! lsp-pyright)

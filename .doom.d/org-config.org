@@ -4,8 +4,9 @@
 #+toc: headlines 2
 #+TITLE: Org-mode configuration for Emacs
 
-This is my org-mode configuration. You will find the rest of my dotfiles
-(including my full Doom Emacs configuration) on [[https://github.com/hugcis/dotfiles][Github]].
+This is my org-mode configuration that you can [[https://github.com/hugcis/dotfiles/blob/master/.doom.d/org-config.org][download as an org file]]. You will
+find the rest of my dotfiles (including my full Doom Emacs configuration) on
+[[https://github.com/hugcis/dotfiles][Github]].
 
 If you want to use this file for configuration, open it in Emacs and run
 ~org-babel-tangle~, or ~C-c C-v t~ (you need to have org-mode and org-babel
@@ -116,87 +117,104 @@ Hide ~*~, ~~~ and ~/~ in org text.
 :PROPERTIES:
 :ID:       2bbbd408-2a14-4347-9472-b50edb8c76c6
 :END:
+We define a few functions that will be run when we open an org file to style it. 
 
+The first one sets the text to be variable pitch but revert it back to
+fixed-pitch for code block, properties, etc.
 #+BEGIN_SRC elisp :tangle org-config.el
-(defun my/style-org ()
-  ;; I have removed indentation to make the file look cleaner
-  (org-indent-mode -1)
-  (my/buffer-face-mode-variable)
-  (setq line-spacing 0.1
-        org-pretty-entities t
-        org-startup-indented t
-        org-adapt-indentation nil)
-  (variable-pitch-mode +1)
-  (mapc
-   (lambda (face) ;; Other fonts that require it are set to fixed-pitch.
-     (set-face-attribute face nil :inherit 'fixed-pitch))
-   (list 'org-block
-         'org-table
-         'org-verbatim
-         'org-block-begin-line
-         'org-block-end-line
-         'org-meta-line
-         'org-date
-         'org-drawer
-         'org-property-value
-         'org-special-keyword
-         'org-document-info-keyword))
-  (mapc ;; This sets the fonts to a smaller size
-   (lambda (face)
-     (set-face-attribute face nil :height 0.8))
-   (list 'org-document-info-keyword
-         'org-block-begin-line
-         'org-block-end-line
-         'org-meta-line
-         'org-drawer
-         'org-property-value
-         ))
-  ;; (set-face-attribute 'org-indent nil
-  ;; :inherit '(org-hide fixed-pitch))
-  (set-face-attribute 'org-code nil
-                      :inherit '(shadow fixed-pitch))
-  ;; Without indentation the headlines need to be different to be visible
-  (set-face-attribute 'org-level-1 nil
-                      :height 1.25
-                      :foreground "#BEA4DB")
-  (set-face-attribute 'org-level-2 nil
-                      :height 1.15
-                      :foreground "#A382FF"
-                      :slant 'italic)
-  (set-face-attribute 'org-level-3 nil
-                      :height 1.1
-                      :foreground "#5E65CC"
-                      :slant 'italic)
-  (set-face-attribute 'org-level-4 nil
-                      :height 1.05
-                      :foreground "#ABABFF")
-  (set-face-attribute 'org-level-5 nil
-                      :foreground "#2843FB")
-  (set-face-attribute 'org-date nil
-                      :foreground "#ECBE7B"
-                      :height 0.8)
-  (set-face-attribute 'org-document-title nil
-                      :foreground "DarkOrange3"
-                      :height 1.3)
-  (set-face-attribute 'org-ellipsis nil
-                      :foreground "#4f747a" :underline nil)
-  (set-face-attribute 'variable-pitch nil
-                      :family "Roboto Slab" :height 1.2)
-  (mapc (lambda (pair) (push pair prettify-symbols-alist))
-        '(;; Syntax
-          ("TODO" .     "")
-          ("DONE" .     "")
-          ("WAITING" .  "")
-          ("HOLD" .     "")
-          ("NEXT" .     "")
-          ("CANCELLED" . "")
-          ("#+begin_quote" . "“")
-          ("#+end_quote" . "”")))
-  (prettify-symbols-mode +1)
-  (org-superstar-mode +1)
-  )
+  (defun my/set-general-faces-org ()
+    ;; I have removed indentation to make the file look cleaner
+    (org-indent-mode -1)
+    (my/buffer-face-mode-variable)
+    (setq line-spacing 0.1
+          org-pretty-entities t
+          org-startup-indented t
+          org-adapt-indentation nil)
+    (variable-pitch-mode +1)
+    (mapc
+     (lambda (face) ;; Other fonts that require it are set to fixed-pitch.
+       (set-face-attribute face nil :inherit 'fixed-pitch))
+     (list 'org-block
+           'org-table
+           'org-verbatim
+           'org-block-begin-line
+           'org-block-end-line
+           'org-meta-line
+           'org-date
+           'org-drawer
+           'org-property-value
+           'org-special-keyword
+           'org-document-info-keyword))
+    (mapc ;; This sets the fonts to a smaller size
+     (lambda (face)
+       (set-face-attribute face nil :height 0.8))
+     (list 'org-document-info-keyword
+           'org-block-begin-line
+           'org-block-end-line
+           'org-meta-line
+           'org-drawer
+           'org-property-value
+           )))
+#+END_SRC
 
-(add-hook 'org-mode-hook 'my/style-org)
+This function set the colors and size of headlines. 
+#+BEGIN_SRC elisp :tangle org-config.el
+  (defun my/set-specific-faces-org ()
+    (set-face-attribute 'org-code nil
+                        :inherit '(shadow fixed-pitch))
+    ;; Without indentation the headlines need to be different to be visible
+    (set-face-attribute 'org-level-1 nil
+                        :height 1.25
+                        :foreground "#BEA4DB")
+    (set-face-attribute 'org-level-2 nil
+                        :height 1.15
+                        :foreground "#A382FF"
+                        :slant 'italic)
+    (set-face-attribute 'org-level-3 nil
+                        :height 1.1
+                        :foreground "#5E65CC"
+                        :slant 'italic)
+    (set-face-attribute 'org-level-4 nil
+                        :height 1.05
+                        :foreground "#ABABFF")
+    (set-face-attribute 'org-level-5 nil
+                        :foreground "#2843FB")
+    (set-face-attribute 'org-date nil
+                        :foreground "#ECBE7B"
+                        :height 0.8)
+    (set-face-attribute 'org-document-title nil
+                        :foreground "DarkOrange3"
+                        :height 1.3)
+    (set-face-attribute 'org-ellipsis nil
+                        :foreground "#4f747a" :underline nil)
+    (set-face-attribute 'variable-pitch nil
+                        :family "Roboto Slab" :height 1.2))
+#+END_SRC
+
+This function will hide some TODO keywords and other keywords and replace them
+with special symbols.
+#+BEGIN_SRC elisp :tangle org-config.el
+  (defun my/set-keyword-faces-org ()
+    (mapc (lambda (pair) (push pair prettify-symbols-alist))
+          '(;; Syntax
+            ("TODO" .     "")
+            ("DONE" .     "")
+            ("WAITING" .  "")
+            ("HOLD" .     "")
+            ("NEXT" .     "")
+            ("CANCELLED" . "")
+            ("#+begin_quote" . "“")
+            ("#+end_quote" . "”")))
+    (prettify-symbols-mode +1)
+    (org-superstar-mode +1)
+    )
+
+  (defun my/style-org ()
+    (my/set-general-faces-org)
+    (my/set-specific-faces-org)
+    (my/set-keyword-faces-org)
+    )
+  (add-hook 'org-mode-hook 'my/style-org)
 #+END_SRC
 
 * Org agenda
@@ -401,18 +419,18 @@ Define some keybindings and options in org-mode.
 :END:
 A small function to make journaling faster by closing the buffer when I save it.
 #+BEGIN_SRC elisp :tangle org-config.el
-(defun org-journal-save-entry-and-exit()
-  "Simple convenience function.
-    Saves the buffer of the current day's entry and kills the window
-    Similar to org-capture like behavior"
-  (interactive)
-  (save-buffer)
-  (kill-buffer-and-window))
+  (defun org-journal-save-entry-and-exit()
+    "Simple convenience function.
+      Saves the buffer of the current day's entry and kills the window
+      Similar to org-capture like behavior"
+    (interactive)
+    (save-buffer)
+    (kill-buffer-and-window))
 
-(add-hook 'org-journal-mode-hook
-          (lambda ()
-            (define-key org-journal-mode-map
-              (kbd "C-x C-s") 'org-journal-save-entry-and-exit)))
+  (add-hook 'org-journal-mode-hook
+            (lambda ()
+              (define-key org-journal-mode-map
+                (kbd "C-x C-s") 'org-journal-save-entry-and-exit)))
 #+END_SRC
 
 * Org Ref and Bibtex
@@ -420,32 +438,33 @@ A small function to make journaling faster by closing the buffer when I save it.
 :ID:       82ab4c82-180f-4f7e-826f-3816b52b1375
 :END:
 #+BEGIN_SRC elisp :tangle org-config.el
-(setq org-cite-global-bibliography '("~/Papers/library.bib"))
-(with-eval-after-load 'org-ref
-  (setq reftex-default-bibliography '("~/Papers/library.bib"))
-  (setq org-ref-default-bibliography '("~/Papers/library.bib")
-        org-ref-pdf-directory "~/Papers/pdf/"
-        org-ref-bibliography-notes "~/org/roam/notes")
-  (setq org-ref-notes-function
-        (lambda (thekey)
-          (let ((bibtex-completion-bibliography (org-ref-find-bibliography)))
-            (bibtex-completion-edit-notes
-             (list (car (org-ref-get-bibtex-key-and-file thekey)))))))
-  )
+  (setq org-cite-global-bibliography '("~/Papers/library.json"))
+  (require 'oc-csl)
+  (with-eval-after-load 'org-ref
+    (setq reftex-default-bibliography '("~/Papers/library.bib"))
+    (setq org-ref-default-bibliography '("~/Papers/library.bib")
+          org-ref-pdf-directory "~/Papers/pdf/"
+          org-ref-bibliography-notes "~/org/roam/notes")
+    (setq org-ref-notes-function
+          (lambda (thekey)
+            (let ((bibtex-completion-bibliography (org-ref-find-bibliography)))
+              (bibtex-completion-edit-notes
+               (list (car (org-ref-get-bibtex-key-and-file thekey)))))))
+    )
 
-;; Bibtex setup
-(setq bibtex-completion-notes-path "~/org/roam/notes")
-(setq bibtex-completion-pdf-open-function
-      (lambda (fpath)
-        (cond ((eq system-type 'darwin) (start-process "open" "*open*" "open" fpath))
-              ((eq system-type 'gnu/linux) (start-process "evince" "*evince*" "evince" fpath)))))
-(setq bibtex-completion-pdf-field "file")
-(setq bibtex-completion-pdf-symbol "⌘")
-(setq bibtex-completion-notes-symbol "✎")
-(setq bibtex-completion-notes-template-multiple-files
-      ":PROPERTIES:\n:ROAM_REFS: cite:${=key=}\n:END:\n#+TITLE: Notes on: ${title} by ${author-or-editor} (${year})\n#+hugo_lastmod: Time-stamp: <>\n#+ROAM_KEY: cite:${=key=}\n\n- source :: cite:${=key=}
-\n\n* TODO Summary\n* TODO Comments\n\n
-bibliography:~/Papers/library_bibtex.bib")
+  ;; Bibtex setup
+  (setq bibtex-completion-notes-path "~/org/roam/notes")
+  (setq bibtex-completion-pdf-open-function
+        (lambda (fpath)
+          (cond ((eq system-type 'darwin) (start-process "open" "*open*" "open" fpath))
+                ((eq system-type 'gnu/linux) (start-process "evince" "*evince*" "evince" fpath)))))
+  (setq bibtex-completion-pdf-field "file")
+  (setq bibtex-completion-pdf-symbol "⌘")
+  (setq bibtex-completion-notes-symbol "✎")
+  (setq bibtex-completion-notes-template-multiple-files
+        ":PROPERTIES:\n:ROAM_REFS: cite:${=key=}\n:END:\n#+TITLE: Notes on: ${title} by ${author-or-editor} (${year})\n#+hugo_lastmod: Time-stamp: <>\n#+ROAM_KEY: cite:${=key=}\n\n- source :: cite:${=key=}
+  \n\n* TODO Summary\n* TODO Comments\n\n
+  bibliography:~/Papers/library_bibtex.bib")
 #+END_SRC
 
 * Org capture
@@ -545,6 +564,14 @@ get notifications of upcoming events.
     (call-interactively 'org-caldav-sync)))
 #+END_SRC
 
+* Org journal
+[[https://github.com/bastibe/org-journal][Org journal]] is a package to create and maintain a journal/diary within Emacs.
+Here I set some of the options: the base directory for the journal and GPG
+encryption of journal files (uses org-crypt).
+#+BEGIN_SRC elisp :tangle org-config.el
+  (setq org-journal-dir "~/org/journal/")
+  (setq org-journal-enable-encryption t)
+#+END_SRC
 * Misc
 ** Timestamp on save
 :PROPERTIES:

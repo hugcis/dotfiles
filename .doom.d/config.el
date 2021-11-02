@@ -100,6 +100,10 @@
                           (lsp))))  ; or lsp-deferred
 (setq lsp-enable-file-watchers nil)
 (setq lsp-headerline-breadcrumb-enable t)
+;;
+(setq ns-alternate-modifier 'meta)
+(setq ns-right-alternate-modifier 'none)
+;;
 ;; Stop polluting the directory with auto-saved files and backup
 (setq auto-save-default nil)
 (setq make-backup-files nil)

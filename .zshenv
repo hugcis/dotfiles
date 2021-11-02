@@ -48,3 +48,4 @@ export PATH="/Users/hugo/.pyenv/bin:$PATH"
 export PATH="/Users/hugo/.local/bin:$PATH"
 
 export OPENBLAS="$(brew --prefix openblas)"
+if [ -e /Users/hugo/.nix-profile/etc/profile.d/nix.sh ]; then . /Users/hugo/.nix-profile/etc/profile.d/nix.sh; fi # added by Nix installer
