@@ -93,7 +93,6 @@ export LANG=en_US.UTF-8
 export ARCHFLAGS="-arch arm64"
 
 # Some aliase I like
-alias ls='lsd -F'
 alias la='ls -a'
 alias ssize="find -X . -depth 1| xargs du -hs |sort -h"
 
