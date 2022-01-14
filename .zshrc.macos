@@ -1,0 +1,18 @@
+# Some handy functions to switch between internet setups I often use.
+vpn_on() {
+   networksetup -setdnsservers Wi-Fi 10.6.0.2
+   scutil --nc start "PIVPN DNS"
+}
+vpn_off() {
+   scutil --nc stop "PIVPN DNS"
+   networksetup -setdnsservers Wi-Fi 208.67.222.222 1.1.1.1 1.0.0.1 2606:4700:4700::1111 2606:4700:4700::1001
+}
+vpn_full() {
+   scutil --nc start "PIVPN"
+}
+
+eval "$(pyenv init -)"
+
+# BEGIN_KITTY_SHELL_INTEGRATION
+if test -e "/Applications/kitty.app/Contents/Resources/kitty/shell-integration/kitty.zsh"; then source "/Applications/kitty.app/Contents/Resources/kitty/shell-integration/kitty.zsh"; fi
+# END_KITTY_SHELL_INTEGRATION

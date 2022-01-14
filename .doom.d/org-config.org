@@ -441,19 +441,29 @@ A small function to make journaling faster by closing the buffer when I save it.
   (setq org-cite-global-bibliography '("~/Papers/library.json"))
   (require 'oc-csl)
   (with-eval-after-load 'org-ref
-    (setq reftex-default-bibliography '("~/Papers/library.bib"))
-    (setq org-ref-default-bibliography '("~/Papers/library.bib")
-          org-ref-pdf-directory "~/Papers/pdf/"
-          org-ref-bibliography-notes "~/org/roam/notes")
-    (setq org-ref-notes-function
-          (lambda (thekey)
-            (let ((bibtex-completion-bibliography (org-ref-find-bibliography)))
-              (bibtex-completion-edit-notes
-               (list (car (org-ref-get-bibtex-key-and-file thekey)))))))
+    (setq bibtex-completion-bibliography '("~/Papers/library.json")
+          bibtex-completion-library-path '("~/Papers/pdf/")
+          bibtex-completion-notes-path "~/org/roam/notes"
+          bibtex-completion-additional-search-fields '(keywords)
+          bibtex-completion-display-formats
+          '((article       . "${=has-pdf=:1}${=has-note=:1} ${year:4} ${author:36} ${title:*} ${journal:40}")
+            (inbook        . "${=has-pdf=:1}${=has-note=:1} ${year:4} ${author:36} ${title:*} Chapter ${chapter:32}")
+            (incollection  . "${=has-pdf=:1}${=has-note=:1} ${year:4} ${author:36} ${title:*} ${booktitle:40}")
+            (inproceedings . "${=has-pdf=:1}${=has-note=:1} ${year:4} ${author:36} ${title:*} ${booktitle:40}")
+            (t             . "${=has-pdf=:1}${=has-note=:1} ${year:4} ${author:36} ${title:*}"))
+          bibtex-completion-pdf-open-function
+          (lambda (fpath)
+            (call-process "open" nil 0 nil fpath)))
+    (require 'org-ref-helm)
+    (define-key org-mode-map (kbd "C-c ]") 'org-ref-insert-link)
+    (setq org-ref-insert-link-function 'org-ref-insert-link-hydra/body
+          org-ref-insert-cite-function 'org-ref-cite-insert-helm
+          org-ref-insert-label-function 'org-ref-insert-label-link
+          org-ref-insert-ref-function 'org-ref-insert-ref-link
+          org-ref-cite-onclick-function (lambda (_) (org-ref-citation-hydra/body)))
     )
 
   ;; Bibtex setup
-  (setq bibtex-completion-notes-path "~/org/roam/notes")
   (setq bibtex-completion-pdf-open-function
         (lambda (fpath)
           (cond ((eq system-type 'darwin) (start-process "open" "*open*" "open" fpath))
@@ -463,8 +473,8 @@ A small function to make journaling faster by closing the buffer when I save it.
   (setq bibtex-completion-notes-symbol "✎")
   (setq bibtex-completion-notes-template-multiple-files
         ":PROPERTIES:\n:ROAM_REFS: cite:${=key=}\n:END:\n#+TITLE: Notes on: ${title} by ${author-or-editor} (${year})\n#+hugo_lastmod: Time-stamp: <>\n#+ROAM_KEY: cite:${=key=}\n\n- source :: cite:${=key=}
-  \n\n* TODO Summary\n* TODO Comments\n\n
-  bibliography:~/Papers/library_bibtex.bib")
+    \n\n* TODO Summary\n* TODO Comments\n\n
+    bibliography:~/Papers/library_bibtex.bib")
 #+END_SRC
 
 * Org capture
@@ -506,6 +516,8 @@ this configuration is heavily borrowed from [[https://github.com/jethrokuan/dots
 :END:
 You'll find the  exported notes on [[https://hugocisneros.com/notes/][my notes page]].
 #+BEGIN_SRC elisp :tangle org-config.el
+  ;; V2 displays a warning message
+  (setq org-roam-v2-ack t)
   (with-eval-after-load 'org-roam
     ;; Roam is always one level deep in my org-directory
     (setq org-roam-directory (expand-file-name "~/org/roam"))

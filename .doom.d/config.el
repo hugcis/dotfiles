@@ -19,8 +19,8 @@
 ;;
 ;; They all accept either a font-spec, font string ("Input Mono-12"), or xlfd
 ;; font string. You generally only need these two:
-;; (setq doom-font (font-spec :family "monospace" :size 12 :weight 'semi-light)
-;;       doom-variable-pitch-font (font-spec :family "sans" :size 13))
+(setq doom-font (font-spec :family "Meslo LG S for Powerline" :size 12))
+;       doom-variable-pitch-font (font-spec :family "sans" :size 13))
 
 ;; There are two ways to load a theme. Both assume the theme is installed and
 ;; available. You can either set `doom-theme' or manually load a theme with the
@@ -81,13 +81,15 @@
 (use-package! ox-hugo
   :after ox)
 (use-package! org-ref
+  :config
+  (setq org-ref-csl-default-style (expand-file-name "~/custom-org-citeproc-export.csl"))
+  (setq org-cite-csl-locales-dir (expand-file-name "~/csl-locales/"))
   :after org)
 (use-package! citeproc-org
   :after ox-hugo
   :config
   (citeproc-org-setup)
-  (setq
-  citeproc-org-default-style-file "/Users/hugo/custom-org-citeproc-export.csl"))
+  (setq citeproc-org-default-style-file "/Users/hugo/custom-org-citeproc-export.csl"))
 
 (use-package! org-caldav
   :after org)

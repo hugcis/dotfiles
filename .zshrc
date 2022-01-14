@@ -76,6 +76,7 @@ plugins=(
   poetry
   z
   shrink-path
+  ssh-agent
   zsh-autosuggestions
 )
 
@@ -89,9 +90,9 @@ source $ZSH/oh-my-zsh.sh
 export LANG=en_US.UTF-8
 
 # Compilation flags
-export ARCHFLAGS="-arch x86_64"
+export ARCHFLAGS="-arch arm64"
 
-# Sime aliase I like
+# Some aliase I like
 alias ls='lsd -F'
 alias la='ls -a'
 alias ssize="find -X . -depth 1| xargs du -hs |sort -h"
@@ -106,32 +107,16 @@ alias python='python3'
 # include Z
 . ~/z.sh
 
-alias config='/usr/bin/git --git-dir=$HOME/.cfg/ --work-tree=$HOME'
+alias config='git --git-dir=$HOME/.cfg/ --work-tree=$HOME'
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
-# Fix a make path issue with homebrew
-unameOut="$(uname -s)"
-case "${unameOut}" in
-    Darwin*)
-alias make='/usr/local/opt/make/libexec/gnubin/make'
-            ;;
-esac
-
 # Use fzf
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
+case "$OSTYPE" in
+  darwin*)  source ~/.zshrc.macos ;;
+  linux*)   source ~/.zshrc.linux ;;
+esac
 
-# Some handy functions to switch between internet setups I often use.
-vpn_on() {
-   networksetup -setdnsservers Wi-Fi 10.6.0.2 
-   scutil --nc start "PIVPN DNS"
-}
-vpn_off() {
-   scutil --nc stop "PIVPN DNS"
-   networksetup -setdnsservers Wi-Fi 208.67.222.222 1.1.1.1 1.0.0.1 2606:4700:4700::1111 2606:4700:4700::1001
-}
-vpn_full() {
-   scutil --nc start "PIVPN"
-}
