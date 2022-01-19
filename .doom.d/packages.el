@@ -56,8 +56,6 @@
                             :repo "org-roam/org-roam"))
 (package! ox-hugo :recipe (:host github
                            :repo "kaushalmodi/ox-hugo"))
-(package! citeproc-org
-  :recipe (:local-repo "~/citeproc-org"))
 ;; (package! citeproc-org :recipe (:host github
 ;;                                 :repo "andras-simonyi/citeproc-org"
 ;;                                 :branch "org_cite_backports"))

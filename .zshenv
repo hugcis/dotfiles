@@ -12,11 +12,8 @@ export EDITOR="$VISUAL"
 export BAT_PAGER="less -R"
 export DEFAULT_USER="hugo"
 
-export RUST_SRC_PATH=$(rustc --print sysroot)/lib/rustlib/src/rust/library
-
 case "$OSTYPE" in
   darwin*)  source ~/.zshenv.macos ;;
   linux*)   source ~/.zshenv.linux ;;
 esac
 
-. "$HOME/.cargo/env"

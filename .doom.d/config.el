@@ -85,11 +85,6 @@
   (setq org-ref-csl-default-style (expand-file-name "~/custom-org-citeproc-export.csl"))
   (setq org-cite-csl-locales-dir (expand-file-name "~/csl-locales/"))
   :after org)
-(use-package! citeproc-org
-  :after ox-hugo
-  :config
-  (citeproc-org-setup)
-  (setq citeproc-org-default-style-file "/Users/hugo/custom-org-citeproc-export.csl"))
 
 (use-package! org-caldav
   :after org)

@@ -1,3 +1,4 @@
+# Homebrew config
 eval "$(/opt/homebrew/bin/brew shellenv)"
 
 # java development kit
@@ -13,10 +14,11 @@ if [ -f '/Users/hugo/google-cloud-sdk/completion.zsh.inc' ]; then . '/Users/hugo
 
 export TERM=xterm-256color
 export PATH="/opt/homebrew/opt/make/libexec/gnubin:$PATH"
-export PATH="$HOME/.poetry/bin:$PATH"
 export PATH="$PATH:/Applications/Julia-1.5.app/Contents/Resources/julia/bin/"
-export PATH="/Users/hugo/.pyenv/bin:$PATH"
-export PATH="/Users/hugo/.local/bin:$PATH"
-export PATH="/opt/homebrew/opt/python@3.10/bin:$PATH"
+export PATH="/Users/hugo/.local/bin:/Users/hugo/.pyenv/bin:$HOME/.poetry/bin:$PATH"
 
 export OPENBLAS="$(brew --prefix openblas)"
+
+# Rust config
+export RUST_SRC_PATH=$(rustc --print sysroot)/lib/rustlib/src/rust/library
+. "$HOME/.cargo/env"
