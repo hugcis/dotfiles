@@ -1,6 +1,7 @@
 [user]
 	name = hugcis
 	email = hmj.cisneros@gmail.com
+        signingkey = 99B342BC48B36FF2987529CF022B57E9C3721107
 
 [core]
 	excludesfile = ~/.gitexclude
@@ -20,5 +21,15 @@
         type = cat-file -t
         dump = cat-file -p
         la = log --all --graph --oneline --decorate
+
 [pull]
 	ff = only
+
+[init]
+	defaultBranch = main
+
+[url "github-work:last_genocto/"]
+        insteadOf = git@github.com:last_genocto/
+
+[push]
+	default = simple

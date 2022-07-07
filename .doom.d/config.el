@@ -90,17 +90,48 @@
   :after org)
 (use-package! org-super-agenda
   :hook (org-agenda-mode . org-super-agenda-mode))
+(use-package! org-modern
+  :after org)
+(use-package! org-pomodoro
+  :after org)
 
+
+(use-package! yasnippet
+  :hook (lsp-mode . yas-minor-mode))
 (use-package! lsp-pyright
   :hook (python-mode . (lambda ()
                           (require 'lsp-pyright)
-                          (lsp))))  ; or lsp-deferred
+                          (lsp-deferred))))  ; or lsp-deferred
+(setq lsp-pyright-auto-import-completions t
+      lsp-pyright-typechecking-mode "basic")
+
+(use-package! python-black
+  :demand t
+  :after python
+  :hook (python-mode . python-black-on-save-mode-enable-dwim))
+
+(use-package! flycheck
+  :commands global-flycheck-mode
+  :preface
+  (defvar-local flycheck-local-checkers nil)
+  (defun +flycheck-checker-get(fn checker property)
+    (or (alist-get property (alist-get checker flycheck-local-checkers))
+        (funcall fn checker property)))
+  (advice-add 'flycheck-checker-get :around '+flycheck-checker-get)
+  :init
+  (global-flycheck-mode)
+  :bind (:map flycheck-mode-map
+              ("C-c e" . flycheck-list-errors)))
+
+
+(add-hook 'org-cycle-hook 'org-cycle-hide-drawers)
+
 (setq lsp-enable-file-watchers nil)
 (setq lsp-headerline-breadcrumb-enable t)
 ;;
 (setq ns-alternate-modifier 'meta)
 (setq ns-right-alternate-modifier 'none)
-;;
+
 ;; Stop polluting the directory with auto-saved files and backup
 (setq auto-save-default nil)
 (setq make-backup-files nil)
@@ -170,14 +201,32 @@
 (setq nnrss-ignore-article-fields '(description slash:comments
                                                 slash:hit_parade))
 
+;; Some ligatures for nicer looking code
 (defun python-symbols()
   (mapc (lambda (pair) (push pair prettify-symbols-alist)) '(("->" . "➔")))
   (prettify-symbols-mode +1))
 (defun rust-symbols()
   (mapc (lambda (pair) (push pair prettify-symbols-alist)) '(("->" . "➔")))
   (prettify-symbols-mode +1))
+;; Rust coding
 (add-hook 'rust-mode-hook 'rust-symbols)
+(add-hook! rust-mode (lsp))
+(add-hook! rust-mode (define-key rust-mode-map (kbd "s-f") 'lsp-format-buffer))
+(setq lsp-rust-analyzer-proc-macro-enable t)
+
 (add-hook 'python-mode-hook (lambda () (python-symbols)))
+(add-hook! python-mode (define-key python-mode-map (kbd "s-f") 'python-black-buffer))
+(add-hook! python-mode
+   (setq flycheck-local-checkers '((lsp . ((next-checkers . (python-flake8)))))))
+(add-hook! latex-mode
+   (setq flycheck-local-checkers '((lsp . ((next-checkers . (textlint)))))))
+
+(setq flycheck-flake8-maximum-line-length 88)
+      ;; lsp-pylsp-plugins-flake8-ignore ["E203", "W503"])
 
 (after! tramp (setenv "SHELL" "/bin/bash"))
 (after! org (load! "org-config.el"))
+
+(setq lsp-julia-package-dir  "~/.julia/packages")
+(setq lsp-julia-default-environment "~/.julia/environments/v1.7")
+(setq helm-rg-ripgrep-executable "~/.nix-profile/bin/rg")

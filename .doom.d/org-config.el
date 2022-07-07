@@ -13,7 +13,7 @@
             ("CANCELLED" :foreground "forest green" :weight bold)
             ("MEETING" :foreground "forest green" :weight bold)
             ("PHONE" :foreground "forest green" :weight bold))))
-;; I don't wan't the keywords in my exports
+;; I don't wan't the keywords in my exports by default
 (setq-default org-export-with-todo-keywords nil)
 
 (with-eval-after-load 'org-superstar
@@ -21,9 +21,10 @@
         '((?* . ?•)
           (?+ . ?➤)
           (?- . ?•)))
-  (setq org-superstar-headline-bullets-list '(?\s))
+  (setq org-superstar-headline-bullets-list '(?\d))
   (setq org-superstar-special-todo-items t)
   (setq org-superstar-remove-leading-stars t)
+  (setq org-hide-leading-stars t)
   ;; Enable custom bullets for TODO items
   (setq org-superstar-todo-bullet-alist
         '(("TODO" . ?☐)
@@ -46,8 +47,6 @@
 (setq org-hide-emphasis-markers t)
 
 (defun my/set-general-faces-org ()
-  ;; I have removed indentation to make the file look cleaner
-  (org-indent-mode -1)
   (my/buffer-face-mode-variable)
   (setq line-spacing 0.1
         org-pretty-entities t
@@ -339,7 +338,7 @@
 (setq bibtex-completion-notes-template-multiple-files
       ":PROPERTIES:\n:ROAM_REFS: cite:${=key=}\n:END:\n#+TITLE: Notes on: ${title} by ${author-or-editor} (${year})\n#+hugo_lastmod: Time-stamp: <>\n#+ROAM_KEY: cite:${=key=}\n\n- source :: cite:${=key=}
   \n\n* TODO Summary\n* TODO Comments\n\n
-  bibliography:~/Papers/library_bibtex.bib")
+  bibliography:~/Papers/library.json")
 
 (setq org-capture-templates
       '(("n" "Notes" entry

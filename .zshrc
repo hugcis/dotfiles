@@ -76,13 +76,17 @@ plugins=(
   poetry
   z
   shrink-path
-  ssh-agent
   zsh-autosuggestions
+  zsh-autoquoter
+  zsh-syntax-highlighting
 )
 
 HOST=$(hostname)
 
 source $ZSH/oh-my-zsh.sh
+
+ZAQ_PREFIXES=('git commit( [^ ]##)# -[^ -]#m' 'ssh( [^ ]##)# [^ -][^ ]#')
+ZSH_HIGHLIGHT_HIGHLIGHTERS+=(zaq)
 
 # User configuration
 
@@ -104,7 +108,7 @@ alias rot13="tr 'A-Za-z' 'N-ZA-Mn-za-m'"
 alias python='python3'
 
 # include Z
-. ~/z.sh
+. ~/z/z.sh
 
 alias config='git --git-dir=$HOME/.cfg/ --work-tree=$HOME'
 
@@ -119,3 +123,7 @@ case "$OSTYPE" in
   linux*)   source ~/.zshrc.linux ;;
 esac
 
+
+# BEGIN_KITTY_SHELL_INTEGRATION
+if test -e "/Applications/kitty.app/Contents/Resources/kitty/shell-integration/kitty.zsh"; then source "/Applications/kitty.app/Contents/Resources/kitty/shell-integration/kitty.zsh"; fi
+# END_KITTY_SHELL_INTEGRATION

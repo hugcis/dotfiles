@@ -18,3 +18,8 @@ if test -e "/Applications/kitty.app/Contents/Resources/kitty/shell-integration/k
 # END_KITTY_SHELL_INTEGRATION
 
 alias ls='lsd -F'
+# Nix
+if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
+. '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+fi
+# End Nix

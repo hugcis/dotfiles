@@ -70,7 +70,10 @@
 (package! org-pomodoro)
 (package! org-fancy-priorities)
 (package! org-pdftools)
+(package! org-modern)
 ;; (package! org-plus-contrib)
 (package! helm-org)
 
 (package! lsp-pyright)
+(package! python-black)
+(package! flycheck-grammarly)

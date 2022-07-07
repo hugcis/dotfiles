@@ -1,5 +1,6 @@
 execute pathogen#infect()
 syntax enable
+
 set background=dark
 " colorscheme solarized
 filetype plugin indent on
@@ -54,9 +55,9 @@ let g:vimtex_toc_enabled = 1
 set conceallevel=1
 let g:tex_conceal='abdmg'
 
-let g:UltiSnipsExpandTrigger = '<tab>'
-let g:UltiSnipsJumpForwardTrigger = '<tab>'
-let g:UltiSnipsJumpBackwardTrigger = '<s-tab>'
+"let g:UltiSnipsExpandTrigger = '<tab>'
+"let g:UltiSnipsJumpForwardTrigger = '<tab>'
+"let g:UltiSnipsJumpBackwardTrigger = '<s-tab>'
 
 autocmd Filetype tex setlocal textwidth=80 tabstop=2 shiftwidth=2
 autocmd FileType tex setlocal spell

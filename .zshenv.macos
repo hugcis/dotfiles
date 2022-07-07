@@ -22,3 +22,4 @@ export OPENBLAS="$(brew --prefix openblas)"
 # Rust config
 export RUST_SRC_PATH=$(rustc --print sysroot)/lib/rustlib/src/rust/library
 . "$HOME/.cargo/env"
+export PATH=/Applications/Julia-1.7.app/Contents/Resources/julia/bin:$PATH
