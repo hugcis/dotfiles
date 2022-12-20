@@ -138,7 +138,7 @@
       org-agenda-compact-blocks t
       org-agenda-start-with-log-mode t)
 (with-eval-after-load 'org-journal
-  (setq org-agenda-files '("~/org" "~/org/roam/notes/")))
+  (define-key org-journal-mode-map (kbd "<C-tab>") 'yas-expand))
 (setq org-agenda-clockreport-parameter-plist
       (quote (:link t :maxlevel 5 :fileskip0 t :compact t :narrow 80)))
 (setq org-agenda-deadline-faces
@@ -302,7 +302,8 @@
             (define-key org-journal-mode-map
               (kbd "C-x C-s") 'org-journal-save-entry-and-exit)))
 
-(setq org-cite-global-bibliography '("~/Papers/library.json"))
+(setq org-cite-global-bibliography nil)
+(add-to-list 'org-cite-global-bibliography (expand-file-name "~/Papers/library.json"))
 (require 'oc-csl)
 (with-eval-after-load 'org-ref
   (setq bibtex-completion-bibliography '("~/Papers/library.json")
@@ -356,11 +357,8 @@
 (setq org-refile-use-outline-path 'file)
 (setq org-refile-allow-creating-parent-nodes 'confirm)
 
-;; V2 displays a warning message
-(setq org-roam-v2-ack t)
 (with-eval-after-load 'org-roam
   ;; Roam is always one level deep in my org-directory
-  (setq org-roam-directory (expand-file-name "~/org/roam"))
   (setq org-id-link-to-org-use-id t)
   (setq org-roam-completion-system 'helm)
   (add-to-list 'display-buffer-alist
@@ -385,13 +383,8 @@
                               "#+TITLE: ${title}\n")
            :immediate-finish t
            :unnarrowed t)))
-  (setq org-roam-mode-sections
-        (list #'org-roam-backlinks-insert-section
-              #'org-roam-reflinks-insert-section
-              #'org-roam-unlinked-references-insert-section))
   (org-roam-setup)
   (org-roam-db-autosync-mode)
-  (setq org-roam-v2-ack t)
   )
 (setq org-id-extra-files (org-roam--list-files org-roam-directory))
 
@@ -405,7 +398,7 @@
     (call-interactively 'org-caldav-sync)))
 
 (setq org-journal-dir "~/org/journal/")
-(setq org-journal-enable-encryption t)
+(setq org-journal-enable-encryption nil)
 
 (add-hook 'before-save-hook 'time-stamp)
 

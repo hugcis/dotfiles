@@ -66,10 +66,11 @@
 (use-package! org-roam
   :config
   (setq org-roam-directory (expand-file-name "~/org/roam"))
+  (setq org-roam-node-display-template (concat "${title:*} " (propertize "${tags:10}" 'face 'org-tag)))
   :init
   (map! :leader
         :prefix "n"
-        :desc "org-roam" "l" #'org-roam-buffer
+        :desc "org-roam" "l" #'org-roam-buffer-toggle
         :desc "org-roam-node-insert" "i" #'org-roam-node-insert
         :desc "org-roam-node-find" "f" #'org-roam-node-find
         :desc "org-roam-ref-find" "r" #'org-roam-ref-find
@@ -215,11 +216,21 @@
 (setq lsp-rust-analyzer-proc-macro-enable t)
 
 (add-hook 'python-mode-hook (lambda () (python-symbols)))
-(add-hook! python-mode (define-key python-mode-map (kbd "s-f") 'python-black-buffer))
+
+(defun python-isort-black ()
+  (py-isort-buffer)
+  (python-black-buffer))
+;; Here the function must be interactive to be called with a keybinding. Instead
+;; of making the whole function interactive (and therefore accessible anywhere)
+;; we only make the lambda (interactive).
+(add-hook! python-mode (define-key python-mode-map (kbd "s-f") (lambda () (interactive) (python-isort-black))))
+
 (add-hook! python-mode
    (setq flycheck-local-checkers '((lsp . ((next-checkers . (python-flake8)))))))
 (add-hook! latex-mode
    (setq flycheck-local-checkers '((lsp . ((next-checkers . (textlint)))))))
+(add-hook! latex-mode (outline-minor-mode))
+(add-hook! latex-mode (define-key latex-mode-map (kbd "<backtab>") 'outline-cycle))
 
 (setq flycheck-flake8-maximum-line-length 88)
       ;; lsp-pylsp-plugins-flake8-ignore ["E203", "W503"])

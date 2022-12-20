@@ -221,19 +221,19 @@ with special symbols.
 :ID:       791ef7c3-10fc-47dd-8cf9-ee62bfbb6f10
 :END:
 #+BEGIN_SRC elisp :tangle org-config.el
-(setq org-agenda-skip-scheduled-if-done t
-      org-agenda-skip-deadline-if-done t
-      org-agenda-include-deadlines t
-      org-agenda-block-separator #x2501
-      org-agenda-compact-blocks t
-      org-agenda-start-with-log-mode t)
-(with-eval-after-load 'org-journal
-  (setq org-agenda-files '("~/org" "~/org/roam/notes/")))
-(setq org-agenda-clockreport-parameter-plist
-      (quote (:link t :maxlevel 5 :fileskip0 t :compact t :narrow 80)))
-(setq org-agenda-deadline-faces
-      '((1.0001 . org-warning)              ; due yesterday or before
-        (0.0    . org-upcoming-deadline)))  ; due today or later
+  (setq org-agenda-skip-scheduled-if-done t
+        org-agenda-skip-deadline-if-done t
+        org-agenda-include-deadlines t
+        org-agenda-block-separator #x2501
+        org-agenda-compact-blocks t
+        org-agenda-start-with-log-mode t)
+  (with-eval-after-load 'org-journal
+    (define-key org-journal-mode-map (kbd "<C-tab>") 'yas-expand))
+  (setq org-agenda-clockreport-parameter-plist
+        (quote (:link t :maxlevel 5 :fileskip0 t :compact t :narrow 80)))
+  (setq org-agenda-deadline-faces
+        '((1.0001 . org-warning)              ; due yesterday or before
+          (0.0    . org-upcoming-deadline)))  ; due today or later
 #+END_SRC
 
 Most of this was copied from [[https://github.com/bzg/dotemacs/blob/master/emacs.org][bzg's dotfiles]].
@@ -437,7 +437,8 @@ A small function to make journaling faster by closing the buffer when I save it.
 :ID:       82ab4c82-180f-4f7e-826f-3816b52b1375
 :END:
 #+BEGIN_SRC elisp :tangle org-config.el
-  (setq org-cite-global-bibliography '("~/Papers/library.json"))
+  (setq org-cite-global-bibliography nil)
+  (add-to-list 'org-cite-global-bibliography (expand-file-name "~/Papers/library.json"))
   (require 'oc-csl)
   (with-eval-after-load 'org-ref
     (setq bibtex-completion-bibliography '("~/Papers/library.json")
@@ -515,11 +516,8 @@ this configuration is heavily borrowed from [[https://github.com/jethrokuan/dots
 :END:
 You'll find the  exported notes on [[https://hugocisneros.com/notes/][my notes page]].
 #+BEGIN_SRC elisp :tangle org-config.el
-  ;; V2 displays a warning message
-  (setq org-roam-v2-ack t)
   (with-eval-after-load 'org-roam
     ;; Roam is always one level deep in my org-directory
-    (setq org-roam-directory (expand-file-name "~/org/roam"))
     (setq org-id-link-to-org-use-id t)
     (setq org-roam-completion-system 'helm)
     (add-to-list 'display-buffer-alist
@@ -544,13 +542,8 @@ You'll find the  exported notes on [[https://hugocisneros.com/notes/][my notes p
                                 "#+TITLE: ${title}\n")
              :immediate-finish t
              :unnarrowed t)))
-    (setq org-roam-mode-sections
-          (list #'org-roam-backlinks-insert-section
-                #'org-roam-reflinks-insert-section
-                #'org-roam-unlinked-references-insert-section))
     (org-roam-setup)
     (org-roam-db-autosync-mode)
-    (setq org-roam-v2-ack t)
     )
   (setq org-id-extra-files (org-roam--list-files org-roam-directory))
 #+END_SRC
@@ -581,7 +574,7 @@ Here I set some of the options: the base directory for the journal and GPG
 encryption of journal files (uses org-crypt).
 #+BEGIN_SRC elisp :tangle org-config.el
   (setq org-journal-dir "~/org/journal/")
-  (setq org-journal-enable-encryption t)
+  (setq org-journal-enable-encryption nil)
 #+END_SRC
 * Misc
 ** Timestamp on save
