@@ -48,6 +48,7 @@
 ;(unpin! pinned-package another-pinned-package)
 ;; ...Or *all* packages (NOT RECOMMENDED; will likely break things)
 ;(unpin! t)
+(package! helm)
 (package! evil-escape)
 (package! evil-surround)
 
@@ -77,3 +78,4 @@
 (package! lsp-pyright)
 (package! python-black)
 (package! flycheck-grammarly)
+(package! wgsl-mode)

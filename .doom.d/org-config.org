@@ -454,10 +454,10 @@ A small function to make journaling faster by closing the buffer when I save it.
           bibtex-completion-pdf-open-function
           (lambda (fpath)
             (call-process "open" nil 0 nil fpath)))
-    (require 'org-ref-helm)
+    ;; (require 'org-ref-helm)
     (define-key org-mode-map (kbd "C-c ]") 'org-ref-insert-link)
     (setq org-ref-insert-link-function 'org-ref-insert-link-hydra/body
-          org-ref-insert-cite-function 'org-ref-cite-insert-helm
+          ;; org-ref-insert-cite-function 'org-ref-cite-insert-helm
           org-ref-insert-label-function 'org-ref-insert-label-link
           org-ref-insert-ref-function 'org-ref-insert-ref-link
           org-ref-cite-onclick-function (lambda (_) (org-ref-citation-hydra/body)))

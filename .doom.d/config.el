@@ -124,6 +124,7 @@
   :bind (:map flycheck-mode-map
               ("C-c e" . flycheck-list-errors)))
 
+(use-package! wgsl-mode)
 
 (add-hook 'org-cycle-hook 'org-cycle-hide-drawers)
 
