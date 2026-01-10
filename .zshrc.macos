@@ -1,27 +1,100 @@
-# SSH Agent - use macOS keychain
+# .zshrc.macos - macOS-specific interactive shell configuration
+
+# ============================================================================
+# macOS SSH Agent Integration
+# ============================================================================
+# Automatically use macOS keychain for SSH keys
 ssh-add --apple-use-keychain &> /dev/null
 
-eval "$(pyenv init -)"
-
-# BEGIN_KITTY_SHELL_INTEGRATION
-if test -e "/Applications/kitty.app/Contents/Resources/kitty/shell-integration/kitty.zsh"; then source "/Applications/kitty.app/Contents/Resources/kitty/shell-integration/kitty.zsh"; fi
-# END_KITTY_SHELL_INTEGRATION
-
-alias ls='lsd -F'
-# Nix
-if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
-. '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+# ============================================================================
+# Python Environment - PyEnv
+# ============================================================================
+if command -v pyenv &> /dev/null; then
+  eval "$(pyenv init -)"
 fi
-# End Nix
 
+# ============================================================================
+# Nix Package Manager
+# ============================================================================
+if [[ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]]; then
+  source '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+fi
 
-# Homebrew completion
-if type brew &>/dev/null
-then
+# ============================================================================
+# Homebrew Completion
+# ============================================================================
+if type brew &>/dev/null; then
   FPATH="$(brew --prefix)/share/zsh/site-functions:${FPATH}"
-
   autoload -Uz compinit
-  compinit
+  # Only check for new completions once a day (speeds up shell startup)
+  if [[ -n ${ZDOTDIR}/.zcompdump(#qN.mh+24) ]]; then
+    compinit
+  else
+    compinit -C
+  fi
 fi
 
-export DOCKER_DEFAULT_PLATFORM=linux/arm64
+# ============================================================================
+# Terminal Integration - Alacritty + Zellij
+# ============================================================================
+
+# Detect terminal and set appropriate integrations
+if [[ "$TERM_PROGRAM" == "Alacritty" ]] || [[ "$ALACRITTY_SOCKET" != "" ]]; then
+  # Alacritty-specific settings
+  export TERMINAL="alacritty"
+
+  # Alias to open new Alacritty window
+  alias new-term='alacritty msg create-window || alacritty &'
+fi
+
+# Zellij integration
+if command -v zellij &> /dev/null; then
+  # Auto-start zellij for interactive shells (optional, comment out if not desired)
+  # if [[ -z "$ZELLIJ" ]] && [[ "$TERM_PROGRAM" == "Alacritty" ]]; then
+  #   exec zellij attach --create default
+  # fi
+
+  # Zellij aliases and helpers
+  alias zj='zellij'
+  alias zja='zellij attach'
+  alias zjl='zellij list-sessions'
+  alias zjk='zellij kill-session'
+  alias zjka='zellij kill-all-sessions'
+
+  # Function to create or attach to a named zellij session
+  zjs() {
+    if [[ -z "$1" ]]; then
+      echo "Usage: zjs <session-name>"
+      return 1
+    fi
+    zellij attach "$1" --create
+  }
+fi
+
+# ============================================================================
+# macOS-Specific Aliases
+# ============================================================================
+
+# Quick access to common macOS directories
+alias desk='cd ~/Desktop'
+alias docs='cd ~/Documents'
+alias down='cd ~/Downloads'
+
+# macOS specific commands
+alias flush-dns='sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder'
+alias show-hidden='defaults write com.apple.finder AppleShowAllFiles YES; killall Finder'
+alias hide-hidden='defaults write com.apple.finder AppleShowAllFiles NO; killall Finder'
+
+# Clipboard utilities
+alias pbcopy='pbcopy'
+alias pbpaste='pbpaste'
+
+# Open current directory in Finder
+alias finder='open .'
+
+# ============================================================================
+# Google Cloud SDK Completion
+# ============================================================================
+if [[ -f "$HOME/google-cloud-sdk/completion.zsh.inc" ]]; then
+  source "$HOME/google-cloud-sdk/completion.zsh.inc"
+fi

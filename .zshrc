@@ -1,3 +1,4 @@
+# .zshrc - Interactive shell configuration
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
 # Initialization code that may require console input (password prompts, [y/n]
 # confirmations, etc.) must go above this block; everything else may go below.
@@ -5,8 +6,44 @@ if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
 fi
 
-# If you come from bash you might have to change your $PATH.
-# export PATH=$HOME/bin:/usr/local/bin:$PATH
+# ============================================================================
+# Zsh Options - Modern shell behavior
+# ============================================================================
+
+# History Configuration
+HISTFILE="${XDG_STATE_HOME:-$HOME/.local/state}/zsh/history"
+HISTSIZE=50000
+SAVEHIST=50000
+mkdir -p "$(dirname "$HISTFILE")"
+
+setopt EXTENDED_HISTORY          # Write timestamp to history
+setopt HIST_EXPIRE_DUPS_FIRST    # Expire duplicate entries first
+setopt HIST_IGNORE_DUPS          # Don't record duplicate entries
+setopt HIST_IGNORE_SPACE         # Ignore commands starting with space
+setopt HIST_VERIFY               # Show before executing from history
+setopt SHARE_HISTORY             # Share history between sessions
+setopt INC_APPEND_HISTORY        # Append to history immediately
+
+# Directory Navigation
+setopt AUTO_CD                   # cd by typing directory name
+setopt AUTO_PUSHD                # Push directories onto stack
+setopt PUSHD_IGNORE_DUPS         # Don't push duplicates
+setopt PUSHD_SILENT              # Don't print directory stack
+
+# Completion
+setopt COMPLETE_IN_WORD          # Complete from both ends of word
+setopt ALWAYS_TO_END             # Move cursor after completion
+setopt AUTO_MENU                 # Show completion menu on tab
+setopt AUTO_LIST                 # List choices on ambiguous completion
+setopt MENU_COMPLETE             # Insert first match immediately
+
+# Globbing
+setopt EXTENDED_GLOB             # Extended globbing syntax
+setopt GLOB_DOTS                 # Match dotfiles without explicit dot
+
+# ============================================================================
+# Oh-My-Zsh Configuration
+# ============================================================================
 
 # Path to your oh-my-zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
@@ -84,40 +121,99 @@ HOST=$(hostname)
 
 source $ZSH/oh-my-zsh.sh
 
-# User configuration
+# ============================================================================
+# User Configuration
+# ============================================================================
 
-# You may need to manually set your language environment
-export LANG=en_US.UTF-8
+# Key Bindings - Emacs-style by default, uncomment for vi-mode
+# bindkey -v
+bindkey '^[[A' history-substring-search-up      # Up arrow
+bindkey '^[[B' history-substring-search-down    # Down arrow
+bindkey '^[[Z' reverse-menu-complete            # Shift+Tab
+bindkey '^[[3~' delete-char                     # Delete key
 
-# Compilation flags
-export ARCHFLAGS="-arch arm64"
+# ============================================================================
+# Aliases
+# ============================================================================
 
-# Some aliase I like
-alias la='ls -a'
-alias ssize="find -X . -depth 1| xargs du -hs |sort -h"
+# Directory listing (using lsd if available, falls back to ls)
+if command -v lsd &> /dev/null; then
+  alias ls='lsd -F'
+  alias ll='lsd -lF'
+  alias la='lsd -aF'
+  alias lla='lsd -laF'
+  alias tree='lsd --tree'
+else
+  alias la='ls -a'
+  alias ll='ls -lh'
+fi
 
+# Quick directory size
+alias ssize="find -X . -depth 1 | xargs du -hs | sort -h"
+
+# Utilities
 alias rot13="tr 'A-Za-z' 'N-ZA-Mn-za-m'"
-
 alias config='git --git-dir=$HOME/.cfg/ --work-tree=$HOME'
 
-# To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
+# Better defaults
+alias grep='grep --color=auto'
+alias df='df -h'
+alias du='du -h'
+alias free='free -h'
+
+# Quick navigation
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+
+# ============================================================================
+# Development Tools - Lazy Loading for Performance
+# ============================================================================
+
+# NVM (Node Version Manager) - Lazy load for faster shell startup
+export NVM_DIR="$HOME/.nvm"
+if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+  # Lazy load NVM
+  nvm() {
+    unset -f nvm node npm
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+    nvm "$@"
+  }
+
+  node() {
+    unset -f nvm node npm
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+    node "$@"
+  }
+
+  npm() {
+    unset -f nvm node npm
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+    npm "$@"
+  }
+fi
+
+# ============================================================================
+# Integrations
+# ============================================================================
+
+# Powerlevel10k theme customization
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
-# Use fzf
-[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+# FZF fuzzy finder
+[[ -f ~/.fzf.zsh ]] && source ~/.fzf.zsh
+
+# Z jump tool (fallback if oh-my-zsh plugin doesn't work)
+[[ -f ~/z.sh ]] || [[ -f ~/.local/share/z/z.sh ]] && source ~/.local/share/z/z.sh
+
+# ============================================================================
+# OS-Specific Configuration
+# ============================================================================
 
 case "$OSTYPE" in
-  darwin*)  source ~/.zshrc.macos ;;
-  linux*)   source ~/.zshrc.linux ;;
+  darwin*)  [[ -f ~/.zshrc.macos ]] && source ~/.zshrc.macos ;;
+  linux*)   [[ -f ~/.zshrc.linux ]] && source ~/.zshrc.linux ;;
 esac
-
-
-export PATH="/opt/homebrew/opt/openjdk@11/bin:$PATH"
-
-# Added by LM Studio CLI (lms)
-export PATH="$PATH:/Users/hugo/.cache/lm-studio/bin"
-
-
-# BEGIN_KITTY_SHELL_INTEGRATION
-if test -e "/Applications/kitty.app/Contents/Resources/kitty/shell-integration/kitty.zsh"; then source "/Applications/kitty.app/Contents/Resources/kitty/shell-integration/kitty.zsh"; fi
-# END_KITTY_SHELL_INTEGRATION
