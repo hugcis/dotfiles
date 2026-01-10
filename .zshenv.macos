@@ -1,25 +1,73 @@
-# Homebrew config
-eval "$(/opt/homebrew/bin/brew shellenv)"
+# .zshenv.macos - macOS-specific environment variables
 
-# java development kit
-export JDK_HOME=/Library/Java/JavaVirtualMachines/jdk1.8.0_121.jdk/Contents/Home
-PATH=$PATH:/opt/metasploit-framework/bin
-export PATH=$PATH:/opt/metasploit-framework/bin
+# Homebrew
+if [[ -x /opt/homebrew/bin/brew ]]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+fi
 
-# The next line updates PATH for the Google Cloud SDK.
-if [ -f '/Users/hugo/google-cloud-sdk/path.zsh.inc' ]; then . '/Users/hugo/google-cloud-sdk/path.zsh.inc'; fi
-
-# The next line enables shell command completion for gcloud.
-if [ -f '/Users/hugo/google-cloud-sdk/completion.zsh.inc' ]; then . '/Users/hugo/google-cloud-sdk/completion.zsh.inc'; fi
-
+# Terminal settings for Alacritty/Zellij
 export TERM=xterm-256color
-export PATH="/opt/homebrew/opt/make/libexec/gnubin:$PATH"
-export PATH="$PATH:/Applications/Julia-1.5.app/Contents/Resources/julia/bin/"
-export PATH="/Users/hugo/.local/bin:/Users/hugo/.pyenv/bin:$HOME/.poetry/bin:$PATH"
+export COLORTERM=truecolor
 
-export OPENBLAS="$(brew --prefix openblas)"
+# Consolidated PATH additions (order matters: most important first)
+typeset -U path  # Keep unique entries only
+path=(
+  # User binaries
+  $HOME/.local/bin
 
-# Rust config
-export RUST_SRC_PATH=$(rustc --print sysroot)/lib/rustlib/src/rust/library
-. "$HOME/.cargo/env"
-export PATH=/Applications/Julia-1.7.app/Contents/Resources/julia/bin:$PATH
+  # Python/PyEnv
+  $HOME/.pyenv/bin
+
+  # Poetry
+  $HOME/.poetry/bin
+
+  # Homebrew GNU tools (prefer over BSD versions)
+  /opt/homebrew/opt/make/libexec/gnubin(N)
+  /opt/homebrew/opt/coreutils/libexec/gnubin(N)
+  /opt/homebrew/opt/gnu-sed/libexec/gnubin(N)
+
+  # OpenJDK (prefer Homebrew version over system)
+  /opt/homebrew/opt/openjdk@11/bin(N)
+
+  # Julia (check if installed)
+  /Applications/Julia-1.7.app/Contents/Resources/julia/bin(N)
+
+  # Metasploit (if installed)
+  /opt/metasploit-framework/bin(N)
+
+  # LM Studio
+  $HOME/.cache/lm-studio/bin(N)
+
+  # Keep existing PATH
+  $path
+)
+export PATH
+
+# Java Development Kit (if needed)
+if [[ -d /Library/Java/JavaVirtualMachines/jdk1.8.0_121.jdk/Contents/Home ]]; then
+  export JDK_HOME=/Library/Java/JavaVirtualMachines/jdk1.8.0_121.jdk/Contents/Home
+fi
+
+# Google Cloud SDK
+if [[ -f "$HOME/google-cloud-sdk/path.zsh.inc" ]]; then
+  source "$HOME/google-cloud-sdk/path.zsh.inc"
+fi
+
+# OpenBLAS for scientific computing
+if command -v brew &> /dev/null; then
+  export OPENBLAS="$(brew --prefix openblas 2>/dev/null)"
+fi
+
+# Rust source path (for rust-analyzer, etc.)
+if command -v rustc &> /dev/null; then
+  export RUST_SRC_PATH="$(rustc --print sysroot)/lib/rustlib/src/rust/library"
+fi
+
+# Cargo environment (usually redundant but some tools expect it)
+[[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
+
+# Docker platform for Apple Silicon
+export DOCKER_DEFAULT_PLATFORM=linux/arm64
+
+# Architecture flags for compilation
+export ARCHFLAGS="-arch arm64"
