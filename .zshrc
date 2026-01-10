@@ -1,4 +1,11 @@
 # .zshrc - Interactive shell configuration
+
+# History Configuration - Must be set before instant prompt
+HISTFILE="${XDG_STATE_HOME:-$HOME/.local/state}/zsh/history"
+HISTSIZE=50000
+SAVEHIST=50000
+mkdir -p "$(dirname "$HISTFILE")" 2>/dev/null
+
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
 # Initialization code that may require console input (password prompts, [y/n]
 # confirmations, etc.) must go above this block; everything else may go below.
@@ -10,11 +17,7 @@ fi
 # Zsh Options - Modern shell behavior
 # ============================================================================
 
-# History Configuration
-HISTFILE="${XDG_STATE_HOME:-$HOME/.local/state}/zsh/history"
-HISTSIZE=50000
-SAVEHIST=50000
-mkdir -p "$(dirname "$HISTFILE")"
+# History Options
 
 setopt EXTENDED_HISTORY          # Write timestamp to history
 setopt HIST_EXPIRE_DUPS_FIRST    # Expire duplicate entries first
