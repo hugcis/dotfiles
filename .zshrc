@@ -77,16 +77,12 @@ plugins=(
   z
   shrink-path
   zsh-autosuggestions
-  zsh-autoquoter
   zsh-syntax-highlighting
 )
 
 HOST=$(hostname)
 
 source $ZSH/oh-my-zsh.sh
-
-ZAQ_PREFIXES=('git commit( [^ ]##)# -[^ -]#m' 'ssh( [^ ]##)# [^ -][^ ]#')
-ZSH_HIGHLIGHT_HIGHLIGHTERS+=(zaq)
 
 # User configuration
 
@@ -100,15 +96,7 @@ export ARCHFLAGS="-arch arm64"
 alias la='ls -a'
 alias ssize="find -X . -depth 1| xargs du -hs |sort -h"
 
-alias -g G='| egrep'
-alias -g H='| head'
-alias -g HL='|& head -20'
-
 alias rot13="tr 'A-Za-z' 'N-ZA-Mn-za-m'"
-alias python='python3'
-
-# include Z
-. ~/z/z.sh
 
 alias config='git --git-dir=$HOME/.cfg/ --work-tree=$HOME'
 
@@ -122,6 +110,12 @@ case "$OSTYPE" in
   darwin*)  source ~/.zshrc.macos ;;
   linux*)   source ~/.zshrc.linux ;;
 esac
+
+
+export PATH="/opt/homebrew/opt/openjdk@11/bin:$PATH"
+
+# Added by LM Studio CLI (lms)
+export PATH="$PATH:/Users/hugo/.cache/lm-studio/bin"
 
 
 # BEGIN_KITTY_SHELL_INTEGRATION

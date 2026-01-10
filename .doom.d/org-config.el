@@ -216,11 +216,11 @@
                                                     "\n"
                                                     (org-agenda-format-date-aligned date))))
 (setq org-cycle-separator-lines 2)
-(setq org-agenda-category-icon-alist
-      `(("Work" ,(list (all-the-icons-faicon "cogs")) nil nil :ascent center)
-        ("Personal" ,(list (all-the-icons-material "person")) nil nil :ascent center)
-        ("Calendar" ,(list (all-the-icons-faicon "calendar")) nil nil :ascent center)
-        ("Reading" ,(list (all-the-icons-faicon "book")) nil nil :ascent center)))
+;; (setq org-agenda-category-icon-alist
+;;       `(("Work" ,(list (all-the-icons-faicon "cogs")) nil nil :ascent center)
+;;         ("Personal" ,(list (all-the-icons-material "person")) nil nil :ascent center)
+;;         ("Calendar" ,(list (all-the-icons-faicon "calendar")) nil nil :ascent center)
+;;         ("Reading" ,(list (all-the-icons-faicon "book")) nil nil :ascent center)))
 
 (setq org-agenda-custom-commands
       '(("z" "Hugo view"

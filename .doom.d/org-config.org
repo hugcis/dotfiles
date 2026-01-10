@@ -294,33 +294,33 @@ Most of this was copied from [[https://github.com/bzg/dotemacs/blob/master/emacs
 :END:
 Those settings adjust the look and feel of the org-agenda.
 #+BEGIN_SRC elisp :tangle org-config.el
-(defun my/style-org-agenda()
-  (my/buffer-face-mode-variable)
-  (set-face-attribute 'org-agenda-date nil :height 1.1)
-  (set-face-attribute 'org-agenda-date-today nil :height 1.1 :slant 'italic)
-  (set-face-attribute 'org-agenda-date-weekend nil :height 1.1))
+  (defun my/style-org-agenda()
+    (my/buffer-face-mode-variable)
+    (set-face-attribute 'org-agenda-date nil :height 1.1)
+    (set-face-attribute 'org-agenda-date-today nil :height 1.1 :slant 'italic)
+    (set-face-attribute 'org-agenda-date-weekend nil :height 1.1))
 
-(add-hook 'org-agenda-mode-hook 'my/style-org-agenda)
+  (add-hook 'org-agenda-mode-hook 'my/style-org-agenda)
 
-(setq org-agenda-breadcrumbs-separator " ❱ "
-      org-agenda-current-time-string "⏰ ┈┈┈┈┈┈┈┈┈┈┈ now"
-      org-agenda-time-grid '((weekly today require-timed)
-                             (800 1000 1200 1400 1600 1800 2000)
-                             "---" "┈┈┈┈┈┈┈┈┈┈┈┈┈")
-      org-agenda-prefix-format '((agenda . "%i %-12:c%?-12t%b% s")
-                                 (todo . " %i %-12:c")
-                                 (tags . " %i %-12:c")
-                                 (search . " %i %-12:c")))
+  (setq org-agenda-breadcrumbs-separator " ❱ "
+        org-agenda-current-time-string "⏰ ┈┈┈┈┈┈┈┈┈┈┈ now"
+        org-agenda-time-grid '((weekly today require-timed)
+                               (800 1000 1200 1400 1600 1800 2000)
+                               "---" "┈┈┈┈┈┈┈┈┈┈┈┈┈")
+        org-agenda-prefix-format '((agenda . "%i %-12:c%?-12t%b% s")
+                                   (todo . " %i %-12:c")
+                                   (tags . " %i %-12:c")
+                                   (search . " %i %-12:c")))
 
-(setq org-agenda-format-date (lambda (date) (concat "\n" (make-string (window-width) 9472)
-                                                    "\n"
-                                                    (org-agenda-format-date-aligned date))))
-(setq org-cycle-separator-lines 2)
-(setq org-agenda-category-icon-alist
-      `(("Work" ,(list (all-the-icons-faicon "cogs")) nil nil :ascent center)
-        ("Personal" ,(list (all-the-icons-material "person")) nil nil :ascent center)
-        ("Calendar" ,(list (all-the-icons-faicon "calendar")) nil nil :ascent center)
-        ("Reading" ,(list (all-the-icons-faicon "book")) nil nil :ascent center)))
+  (setq org-agenda-format-date (lambda (date) (concat "\n" (make-string (window-width) 9472)
+                                                      "\n"
+                                                      (org-agenda-format-date-aligned date))))
+  (setq org-cycle-separator-lines 2)
+  ;; (setq org-agenda-category-icon-alist
+  ;;       `(("Work" ,(list (all-the-icons-faicon "cogs")) nil nil :ascent center)
+  ;;         ("Personal" ,(list (all-the-icons-material "person")) nil nil :ascent center)
+  ;;         ("Calendar" ,(list (all-the-icons-faicon "calendar")) nil nil :ascent center)
+  ;;         ("Reading" ,(list (all-the-icons-faicon "book")) nil nil :ascent center)))
 
 #+END_SRC
 

@@ -1,15 +1,5 @@
-# Some handy functions to switch between internet setups I often use.
-vpn_on() {
-   networksetup -setdnsservers Wi-Fi 10.6.0.2
-   scutil --nc start "PIVPN DNS"
-}
-vpn_off() {
-   scutil --nc stop "PIVPN DNS"
-   networksetup -setdnsservers Wi-Fi 208.67.222.222 1.1.1.1 1.0.0.1 2606:4700:4700::1111 2606:4700:4700::1001
-}
-vpn_full() {
-   scutil --nc start "PIVPN"
-}
+# SSH Agent - use macOS keychain
+ssh-add --apple-use-keychain &> /dev/null
 
 eval "$(pyenv init -)"
 
@@ -34,17 +24,4 @@ then
   compinit
 fi
 
-# >>> conda initialize >>>
-# !! Contents within this block are managed by 'conda init' !!
-__conda_setup="$('/Users/hugo/miniconda3/bin/conda' 'shell.zsh' 'hook' 2> /dev/null)"
-if [ $? -eq 0 ]; then
-    eval "$__conda_setup"
-else
-    if [ -f "/Users/hugo/miniconda3/etc/profile.d/conda.sh" ]; then
-        . "/Users/hugo/miniconda3/etc/profile.d/conda.sh"
-    else
-        export PATH="/Users/hugo/miniconda3/bin:$PATH"
-    fi
-fi
-unset __conda_setup
-# <<< conda initialize <<<
+export DOCKER_DEFAULT_PLATFORM=linux/arm64

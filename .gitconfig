@@ -6,12 +6,6 @@
 [core]
 	excludesfile = ~/.gitexclude
 
-[filter "lfs"]
-	smudge = git-lfs smudge -- %f
-	process = git-lfs filter-process
-	required = true
-	clean = git-lfs clean -- %f
-
 [alias]
         co = checkout
         ci = commit
@@ -35,3 +29,9 @@
 	default = simple
 # [gpg]
 #	format = ssh
+[credential "https://github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
