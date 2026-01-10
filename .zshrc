@@ -210,7 +210,11 @@ fi
 [[ -f ~/.fzf.zsh ]] && source ~/.fzf.zsh
 
 # Z jump tool (fallback if oh-my-zsh plugin doesn't work)
-[[ -f ~/z.sh ]] || [[ -f ~/.local/share/z/z.sh ]] && source ~/.local/share/z/z.sh
+if [[ -f ~/z.sh ]]; then
+  source ~/z.sh
+elif [[ -f ~/.local/share/z/z.sh ]]; then
+  source ~/.local/share/z/z.sh
+fi
 
 # ============================================================================
 # OS-Specific Configuration
