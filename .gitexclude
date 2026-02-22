@@ -1,7 +1,6 @@
 *.log
 *.fdb_latexmk
 *.fls
-*.log
 *.nav
 *.out
 *.snm
@@ -21,3 +20,8 @@ auto/
 *.blg
 __pycache__/
 *.pyc
+# Vim auto-generated files
+.vim/.netrwhist
+.vim/pack/**/tags
+.vim/pack/**/tags-au
+.vim/pack/**/tags-te

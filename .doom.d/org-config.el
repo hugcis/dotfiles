@@ -383,10 +383,9 @@
                               "#+TITLE: ${title}\n")
            :immediate-finish t
            :unnarrowed t)))
-  (org-roam-setup)
   (org-roam-db-autosync-mode)
   )
-(setq org-id-extra-files (org-roam--list-files org-roam-directory))
+(setq org-id-extra-files (org-roam-list-files))
 
 (defun my/caldav-sync-perso ()
   "Sync my local calendar in ~/org/calendar.org with my remote calendar"

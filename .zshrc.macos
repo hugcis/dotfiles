@@ -27,7 +27,7 @@ if type brew &>/dev/null; then
   FPATH="$(brew --prefix)/share/zsh/site-functions:${FPATH}"
   autoload -Uz compinit
   # Only check for new completions once a day (speeds up shell startup)
-  if [[ -n ${ZDOTDIR}/.zcompdump(#qN.mh+24) ]]; then
+  if [[ -n ${ZDOTDIR:-$HOME}/.zcompdump(#qN.mh+24) ]]; then
     compinit
   else
     compinit -C

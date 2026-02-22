@@ -18,9 +18,6 @@ path=(
   # Python/PyEnv
   $HOME/.pyenv/bin
 
-  # Poetry
-  $HOME/.poetry/bin
-
   # Homebrew GNU tools (prefer over BSD versions)
   /opt/homebrew/opt/make/libexec/gnubin(N)
   /opt/homebrew/opt/coreutils/libexec/gnubin(N)
@@ -43,28 +40,18 @@ path=(
 )
 export PATH
 
-# Java Development Kit (if needed)
-if [[ -d /Library/Java/JavaVirtualMachines/jdk1.8.0_121.jdk/Contents/Home ]]; then
-  export JDK_HOME=/Library/Java/JavaVirtualMachines/jdk1.8.0_121.jdk/Contents/Home
-fi
-
 # Google Cloud SDK
 if [[ -f "$HOME/google-cloud-sdk/path.zsh.inc" ]]; then
   source "$HOME/google-cloud-sdk/path.zsh.inc"
 fi
 
-# OpenBLAS for scientific computing
-if command -v brew &> /dev/null; then
-  export OPENBLAS="$(brew --prefix openblas 2>/dev/null)"
-fi
+# OpenBLAS for scientific computing (hardcoded to avoid slow `brew --prefix` on every shell start)
+export OPENBLAS="/opt/homebrew/opt/openblas"
 
-# Rust source path (for rust-analyzer, etc.)
-if command -v rustc &> /dev/null; then
-  export RUST_SRC_PATH="$(rustc --print sysroot)/lib/rustlib/src/rust/library"
+# Rust source path for rust-analyzer (hardcoded to avoid slow `rustc --print sysroot` on every shell start)
+if [[ -d "$HOME/.rustup" ]]; then
+  export RUST_SRC_PATH="$HOME/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library"
 fi
-
-# Cargo environment (usually redundant but some tools expect it)
-[[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
 
 # Docker platform for Apple Silicon
 export DOCKER_DEFAULT_PLATFORM=linux/arm64

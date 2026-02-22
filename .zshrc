@@ -130,8 +130,8 @@ source $ZSH/oh-my-zsh.sh
 
 # Key Bindings - Emacs-style by default, uncomment for vi-mode
 # bindkey -v
-bindkey '^[[A' history-substring-search-up      # Up arrow
-bindkey '^[[B' history-substring-search-down    # Down arrow
+bindkey '^[[A' up-line-or-search                # Up arrow
+bindkey '^[[B' down-line-or-search              # Down arrow
 bindkey '^[[Z' reverse-menu-complete            # Shift+Tab
 bindkey '^[[3~' delete-char                     # Delete key
 
@@ -162,7 +162,6 @@ alias config='git --git-dir=$HOME/.cfg/ --work-tree=$HOME'
 alias grep='grep --color=auto'
 alias df='df -h'
 alias du='du -h'
-alias free='free -h'
 
 # Quick navigation
 alias ..='cd ..'
@@ -208,13 +207,6 @@ fi
 
 # FZF fuzzy finder
 [[ -f ~/.fzf.zsh ]] && source ~/.fzf.zsh
-
-# Z jump tool (fallback if oh-my-zsh plugin doesn't work)
-if [[ -f ~/z.sh ]]; then
-  source ~/z.sh
-elif [[ -f ~/.local/share/z/z.sh ]]; then
-  source ~/.local/share/z/z.sh
-fi
 
 # ============================================================================
 # OS-Specific Configuration
