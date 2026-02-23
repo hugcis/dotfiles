@@ -15,9 +15,14 @@ alias config='git --git-dir=$HOME/.cfg/ --work-tree=$HOME'
 This means `config status`, `config add`, `config commit`, etc. work exactly
 like regular git commands but operate on the dotfiles repo.
 
-The `.gitexclude` file (referenced via `core.excludesfile` in `.gitconfig`)
-acts as a global gitignore for this repo, preventing untracked home directory
-files from showing up in `config status`.
+New files in `$HOME` are **not tracked by default**. The `.gitexclude` file
+(referenced via `core.excludesfile` in `.gitconfig`) ignores everything, so
+`config status` only shows changes to files that have been explicitly added.
+To start tracking a new file, add it manually:
+
+```bash
+config add ~/.some-new-dotfile
+```
 
 ## File structure
 
