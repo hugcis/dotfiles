@@ -284,6 +284,19 @@ section_doom() {
     else
         info "Installing Doom Emacs..."
         git clone --depth 1 https://github.com/doomemacs/doomemacs "$HOME/.emacs.d"
+        # libgccjit native-comp needs GCC's emutls_w library on the linker path (macOS).
+        # The library lives in a target-specific subdirectory under gcc's lib tree.
+        if [[ "$OS" == "Darwin" ]] && has brew; then
+            local gcc_prefix
+            gcc_prefix="$(brew --prefix gcc 2>/dev/null)"
+            if [[ -d "$gcc_prefix" ]]; then
+                local emutls_dir
+                emutls_dir="$(dirname "$(find "$gcc_prefix/lib" -name 'libemutls_w*' -print -quit 2>/dev/null)" 2>/dev/null)"
+                if [[ -n "$emutls_dir" && -d "$emutls_dir" ]]; then
+                    export LIBRARY_PATH="${emutls_dir}${LIBRARY_PATH:+:$LIBRARY_PATH}"
+                fi
+            fi
+        fi
         "$HOME/.emacs.d/bin/doom" install
     fi
 }
