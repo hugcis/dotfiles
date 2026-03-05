@@ -124,6 +124,11 @@ HOST=$(hostname)
 
 source $ZSH/oh-my-zsh.sh
 
+# Re-apply history config after Oh My Zsh (it overrides HISTFILE)
+HISTFILE="${XDG_STATE_HOME:-$HOME/.local/state}/zsh/history"
+HISTSIZE=50000
+SAVEHIST=50000
+
 # ============================================================================
 # User Configuration
 # ============================================================================
