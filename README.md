@@ -63,9 +63,42 @@ org-roam, org-agenda, and bibliography setup.
 
 ### Git
 
-- `.gitconfig` — User identity, aliases (`co`, `ci`, `st`, `br`, `hist`, `la`), SSH credential helpers, per-org URL rewrites
+- `.gitconfig` — User identity, aliases (`co`, `ci`, `st`, `br`, `hist`, `la`, `sync`), SSH credential helpers, per-org URL rewrites
 - `.gitexclude` — Global gitignore patterns (LaTeX build artifacts, Python bytecode, macOS files)
 - `.gitmodules` — Submodule declarations (`.tmux`)
+
+## Package management
+
+Packages are declared in tracked files rather than managed imperatively:
+
+| File | OS | Format |
+|------|----|--------|
+| `Brewfile` | macOS | Homebrew bundle format (`brew`, `cask`, `tap`) |
+| `.packages.arch` | Arch Linux | Plain text, one package per line (comments with `#`) |
+
+Two shell functions (defined in `.zshrc`) keep things in sync:
+
+### `dotfiles-sync`
+
+Pulls the latest dotfiles and installs any missing packages in one step:
+
+1. `config pull --rebase` — fast-forward the bare repo
+2. Detects the OS and runs the appropriate package installer:
+   - **macOS:** `brew bundle install --file=~/Brewfile`
+   - **Arch Linux:** `sudo pacman -S --needed` from `~/.packages.arch`
+3. `exec zsh` — reloads the shell to pick up any config changes
+
+Also available as `config sync` (git alias).
+
+### `dotfiles-doctor`
+
+Reports missing tools without changing anything:
+
+- Checks for common CLI tools: `git`, `zsh`, `fzf`, `rg`, `bat`
+- **macOS:** checks for Homebrew and key formulae (`fd`, `lsd`, `cmake`, `tmux`, `zellij`, `uv`)
+- **Arch Linux:** walks `.packages.arch` and reports any uninstalled packages
+
+Prints "All good!" if everything is present, or lists each missing tool.
 
 ## Installation
 
