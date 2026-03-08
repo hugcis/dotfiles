@@ -162,3 +162,8 @@ program = "/opt/homebrew/bin/zellij"
 decorations = "buttonless"
 startup_mode = "Fullscreen"
 title = "Alacritty"
+
+[[keyboard.bindings]]
+key = "Return"
+mods = "Shift"
+chars = "\u001B\r"
