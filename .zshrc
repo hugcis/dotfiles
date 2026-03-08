@@ -181,7 +181,7 @@ dotfiles-sync() {
   case "$OSTYPE" in
     darwin*)
       if command -v brew &>/dev/null && [[ -f "$HOME/Brewfile" ]]; then
-        brew bundle install --file="$HOME/Brewfile" --no-lock
+        brew bundle install --file="$HOME/Brewfile"
       fi
       ;;
     linux*)
