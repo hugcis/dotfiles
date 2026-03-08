@@ -1,0 +1,50 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "permissions": {
+    "allow": [
+      "Bash(gh pr list:*)",
+      "Bash(gh run view:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo test:*)",
+      "Bash(SKIP_REAL_API_TESTS=true cargo test:*)",
+      "Bash(psql:*)",
+      "Bash(docker exec:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(just --list:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(git reset:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(docker-compose exec:*)",
+      "Bash(DATABASE_URL=\"postgres://easyroute_user:easyroute_pass@localhost:5432/easyroute_test\" sqlx migrate run:*)",
+      "Bash(cargo tree:*)",
+      "Bash(wc:*)",
+      "Bash(git apply:*)",
+      "Bash(just:*)"
+    ],
+    "defaultMode": "default"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh"
+  },
+  "enabledPlugins": {
+    "code-simplifier@claude-plugins-official": true,
+    "frontend-design@claude-code-plugins": true,
+    "frontend-design@claude-plugins-official": false,
+    "security-guidance@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "pyright-lsp@claude-plugins-official": true,
+    "swift-lsp@claude-plugins-official": true,
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true
+  },
+  "alwaysThinkingEnabled": true
+}
