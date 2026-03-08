@@ -15,6 +15,7 @@
         type = cat-file -t
         dump = cat-file -p
         la = log --all --graph --oneline --decorate
+        sync = !dotfiles-sync
 
 [pull]
 	ff = only

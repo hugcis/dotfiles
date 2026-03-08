@@ -169,6 +169,80 @@ alias ...='cd ../..'
 alias ....='cd ../../..'
 
 # ============================================================================
+# Dotfiles Management
+# ============================================================================
+
+# Sync dotfiles + install packages
+dotfiles-sync() {
+  echo "Pulling latest dotfiles..."
+  config pull --rebase || { echo "Pull failed"; return 1; }
+
+  echo "Installing packages..."
+  case "$OSTYPE" in
+    darwin*)
+      if command -v brew &>/dev/null && [[ -f "$HOME/Brewfile" ]]; then
+        brew bundle install --file="$HOME/Brewfile" --no-lock
+      fi
+      ;;
+    linux*)
+      if command -v pacman &>/dev/null && [[ -f "$HOME/.packages.arch" ]]; then
+        sudo pacman -S --needed - < "$HOME/.packages.arch"
+      fi
+      ;;
+  esac
+
+  echo "Reloading shell..."
+  exec zsh
+}
+
+# Health check
+dotfiles-doctor() {
+  local issues=0
+
+  # Check common tools
+  for cmd in git zsh fzf rg bat; do
+    if ! command -v "$cmd" &>/dev/null; then
+      echo "  MISSING: $cmd"
+      ((issues++))
+    fi
+  done
+
+  # OS-specific checks
+  case "$OSTYPE" in
+    darwin*)
+      if ! command -v brew &>/dev/null; then
+        echo "  MISSING: homebrew"
+        ((issues++))
+      else
+        for cmd in fd lsd cmake tmux zellij uv; do
+          if ! command -v "$cmd" &>/dev/null; then
+            echo "  MISSING: $cmd"
+            ((issues++))
+          fi
+        done
+      fi
+      ;;
+    linux*)
+      if [[ -f "$HOME/.packages.arch" ]]; then
+        while IFS= read -r pkg; do
+          [[ "$pkg" =~ ^#.*$ || -z "$pkg" ]] && continue
+          if ! pacman -Qi "$pkg" &>/dev/null 2>&1; then
+            echo "  MISSING package: $pkg"
+            ((issues++))
+          fi
+        done < "$HOME/.packages.arch"
+      fi
+      ;;
+  esac
+
+  if (( issues == 0 )); then
+    echo "All good!"
+  else
+    echo "$issues issue(s) found"
+  fi
+}
+
+# ============================================================================
 # Development Tools - Lazy Loading for Performance
 # ============================================================================
 

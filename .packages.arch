@@ -1,0 +1,22 @@
+# .packages.arch — declarative Arch Linux package list
+# Usage: sudo pacman -S --needed - < ~/.packages.arch
+
+# Core CLI
+git
+zsh
+fzf
+ripgrep
+tmux
+cmake
+bat
+
+# GitHub CLI
+github-cli
+
+# Spelling
+aspell
+
+# SSH & Clipboard
+keychain
+xclip
+xsel
