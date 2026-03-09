@@ -35,6 +35,9 @@ path=(
   # LM Studio
   $HOME/.cache/lm-studio/bin(N)
 
+  # TeX Live
+  /usr/local/texlive/2024/bin/universal-darwin(N)
+
   # Keep existing PATH
   $path
 )

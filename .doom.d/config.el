@@ -126,6 +126,10 @@
 
 (use-package! wgsl-mode)
 
+(use-package! terraform-mode)
+
+(add-hook! terraform-mode (setq-default flycheck-disabled-checkers '(terraform-tflint)))
+
 (add-hook 'org-cycle-hook 'org-cycle-hide-drawers)
 
 (setq lsp-enable-file-watchers nil)
@@ -225,9 +229,13 @@
 ;; of making the whole function interactive (and therefore accessible anywhere)
 ;; we only make the lambda (interactive).
 (add-hook! python-mode (define-key python-mode-map (kbd "s-f") (lambda () (interactive) (python-isort-black))))
+(add-hook! terraform-mode (define-key terraform-mode-map (kbd "s-f") (lambda () (interactive) (terraform-format-buffer))))
 
 (add-hook! python-mode
    (setq flycheck-local-checkers '((lsp . ((next-checkers . (python-flake8)))))))
+(add-hook! python-mode (diff-hl-mode -1))
+(add-hook! python-mode (+web-django-mode -1))
+
 (add-hook! latex-mode
    (setq flycheck-local-checkers '((lsp . ((next-checkers . (textlint)))))))
 (add-hook! latex-mode (outline-minor-mode))
@@ -242,3 +250,12 @@
 (setq lsp-julia-package-dir  "~/.julia/packages")
 (setq lsp-julia-default-environment "~/.julia/environments/v1.7")
 (setq helm-rg-ripgrep-executable "~/.nix-profile/bin/rg")
+
+(setq magit-git-executable "/opt/homebrew/bin/git")
+(setq helm-rg-ripgrep-executable "/opt/homebrew/bin/rg")
+
+(autoload 'mapserver-mode "mapserver-mode" "Mode for editing UMN MapServer files." t)
+(add-to-list 'auto-mode-alist '("\\.map\\'" . mapserver-mode))
+
+(defun format-sql-file () (interactive) (shell-command (concat "sqlfmt " (buffer-file-name))) (revert-buffer :ignore-auto :noconfirm))
+(add-hook! sql-interactive-mode (define-key sql-interactive-mode-map (kbd "s-f") (format-sql-file)))

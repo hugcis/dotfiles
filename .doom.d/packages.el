@@ -79,3 +79,9 @@
 (package! python-black)
 (package! flycheck-grammarly)
 (package! wgsl-mode)
+(package! terraform-mode)
+
+(package! hurl-mode :recipe
+  (:host github
+   :repo "Orange-OpenSource/hurl"
+   :files ("contrib/emacs/*.el")))
