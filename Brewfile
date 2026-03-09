@@ -62,7 +62,7 @@ brew "pyenv"
 brew "uv"
 brew "node"
 brew "gcc"
-brew "llvm@13"
+brew "llvm"
 brew "zig"
 
 # ============================================================================
