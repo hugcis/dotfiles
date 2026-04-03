@@ -38,6 +38,9 @@ path=(
   # TeX Live
   /usr/local/texlive/2024/bin/universal-darwin(N)
 
+  # Docker Desktop
+  /usr/local/bin(N)
+
   # Keep existing PATH
   $path
 )
