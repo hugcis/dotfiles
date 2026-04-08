@@ -302,14 +302,13 @@
             (define-key org-journal-mode-map
               (kbd "C-x C-s") 'org-journal-save-entry-and-exit)))
 
-(setq org-cite-global-bibliography nil)
-(add-to-list 'org-cite-global-bibliography (expand-file-name "~/Papers/library.json"))
+(setq org-cite-global-bibliography '("~/Papers/library.bib"))
 (require 'oc-csl)
+(setq bibtex-completion-bibliography '("~/Papers/library.bib")
+      bibtex-completion-library-path '("~/Papers/pdf/")
+      bibtex-completion-notes-path "~/org/roam/notes")
 (with-eval-after-load 'org-ref
-  (setq bibtex-completion-bibliography '("~/Papers/library.json")
-        bibtex-completion-library-path '("~/Papers/pdf/")
-        bibtex-completion-notes-path "~/org/roam/notes"
-        bibtex-completion-additional-search-fields '(keywords)
+  (setq bibtex-completion-additional-search-fields '(keywords)
         bibtex-completion-display-formats
         '((article       . "${=has-pdf=:1}${=has-note=:1} ${year:4} ${author:36} ${title:*} ${journal:40}")
           (inbook        . "${=has-pdf=:1}${=has-note=:1} ${year:4} ${author:36} ${title:*} Chapter ${chapter:32}")
@@ -339,7 +338,7 @@
 (setq bibtex-completion-notes-template-multiple-files
       ":PROPERTIES:\n:ROAM_REFS: cite:${=key=}\n:END:\n#+TITLE: Notes on: ${title} by ${author-or-editor} (${year})\n#+hugo_lastmod: Time-stamp: <>\n#+ROAM_KEY: cite:${=key=}\n\n- source :: cite:${=key=}
   \n\n* TODO Summary\n* TODO Comments\n\n
-  bibliography:~/Papers/library.json")
+  bibliography:~/Papers/library.bib")
 
 (setq org-capture-templates
       '(("n" "Notes" entry

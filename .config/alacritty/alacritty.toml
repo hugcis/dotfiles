@@ -155,13 +155,15 @@ mods = "Command"
 [selection]
 save_to_clipboard = false
 
-[shell]
+[terminal.shell]
 program = "/opt/homebrew/bin/zellij"
 
 [window]
 decorations = "buttonless"
 startup_mode = "Fullscreen"
 title = "Alacritty"
+
+[terminal]
 
 [[keyboard.bindings]]
 key = "Return"
