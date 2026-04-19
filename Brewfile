@@ -36,6 +36,7 @@ brew "watch"
 brew "pv"
 brew "tmux"
 brew "zellij"
+brew "starship"
 
 # ============================================================================
 # Text & Spelling

@@ -195,7 +195,7 @@ dotfiles-doctor() {
   local issues=0
 
   # Check common tools
-  for cmd in git zsh fzf rg bat; do
+  for cmd in git zsh fzf rg bat starship; do
     if ! command -v "$cmd" &>/dev/null; then
       echo "  MISSING: $cmd"
       ((issues++))

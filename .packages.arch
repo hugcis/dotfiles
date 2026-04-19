@@ -9,6 +9,7 @@ ripgrep
 tmux
 cmake
 bat
+starship
 
 # GitHub CLI
 github-cli
@@ -20,3 +21,6 @@ aspell
 keychain
 xclip
 xsel
+
+# Fonts
+ttf-meslo-nerd
