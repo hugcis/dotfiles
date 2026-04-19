@@ -6,8 +6,6 @@ HISTSIZE=50000
 SAVEHIST=50000
 mkdir -p "$(dirname "$HISTFILE")" 2>/dev/null
 
-
-
 # ============================================================================
 # Zsh Options - Modern shell behavior
 # ============================================================================
@@ -118,6 +116,14 @@ plugins=(
 HOST=$(hostname)
 
 source $ZSH/oh-my-zsh.sh
+
+# ============================================================================
+# Prompt
+# ============================================================================
+
+# Starship prompt — must be initialized after oh-my-zsh so it wins any
+# prompt-variable conflict with omz.
+eval "$(starship init zsh)"
 
 # ============================================================================
 # User Configuration
