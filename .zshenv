@@ -29,7 +29,7 @@ case "$OSTYPE" in
   linux*)   [[ -f ~/.zshenv.linux ]] && source ~/.zshenv.linux ;;
 esac
 
-. "$HOME/.cargo/env"
+[[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
 
 function maclookup() {
     curl "https://api.macvendors.com/$1"

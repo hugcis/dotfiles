@@ -38,7 +38,7 @@ The shell config is split by concern and OS:
 | `.zshrc` | Shared interactive config: oh-my-zsh, aliases, NVM lazy-loading |
 | `.zshrc.macos` | macOS interactive: pyenv, Nix, Homebrew completions, Alacritty/Zellij integration |
 | `.zshrc.linux` | Linux interactive: tmux TERM fix |
-| `.p10k.zsh` | Powerlevel10k theme config (generated via `p10k configure`) |
+| `.config/starship.toml` | Starship prompt config (if customized) |
 
 OS-specific files are sourced conditionally via `case "$OSTYPE"` at the end of
 `.zshenv` and `.zshrc`.

@@ -31,6 +31,7 @@
     ],
     "defaultMode": "default"
   },
+  "model": "opus",
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline.sh"
@@ -46,5 +47,6 @@
     "superpowers@claude-plugins-official": true,
     "frontend-design@claude-code-plugins": true
   },
-  "alwaysThinkingEnabled": true
+  "alwaysThinkingEnabled": true,
+  "theme": "dark-daltonized"
 }

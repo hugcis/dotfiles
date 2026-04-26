@@ -1,1 +1,3 @@
-eval $(keychain --eval --quiet id_ed25519 id_rsa)
+if command -v keychain &>/dev/null; then
+  eval $(keychain --eval --quiet id_ed25519 id_rsa)
+fi

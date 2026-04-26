@@ -168,6 +168,8 @@
 (display-time-mode 1)
 
 (setq magit-display-buffer-function #'magit-display-buffer-fullframe-status-v1)
+(setq magit-refresh-status-buffer nil)
+(setq magit-diff-highlight-hunk-body nil)
 
 (after! evil-maps
   (define-key evil-insert-state-map (kbd "<C-tab>") 'yas-expand)
@@ -249,10 +251,9 @@
 
 (setq lsp-julia-package-dir  "~/.julia/packages")
 (setq lsp-julia-default-environment "~/.julia/environments/v1.7")
-(setq helm-rg-ripgrep-executable "~/.nix-profile/bin/rg")
 
-(setq magit-git-executable "/opt/homebrew/bin/git")
-(setq helm-rg-ripgrep-executable "/opt/homebrew/bin/rg")
+(setq magit-git-executable "/usr/bin/git")
+(setq helm-rg-ripgrep-executable "/usr/bin/rg")
 
 (autoload 'mapserver-mode "mapserver-mode" "Mode for editing UMN MapServer files." t)
 (add-to-list 'auto-mode-alist '("\\.map\\'" . mapserver-mode))
