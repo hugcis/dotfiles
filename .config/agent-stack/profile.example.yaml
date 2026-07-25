@@ -1,0 +1,22 @@
+# Copy to profile.yaml and fill in for this machine. profile.yaml is NEVER committed.
+endpoints:
+  anthropic: https://REPLACE-ME/anthropic
+  openai: https://REPLACE-ME/openai/v1
+
+provider_names:
+  pi:       {anthropic: REPLACE-ME, openai: REPLACE-ME}
+  opencode: {anthropic: REPLACE-ME, openai: REPLACE-ME}
+  vibe:     {anthropic: REPLACE-ME, openai: REPLACE-ME}
+
+# Omit a slot entirely to emit no agent for it on this machine.
+slots:
+  primary:   {provider: anthropic, model: REPLACE-ME, thinking: high}
+  alt:       {provider: openai,    model: REPLACE-ME, thinking: high}
+  alt-xhigh: {provider: openai,    model: REPLACE-ME, thinking: xhigh}
+  fast:      {provider: openai,    model: REPLACE-ME}
+
+# Extra AGENTS.md fragments from agents.md.d/, appended after 00-universal.md.
+agents_md_extra: []
+
+# Extra shell exports emitted into profile.env.
+env: {}

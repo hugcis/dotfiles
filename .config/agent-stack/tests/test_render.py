@@ -283,3 +283,44 @@ def test_emit_claude_frontmatter():
     assert fname == "reviewer-primary.md"
     assert "name: reviewer-primary" in content
     assert "You are a strict code reviewer." in content
+
+
+def test_compose_agents_md_includes_extra_fragments(tmp_path):
+    extra = STACK / "agents.md.d" / "_test_fragment.md"
+    extra.write_text("WORK ONLY MARKER\n")
+    try:
+        profile = render.load_profile(FIXTURE)
+        profile["agents_md_extra"] = ["_test_fragment.md"]
+        text = render.compose_agents_md(profile)
+        assert "Superpowers Skill Use" in text
+        assert "WORK ONLY MARKER" in text
+    finally:
+        extra.unlink()
+
+
+def test_prune_stale_moves_unknown_files_aside(tmp_path):
+    target = tmp_path / "agents"
+    target.mkdir()
+    (target / "reviewer-primary.md").write_text("keep")
+    (target / "opus5-coder.md").write_text("stale")
+    moved = render.prune_stale(target, {"reviewer-primary.md"})
+    assert moved == ["opus5-coder.md"]
+    assert (target / "reviewer-primary.md").exists()
+    assert not (target / "opus5-coder.md").exists()
+    backups = list(tmp_path.glob("agents.pre-render-*/opus5-coder.md"))
+    assert len(backups) == 1, "stale file must be preserved, not deleted"
+
+
+def test_prune_stale_is_a_noop_when_nothing_is_stale(tmp_path):
+    target = tmp_path / "agents"
+    target.mkdir()
+    (target / "reviewer-primary.md").write_text("keep")
+    assert render.prune_stale(target, {"reviewer-primary.md"}) == []
+    assert not list(tmp_path.glob("agents.pre-render-*"))
+
+
+def test_profile_env_contains_endpoints():
+    profile = render.load_profile(FIXTURE)
+    env = render.render_profile_env(profile)
+    assert "ANTHROPIC_FOUNDRY_BASE_URL='https://example.test/anthropic'" in env
+    assert "CLAUDE_CODE_USE_VERTEX" not in env
