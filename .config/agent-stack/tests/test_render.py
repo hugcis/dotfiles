@@ -218,3 +218,34 @@ def test_public_roster_rejects_extra_role_keys(tmp_path):
         _assert_public_roster_names_slots_not_models(roster_path)
 
     assert "model_id" in str(exc.value)
+
+
+def test_emit_vibe_is_subagent_only_and_name_matches_other_harnesses():
+    agents, profile = _resolved()
+    reviewer = next(a for a in agents if a.name == "reviewer-primary")
+    fname, content = render.emit_vibe(reviewer)
+    # filename stem is the agent's identity in vibe, and must match emit_pi's name
+    assert fname == "reviewer-primary.toml"
+    assert render.emit_pi(reviewer, profile)[0] == "reviewer-primary.md"
+    assert 'agent_type = "subagent"' in content
+    assert 'permission = "never"' in content
+    assert 'safety = "safe"' in content
+
+
+def test_emit_vibe_coder_is_destructive_and_writable():
+    agents, profile = _resolved()
+    coder = next(a for a in agents if a.name == "coder-primary")
+    fname, content = render.emit_vibe(coder)
+    assert fname == "coder-primary.toml"
+    assert 'safety = "destructive"' in content
+    assert 'permission = "always"' in content
+    assert 'agent_type = "subagent"' in content
+
+
+def test_emit_claude_frontmatter():
+    agents, profile = _resolved()
+    reviewer = next(a for a in agents if a.name == "reviewer-primary")
+    fname, content = render.emit_claude(reviewer)
+    assert fname == "reviewer-primary.md"
+    assert "name: reviewer-primary" in content
+    assert "You are a strict code reviewer." in content

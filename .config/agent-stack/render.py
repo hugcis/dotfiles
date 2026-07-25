@@ -137,4 +137,48 @@ permission:
     return f"{agent.name}.md", content
 
 
+def emit_vibe(agent: Agent) -> tuple[str, str]:
+    perm = "never" if agent.write == "deny" else "always"
+    safety = "safe" if agent.write == "deny" else "destructive"
+    title = agent.name.replace("-", " ").title()
+    lines = [
+        f'display_name = "{title}"',
+        f'description = "{agent.role.capitalize()} agent on the {agent.slot} slot."',
+        f'safety = "{safety}"',
+        'agent_type = "subagent"',
+        f'active_model = "{agent.model}"',
+        f'system_prompt_id = "{agent.role}"',
+        "",
+        "[tools.bash]",
+        f'permission = "{agent.bash}"',
+        "",
+        "[tools.write_file]",
+        f'permission = "{perm}"',
+        "",
+        "[tools.edit]",
+        f'permission = "{perm}"',
+        "",
+        "[tools.search_replace]",
+        f'permission = "{perm}"',
+        "",
+    ]
+    return f"{agent.name}.toml", "\n".join(lines)
+
+
+def emit_claude(agent: Agent) -> tuple[str, str]:
+    tools = "Read, Grep, Glob, Bash"
+    if agent.write == "allow":
+        tools += ", Edit, Write"
+    content = f"""---
+name: {agent.name}
+description: {agent.role.capitalize()} agent on the {agent.slot} model slot.
+model: {agent.model}
+tools: {tools}
+---
+
+{agent.prompt}
+"""
+    return f"{agent.name}.md", content
+
+
 # Future CLI main(): catch ConfigError and re-raise SystemExit(str(exc)) from exc.
