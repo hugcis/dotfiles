@@ -23,7 +23,6 @@
       "Bash(git reset:*)",
       "Bash(cargo fmt:*)",
       "Bash(docker-compose exec:*)",
-      "Bash(DATABASE_URL=\"postgres://easyroute_user:easyroute_pass@localhost:5432/easyroute_test\" sqlx migrate run:*)",
       "Bash(cargo tree:*)",
       "Bash(wc:*)",
       "Bash(git apply:*)",
@@ -48,5 +47,7 @@
     "frontend-design@claude-code-plugins": true
   },
   "alwaysThinkingEnabled": true,
+  "effortLevel": "xhigh",
+  "skipWorkflowUsageWarning": true,
   "theme": "dark-daltonized"
 }
