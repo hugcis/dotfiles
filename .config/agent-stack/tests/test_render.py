@@ -1,6 +1,9 @@
+from copy import deepcopy
 import re
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import render
@@ -38,6 +41,75 @@ def test_provider_spelling_differs_per_harness():
     assert render.model_ref(coder, profile, "opencode") == "anthropic-prov/model-big"
 
 
+def test_model_ref_requires_provider_names_section():
+    agents, profile = _resolved()
+    coder = next(a for a in agents if a.name == "coder-primary")
+    broken = dict(profile)
+    del broken["provider_names"]
+
+    with pytest.raises(SystemExit) as exc:
+        render.model_ref(coder, broken, "pi")
+
+    msg = str(exc.value)
+    assert "profile.yaml" in msg
+    assert "provider_names" in msg
+    assert "pi" in msg
+
+
+def test_model_ref_requires_harness_provider_names():
+    agents, profile = _resolved()
+    coder = next(a for a in agents if a.name == "coder-primary")
+
+    with pytest.raises(SystemExit) as exc:
+        render.model_ref(coder, profile, "missing-harness")
+
+    assert "provider_names.missing-harness" in str(exc.value)
+
+
+def test_model_ref_requires_provider_spelling():
+    agents, profile = _resolved()
+    coder = next(a for a in agents if a.name == "coder-primary")
+    broken = deepcopy(profile)
+    del broken["provider_names"]["opencode"][coder.provider]
+
+    with pytest.raises(SystemExit) as exc:
+        render.model_ref(coder, broken, "opencode")
+
+    assert f"provider_names.opencode.{coder.provider}" in str(exc.value)
+
+
+def test_resolve_agents_rejects_partially_bound_slots(tmp_path):
+    roster = render.load_roster(STACK / "roster.yaml")
+    profile_path = tmp_path / "profile.yaml"
+    profile_path.write_text(
+        "slots:\n"
+        "  primary:\n"
+        "    model: abstract-slot-model\n"
+    )
+    profile = render.load_profile(profile_path)
+
+    with pytest.raises(SystemExit) as exc:
+        render.resolve_agents(roster, profile)
+
+    assert "slots.primary.provider" in str(exc.value)
+
+
+def test_resolve_agents_rejects_partially_bound_slots_missing_model(tmp_path):
+    roster = render.load_roster(STACK / "roster.yaml")
+    profile_path = tmp_path / "profile.yaml"
+    profile_path.write_text(
+        "slots:\n"
+        "  primary:\n"
+        "    provider: abstract-slot-provider\n"
+    )
+    profile = render.load_profile(profile_path)
+
+    with pytest.raises(SystemExit) as exc:
+        render.resolve_agents(roster, profile)
+
+    assert "slots.primary.model" in str(exc.value)
+
+
 def test_emit_pi_frontmatter():
     agents, profile = _resolved()
     reviewer = next(a for a in agents if a.name == "reviewer-primary")
@@ -61,24 +133,50 @@ def test_emit_opencode_permissions():
     assert "mode: subagent" in rc
 
 
-def test_public_roster_names_slots_not_models():
+def _assert_public_roster_names_slots_not_models(path: Path):
     """roster.yaml ships in a PUBLIC repo, so it must describe abstract slots only.
 
     This asserts the positive shape rather than checking against a denylist of
     real model identifiers: a denylist would have to embed those identifiers in
     this file, publishing the very strings it exists to keep out.
     """
-    roster = render.load_roster(STACK / "roster.yaml")
+    roster = render.load_roster(path)
     known_slots = {"primary", "alt", "alt-xhigh", "fast"}
+    role_keys = {"prompt", "write", "bash", "acceptance"}
     for role, slots in roster["emit"].items():
         unknown = set(slots) - known_slots
         assert not unknown, f"{role} emits unknown slot(s): {sorted(unknown)}"
 
     for role, spec in roster["roles"].items():
-        assert "model" not in spec, f"role {role} must not bind a model"
+        unknown = set(spec) - role_keys
+        assert not unknown, f"role {role} has unsupported public key(s): {sorted(unknown)}"
 
-    text = (STACK / "roster.yaml").read_text()
+    text = path.read_text()
     # A provider-qualified model reference looks like "<provider>/<model>".
     # The only legitimate slashes are prompt paths under prompts/.
     refs = [m for m in re.findall(r"\S+/\S+", text) if not m.startswith("prompts/")]
     assert refs == [], f"roster.yaml must not name concrete models: {refs}"
+
+
+def test_public_roster_names_slots_not_models():
+    _assert_public_roster_names_slots_not_models(STACK / "roster.yaml")
+
+
+def test_public_roster_rejects_extra_role_keys(tmp_path):
+    roster_path = tmp_path / "roster.yaml"
+    roster_path.write_text(
+        "roles:\n"
+        "  coder:\n"
+        "    prompt: prompts/coder.md\n"
+        "    write: allow\n"
+        "    bash: ask\n"
+        "    acceptance: writer\n"
+        "    model_id: abstract-slot-label\n"
+        "emit:\n"
+        "  coder: [primary]\n"
+    )
+
+    with pytest.raises(AssertionError) as exc:
+        _assert_public_roster_names_slots_not_models(roster_path)
+
+    assert "model_id" in str(exc.value)

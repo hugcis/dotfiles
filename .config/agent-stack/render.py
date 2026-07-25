@@ -52,9 +52,15 @@ def resolve_agents(roster: dict, profile: dict) -> list[Agent]:
         role = roster["roles"][role_name]
         prompt = (STACK / role["prompt"]).read_text().strip()
         for slot_name in slot_names:
-            binding = slots.get(slot_name)
-            if binding is None:
+            if slot_name not in slots:
                 continue  # slot unbound on this machine: emit nothing
+            binding = slots[slot_name] or {}
+            for key in ("provider", "model"):
+                if key not in binding:
+                    raise SystemExit(
+                        f"profile.yaml: slots.{slot_name}.{key} is missing "
+                        f"(needed by role '{role_name}'). Add it to your machine profile."
+                    )
             agents.append(
                 Agent(
                     name=f"{role_name}-{slot_name}",
@@ -73,6 +79,22 @@ def resolve_agents(roster: dict, profile: dict) -> list[Agent]:
 
 
 def model_ref(agent: Agent, profile: dict, harness: str) -> str:
+    if "provider_names" not in profile:
+        raise SystemExit(
+            f"profile.yaml: provider_names is missing "
+            f"(needed by harness '{harness}' and agent '{agent.name}'). "
+            f"Add it to your machine profile."
+        )
+    if harness not in profile["provider_names"]:
+        raise SystemExit(
+            f"profile.yaml: provider_names.{harness} is missing "
+            f"(needed by agent '{agent.name}'). Add it to your machine profile."
+        )
+    if agent.provider not in profile["provider_names"][harness]:
+        raise SystemExit(
+            f"profile.yaml: provider_names.{harness}.{agent.provider} is missing "
+            f"(needed by agent '{agent.name}'). Add it to your machine profile."
+        )
     provider = profile["provider_names"][harness][agent.provider]
     return f"{provider}/{agent.model}"
 
