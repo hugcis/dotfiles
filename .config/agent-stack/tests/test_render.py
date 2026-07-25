@@ -1,5 +1,7 @@
 from copy import deepcopy
 import re
+import shlex
+import shutil
 import sys
 from pathlib import Path
 
@@ -298,17 +300,64 @@ def test_compose_agents_md_includes_extra_fragments(tmp_path):
         extra.unlink()
 
 
+def test_compose_agents_md_missing_fragment_raises_config_error():
+    profile = render.load_profile(FIXTURE)
+    profile["agents_md_extra"] = ["_no_such_fragment.md"]
+
+    with pytest.raises(render.ConfigError) as exc:
+        render.compose_agents_md(profile)
+
+    msg = str(exc.value)
+    assert "_no_such_fragment.md" in msg
+    assert str(STACK / "agents.md.d") in msg
+
+
 def test_prune_stale_moves_unknown_files_aside(tmp_path):
     target = tmp_path / "agents"
     target.mkdir()
     (target / "reviewer-primary.md").write_text("keep")
-    (target / "opus5-coder.md").write_text("stale")
+    (target / "legacy-coder.md").write_text("stale")
     moved = render.prune_stale(target, {"reviewer-primary.md"})
-    assert moved == ["opus5-coder.md"]
-    assert (target / "reviewer-primary.md").exists()
-    assert not (target / "opus5-coder.md").exists()
-    backups = list(tmp_path.glob("agents.pre-render-*/opus5-coder.md"))
+    assert moved == ["legacy-coder.md"]
+    assert (target / "reviewer-primary.md").read_text() == "keep"
+    assert not (target / "legacy-coder.md").exists()
+    backups = list(tmp_path.glob("agents.pre-render-*/legacy-coder.md"))
     assert len(backups) == 1, "stale file must be preserved, not deleted"
+    assert backups[0].read_text() == "stale", "backup must keep the original content"
+
+
+def test_prune_stale_back_to_back_keeps_both_backups(tmp_path):
+    """Two renders in the same second must not overwrite each other's backup."""
+    target = tmp_path / "agents"
+    target.mkdir()
+
+    (target / "legacy-coder.md").write_text("first generation")
+    assert render.prune_stale(target, set()) == ["legacy-coder.md"]
+    (target / "legacy-coder.md").write_text("second generation")
+    assert render.prune_stale(target, set()) == ["legacy-coder.md"]
+
+    backups = sorted(tmp_path.glob("agents.pre-render-*/legacy-coder.md"))
+    assert len(backups) == 2, "each prune needs its own backup directory"
+    assert sorted(p.read_text() for p in backups) == [
+        "first generation",
+        "second generation",
+    ]
+
+
+def test_prune_stale_refuses_to_clobber_an_existing_backup_file(tmp_path, monkeypatch):
+    target = tmp_path / "agents"
+    target.mkdir()
+    (target / "legacy-coder.md").write_text("stale")
+    occupied = tmp_path / "occupied"
+    occupied.mkdir()
+    (occupied / "legacy-coder.md").write_text("someone else's backup")
+    monkeypatch.setattr(render.tempfile, "mkdtemp", lambda **kwargs: str(occupied))
+
+    with pytest.raises(FileExistsError):
+        render.prune_stale(target, set())
+
+    assert (target / "legacy-coder.md").read_text() == "stale"
+    assert (occupied / "legacy-coder.md").read_text() == "someone else's backup"
 
 
 def test_prune_stale_is_a_noop_when_nothing_is_stale(tmp_path):
@@ -324,3 +373,109 @@ def test_profile_env_contains_endpoints():
     env = render.render_profile_env(profile)
     assert "ANTHROPIC_FOUNDRY_BASE_URL='https://example.test/anthropic'" in env
     assert "CLAUDE_CODE_USE_VERTEX" not in env
+
+
+def test_profile_env_quotes_hostile_values():
+    profile = render.load_profile(FIXTURE)
+    hostile = "it's a; rm -rf $HOME `boom`"
+    profile["env"] = {"SOME_TOKEN": hostile}
+    profile["endpoints"] = dict(profile["endpoints"], anthropic=hostile)
+
+    env = render.render_profile_env(profile)
+
+    exports = {}
+    for line in env.splitlines():
+        if not line.startswith("export "):
+            continue
+        words = shlex.split(line)  # raises on unbalanced quoting
+        assert len(words) == 2, f"line does not survive shell word splitting: {line}"
+        key, _, value = words[1].partition("=")
+        exports[key] = value
+    assert exports["SOME_TOKEN"] == hostile
+    assert exports["ANTHROPIC_FOUNDRY_BASE_URL"] == hostile
+
+
+@pytest.mark.parametrize("key", ["2BAD", "HAS-DASH", "HAS SPACE", "", "X;rm -rf /"])
+def test_profile_env_rejects_illegal_export_keys(key):
+    profile = render.load_profile(FIXTURE)
+    profile["env"] = {key: "value"}
+
+    with pytest.raises(render.ConfigError) as exc:
+        render.render_profile_env(profile)
+
+    assert key in str(exc.value)
+    assert "shell identifier" in str(exc.value)
+
+
+def _sandbox(tmp_path, monkeypatch) -> dict:
+    """Redirect every write target into tmp_path. Never touch a real harness dir."""
+    stack = tmp_path / "stack"
+    stack.mkdir()
+    shutil.copytree(STACK / "prompts", stack / "prompts")
+    (stack / "agents.md.d").mkdir()
+    shutil.copy(STACK / "agents.md.d" / "00-universal.md", stack / "agents.md.d")
+    monkeypatch.setattr(render, "STACK", stack)
+
+    home = tmp_path / "home"
+    targets = {h: home / h / "agents" for h in ("pi", "opencode", "vibe", "claude")}
+    monkeypatch.setattr(render, "TARGETS", targets)
+    monkeypatch.setattr(render, "AGENTS_MD_TARGETS", [home / "pi" / "AGENTS.md"])
+    return {"stack": stack, "home": home, "targets": targets}
+
+
+def test_write_all_writes_and_prunes(tmp_path, monkeypatch):
+    box = _sandbox(tmp_path, monkeypatch)
+    stale = box["targets"]["pi"] / "legacy-coder.md"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("hand written")
+    roster = render.load_roster(STACK / "roster.yaml")
+
+    render.write_all(roster, render.load_profile(FIXTURE))
+
+    for directory in box["targets"].values():
+        assert sorted(p.stem for p in directory.iterdir() if p.is_file()) == [
+            "coder-primary",
+            "reviewer-fast",
+            "reviewer-primary",
+        ]
+    assert (box["home"] / "pi" / "AGENTS.md").exists()
+    assert (box["stack"] / "profile.env").exists()
+    backups = list((box["home"] / "pi").glob("agents.pre-render-*/legacy-coder.md"))
+    assert [p.read_text() for p in backups] == ["hand written"]
+
+
+def test_write_all_writes_nothing_when_an_agents_md_fragment_is_missing(
+    tmp_path, monkeypatch
+):
+    box = _sandbox(tmp_path, monkeypatch)
+    stale = box["targets"]["pi"] / "legacy-coder.md"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("hand written")
+    roster = render.load_roster(STACK / "roster.yaml")
+    profile = render.load_profile(FIXTURE)
+    profile["agents_md_extra"] = ["_no_such_fragment.md"]
+
+    with pytest.raises(render.ConfigError) as exc:
+        render.write_all(roster, profile)
+
+    assert "_no_such_fragment.md" in str(exc.value)
+    assert [p.name for p in box["targets"]["pi"].iterdir()] == ["legacy-coder.md"]
+    assert stale.read_text() == "hand written", "nothing may move before validation"
+    for harness in ("opencode", "vibe", "claude"):
+        assert not box["targets"][harness].exists()
+    assert not (box["home"] / "pi" / "AGENTS.md").exists()
+    assert not (box["stack"] / "profile.env").exists()
+
+
+def test_write_all_writes_nothing_when_a_slot_binding_is_broken(tmp_path, monkeypatch):
+    box = _sandbox(tmp_path, monkeypatch)
+    roster = render.load_roster(STACK / "roster.yaml")
+    profile = deepcopy(render.load_profile(FIXTURE))
+    del profile["provider_names"]["opencode"]["anthropic"]
+
+    with pytest.raises(render.ConfigError):
+        render.write_all(roster, profile)
+
+    for directory in box["targets"].values():
+        assert not directory.exists()
+    assert not (box["stack"] / "profile.env").exists()
