@@ -1,0 +1,11 @@
+endpoints:
+  anthropic: https://example.test/anthropic
+  openai: https://example.test/openai/v1
+provider_names:
+  pi:       {anthropic: prov-anthropic, openai: prov-openai}
+  opencode: {anthropic: anthropic-prov, openai: openai-prov}
+  vibe:     {anthropic: prov-anthropic, openai: prov-openai}
+slots:
+  primary: {provider: anthropic, model: model-big, thinking: high}
+  fast:    {provider: openai, model: model-small}
+agents_md_extra: []
