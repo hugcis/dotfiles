@@ -47,7 +47,7 @@ def test_model_ref_requires_provider_names_section():
     broken = dict(profile)
     del broken["provider_names"]
 
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(render.ConfigError) as exc:
         render.model_ref(coder, broken, "pi")
 
     msg = str(exc.value)
@@ -60,7 +60,7 @@ def test_model_ref_requires_harness_provider_names():
     agents, profile = _resolved()
     coder = next(a for a in agents if a.name == "coder-primary")
 
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(render.ConfigError) as exc:
         render.model_ref(coder, profile, "missing-harness")
 
     assert "provider_names.missing-harness" in str(exc.value)
@@ -72,10 +72,20 @@ def test_model_ref_requires_provider_spelling():
     broken = deepcopy(profile)
     del broken["provider_names"]["opencode"][coder.provider]
 
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(render.ConfigError) as exc:
         render.model_ref(coder, broken, "opencode")
 
     assert f"provider_names.opencode.{coder.provider}" in str(exc.value)
+
+
+def test_load_profile_requires_existing_path(tmp_path):
+    profile_path = tmp_path / "profile.yaml"
+
+    with pytest.raises(render.ConfigError) as exc:
+        render.load_profile(profile_path)
+
+    assert f"No profile at {profile_path}" in str(exc.value)
+    assert "Copy profile.example.yaml" in str(exc.value)
 
 
 def test_resolve_agents_rejects_partially_bound_slots(tmp_path):
@@ -88,7 +98,7 @@ def test_resolve_agents_rejects_partially_bound_slots(tmp_path):
     )
     profile = render.load_profile(profile_path)
 
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(render.ConfigError) as exc:
         render.resolve_agents(roster, profile)
 
     assert "slots.primary.provider" in str(exc.value)
@@ -104,7 +114,7 @@ def test_resolve_agents_rejects_partially_bound_slots_missing_model(tmp_path):
     )
     profile = render.load_profile(profile_path)
 
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(render.ConfigError) as exc:
         render.resolve_agents(roster, profile)
 
     assert "slots.primary.model" in str(exc.value)
@@ -141,15 +151,22 @@ def _assert_public_roster_names_slots_not_models(path: Path):
     this file, publishing the very strings it exists to keep out.
     """
     roster = render.load_roster(path)
-    known_slots = {"primary", "alt", "alt-xhigh", "fast"}
+    document_keys = {"roles", "emit"}
     role_keys = {"prompt", "write", "bash", "acceptance"}
+    known_slots = {"primary", "alt", "alt-xhigh", "fast"}
+
+    assert set(roster) == document_keys, (
+        f"roster.yaml has unsupported top-level key(s): {sorted(set(roster) - document_keys)}"
+    )
+
     for role, slots in roster["emit"].items():
         unknown = set(slots) - known_slots
         assert not unknown, f"{role} emits unknown slot(s): {sorted(unknown)}"
 
     for role, spec in roster["roles"].items():
-        unknown = set(spec) - role_keys
-        assert not unknown, f"role {role} has unsupported public key(s): {sorted(unknown)}"
+        assert set(spec) == role_keys, (
+            f"role {role} keys must be {sorted(role_keys)}, got {sorted(spec)}"
+        )
 
     text = path.read_text()
     # A provider-qualified model reference looks like "<provider>/<model>".
@@ -160,6 +177,27 @@ def _assert_public_roster_names_slots_not_models(path: Path):
 
 def test_public_roster_names_slots_not_models():
     _assert_public_roster_names_slots_not_models(STACK / "roster.yaml")
+
+
+def test_public_roster_rejects_top_level_leak(tmp_path):
+    roster_path = tmp_path / "roster.yaml"
+    roster_path.write_text(
+        "roles:\n"
+        "  coder:\n"
+        "    prompt: prompts/coder.md\n"
+        "    write: allow\n"
+        "    bash: ask\n"
+        "    acceptance: writer\n"
+        "emit:\n"
+        "  coder: [primary]\n"
+        "endpoints:\n"
+        "  primary: abstract-slot-label\n"
+    )
+
+    with pytest.raises(AssertionError) as exc:
+        _assert_public_roster_names_slots_not_models(roster_path)
+
+    assert "endpoints" in str(exc.value)
 
 
 def test_public_roster_rejects_extra_role_keys(tmp_path):

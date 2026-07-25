@@ -17,6 +17,10 @@ STACK = Path(__file__).resolve().parent
 STAMP = datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
+class ConfigError(ValueError):
+    """Raised when roster.yaml or profile.yaml is invalid or incomplete."""
+
+
 @dataclass
 class Agent:
     name: str
@@ -37,7 +41,7 @@ def load_roster(path: Path) -> dict:
 
 def load_profile(path: Path) -> dict:
     if not path.exists():
-        raise SystemExit(
+        raise ConfigError(
             f"No profile at {path}.\n"
             "Copy profile.example.yaml and fill in this machine's endpoints "
             "and slot bindings."
@@ -57,7 +61,7 @@ def resolve_agents(roster: dict, profile: dict) -> list[Agent]:
             binding = slots[slot_name] or {}
             for key in ("provider", "model"):
                 if key not in binding:
-                    raise SystemExit(
+                    raise ConfigError(
                         f"profile.yaml: slots.{slot_name}.{key} is missing "
                         f"(needed by role '{role_name}'). Add it to your machine profile."
                     )
@@ -80,18 +84,18 @@ def resolve_agents(roster: dict, profile: dict) -> list[Agent]:
 
 def model_ref(agent: Agent, profile: dict, harness: str) -> str:
     if "provider_names" not in profile:
-        raise SystemExit(
+        raise ConfigError(
             f"profile.yaml: provider_names is missing "
             f"(needed by harness '{harness}' and agent '{agent.name}'). "
             f"Add it to your machine profile."
         )
     if harness not in profile["provider_names"]:
-        raise SystemExit(
+        raise ConfigError(
             f"profile.yaml: provider_names.{harness} is missing "
             f"(needed by agent '{agent.name}'). Add it to your machine profile."
         )
     if agent.provider not in profile["provider_names"][harness]:
-        raise SystemExit(
+        raise ConfigError(
             f"profile.yaml: provider_names.{harness}.{agent.provider} is missing "
             f"(needed by agent '{agent.name}'). Add it to your machine profile."
         )
@@ -131,3 +135,6 @@ permission:
 {agent.prompt}
 """
     return f"{agent.name}.md", content
+
+
+# Future CLI main(): catch ConfigError and re-raise SystemExit(str(exc)) from exc.
