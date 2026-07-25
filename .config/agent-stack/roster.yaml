@@ -1,0 +1,15 @@
+roles:
+  coder:
+    prompt: prompts/coder.md
+    write: allow
+    bash: ask
+    acceptance: writer
+  reviewer:
+    prompt: prompts/reviewer.md
+    write: deny
+    bash: ask
+    acceptance: read-only
+
+emit:
+  coder:    [primary, alt, alt-xhigh]
+  reviewer: [primary, alt, alt-xhigh, fast]
