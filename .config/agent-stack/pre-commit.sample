@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Blocks work-sensitive strings and credential shapes from the PUBLIC dotfiles repo.
+set -uo pipefail
+
+# Patterns live in an UNTRACKED file, never in this script.
+#
+# A denylist names the things that must not be published, so committing the list
+# publishes them. This script is versioned as pre-commit.sample; the patterns it
+# reads are not. See denylist.example.txt for the format.
+DENYLIST="$HOME/.config/agent-stack/denylist.txt"
+if [ ! -f "$DENYLIST" ]; then
+  echo "pre-commit: no denylist at $DENYLIST — refusing to run unguarded."
+  echo "Copy denylist.example.txt to denylist.txt and fill in this machine's terms."
+  exit 1
+fi
+
+mapfile -t PATTERNS < <(grep -vE '^\s*(#|$)' "$DENYLIST")
+if [ "${#PATTERNS[@]}" -eq 0 ]; then
+  echo "pre-commit: $DENYLIST contains no patterns — refusing to run unguarded."
+  exit 1
+fi
+
+staged="$(git diff --cached --name-only --diff-filter=ACM)"
+[ -z "$staged" ] && exit 0
+
+fail=0
+for pattern in "${PATTERNS[@]}"; do
+  if hits="$(git diff --cached -U0 | grep -nE "^\+.*${pattern}" 2>/dev/null)"; then
+    echo "BLOCKED: staged content matches /${pattern}/"
+    echo "$hits" | head -3
+    fail=1
+  fi
+done
+
+if [ "$fail" -ne 0 ]; then
+  echo
+  echo "This repo is PUBLIC. Move the value into ~/.config/agent-stack/profile.yaml"
+  echo "or profile.env (both untracked). To override: git commit --no-verify"
+  exit 1
+fi
+exit 0

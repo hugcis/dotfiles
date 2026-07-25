@@ -64,3 +64,4 @@ export DOCKER_DEFAULT_PLATFORM=linux/arm64
 
 # Architecture flags for compilation
 export ARCHFLAGS="-arch arm64"
+[ -f "$HOME/.config/agent-stack/profile.env" ] && source "$HOME/.config/agent-stack/profile.env"

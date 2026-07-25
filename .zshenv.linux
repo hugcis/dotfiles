@@ -1,3 +1,4 @@
 if command -v keychain &>/dev/null; then
   eval $(keychain --eval --quiet id_ed25519 id_rsa)
 fi
+[ -f "$HOME/.config/agent-stack/profile.env" ] && source "$HOME/.config/agent-stack/profile.env"

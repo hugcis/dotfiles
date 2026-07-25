@@ -35,7 +35,7 @@ there would break unrelated projects.
 The shell config is split by concern and OS:
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `.zshenv` | Shared environment variables (loaded for all shells) |
 | `.zshenv.macos` | macOS-specific env: Homebrew, PATH, Rust, Docker |
 | `.zshenv.linux` | Linux-specific env: keychain SSH agent |
@@ -108,4 +108,13 @@ Prints "All good!" if everything is present, or lists each missing tool.
 
 ```bash
 curl -L https://gist.github.com/hugcis/73191d55b6bc77815fc4df3b9a62a9a3/raw/ | /bin/bash
+```
+
+### After cloning on a new machine
+
+The pre-commit guard is not carried by git. Recreate it:
+
+```bash
+cp ~/.config/agent-stack/pre-commit.sample ~/.cfg/hooks/pre-commit
+chmod +x ~/.cfg/hooks/pre-commit
 ```

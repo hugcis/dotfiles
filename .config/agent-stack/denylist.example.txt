@@ -1,0 +1,15 @@
+# Extended regex patterns. One per line. Blank lines and # comments ignored.
+#
+# Copy to denylist.txt and fill in the terms this machine must never publish:
+# internal hostnames, customer names, absolute work paths, unreleased model
+# identifiers, and credential shapes. denylist.txt is never committed.
+#
+# This example intentionally has no active patterns. A live pattern here could
+# match this file and block the guard's own commit.
+#
+# Examples of the KINDS of pattern to add (replace with your own):
+# <internal-proxy-hostname>
+# <customer-or-client-name>
+# /mnt/<work-mount>
+# <unreleased-model-prefix>-[0-9]
+# <cloud-oauth-secret-prefix>-
