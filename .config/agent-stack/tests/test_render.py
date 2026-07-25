@@ -220,26 +220,60 @@ def test_public_roster_rejects_extra_role_keys(tmp_path):
     assert "model_id" in str(exc.value)
 
 
-def test_emit_vibe_is_subagent_only_and_name_matches_other_harnesses():
+def _parse_flat_toml(content: str) -> dict:
+    """Parse the small flat TOML shape emitted by emit_vibe."""
+    document = {}
+    current = document
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = document
+            for part in line[1:-1].split("."):
+                current = current.setdefault(part, {})
+            continue
+        key, value = [part.strip() for part in line.split("=", 1)]
+        if value.startswith('"') and value.endswith('"'):
+            value = value[1:-1]
+        current[key] = value
+    return document
+
+
+def _assert_vibe_permissions(content: str, *, safety: str, write_permission: str):
+    document = _parse_flat_toml(content)
+    assert document["agent_type"] == "subagent"
+    assert document["safety"] == safety
+    assert set(document["tools"]) == {"bash", "write_file", "edit"}
+    assert document["tools"]["bash"]["permission"] == "ask"
+    assert document["tools"]["write_file"]["permission"] == write_permission
+    assert document["tools"]["edit"]["permission"] == write_permission
+
+
+def test_emit_filename_stems_match_agent_identity_across_harnesses():
     agents, profile = _resolved()
+    for agent in agents:
+        emitted = [
+            render.emit_vibe(agent),
+            render.emit_pi(agent, profile),
+            render.emit_opencode(agent, profile),
+            render.emit_claude(agent),
+        ]
+        assert [Path(fname).stem for fname, _ in emitted] == [agent.name] * len(emitted)
+
+
+def test_emit_vibe_is_subagent_only_and_reviewer_is_safe_read_only():
+    agents, _ = _resolved()
     reviewer = next(a for a in agents if a.name == "reviewer-primary")
-    fname, content = render.emit_vibe(reviewer)
-    # filename stem is the agent's identity in vibe, and must match emit_pi's name
-    assert fname == "reviewer-primary.toml"
-    assert render.emit_pi(reviewer, profile)[0] == "reviewer-primary.md"
-    assert 'agent_type = "subagent"' in content
-    assert 'permission = "never"' in content
-    assert 'safety = "safe"' in content
+    _, content = render.emit_vibe(reviewer)
+    _assert_vibe_permissions(content, safety="safe", write_permission="never")
 
 
 def test_emit_vibe_coder_is_destructive_and_writable():
-    agents, profile = _resolved()
+    agents, _ = _resolved()
     coder = next(a for a in agents if a.name == "coder-primary")
-    fname, content = render.emit_vibe(coder)
-    assert fname == "coder-primary.toml"
-    assert 'safety = "destructive"' in content
-    assert 'permission = "always"' in content
-    assert 'agent_type = "subagent"' in content
+    _, content = render.emit_vibe(coder)
+    _assert_vibe_permissions(content, safety="destructive", write_permission="always")
 
 
 def test_emit_claude_frontmatter():

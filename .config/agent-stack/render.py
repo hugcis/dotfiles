@@ -158,9 +158,8 @@ def emit_vibe(agent: Agent) -> tuple[str, str]:
         "[tools.edit]",
         f'permission = "{perm}"',
         "",
-        "[tools.search_replace]",
-        f'permission = "{perm}"',
-        "",
+        # Vibe's _migration.py maps legacy search_replace to edit; emit only
+        # the current tool table so stale aliases do not come back.
     ]
     return f"{agent.name}.toml", "\n".join(lines)
 
