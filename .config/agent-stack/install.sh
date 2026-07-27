@@ -1,6 +1,38 @@
 #!/usr/bin/env bash
 set -euo pipefail
 STACK="$HOME/.config/agent-stack"
+CFG="$HOME/.cfg"
+
+# Ignore rule FIRST, before anything else can stage a file.
+#
+# The whole public/private boundary of this repo is one `*` in the bare repo's
+# info/exclude. Git NEVER transfers info/exclude on clone -- it is per-clone
+# local state -- so a fresh clone is unprotected and the first `config add -A`
+# there would stage every untracked private file in $HOME.
+if [[ ! -d "$CFG" ]]; then
+	echo "No bare dotfiles repo at $CFG."
+	echo "Clone it first, then re-run this script:"
+	echo "  git clone --bare <url> \"$CFG\""
+	exit 1
+fi
+
+EXCLUDE="$(git --git-dir="$CFG" rev-parse --git-path info/exclude)"
+if [[ -f "$EXCLUDE" ]] && grep -qx '\*' "$EXCLUDE"; then
+	echo "ignore rule already present: $EXCLUDE"
+else
+	mkdir -p "$(dirname "$EXCLUDE")"
+	if [[ -s "$EXCLUDE" ]]; then # separate from whatever is already there
+		printf '\n' >>"$EXCLUDE"
+	fi
+	cat >>"$EXCLUDE" <<'RULE'
+# Ignore everything by default.
+# Tracked files are unaffected by ignore rules, so every tracked path keeps
+# working normally. To start tracking something new:
+#     config add -f <path>
+*
+RULE
+	echo "added ignore rule '*' to $EXCLUDE"
+fi
 
 command -v python3 >/dev/null || {
 	echo "python3 required"

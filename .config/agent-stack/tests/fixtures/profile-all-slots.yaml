@@ -1,0 +1,17 @@
+# Every slot bound, so the thinking-sensitive slots (alt / alt-xhigh) exist.
+# The other fixture deliberately leaves slots unbound; keep them separate.
+endpoints:
+  anthropic: https://example.test/anthropic
+  openai: https://example.test/openai/v1
+provider_names:
+  pi:       {anthropic: prov-anthropic, openai: prov-openai}
+  opencode: {anthropic: anthropic-prov, openai: openai-prov}
+  vibe:     {anthropic: prov-anthropic, openai: prov-openai}
+slots:
+  primary:   {provider: anthropic, model: model-big, thinking: high}
+  # Same model id on both, so the ONLY thing that can distinguish the two
+  # rendered agents is the reasoning level.
+  alt:       {provider: openai, model: model-mid, thinking: high,  vibe_model: model-mid-high-alias}
+  alt-xhigh: {provider: openai, model: model-mid, thinking: xhigh, vibe_model: model-mid-xhigh-alias}
+  fast:      {provider: openai, model: model-small}
+agents_md_extra: []

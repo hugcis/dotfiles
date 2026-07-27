@@ -12,11 +12,12 @@ import render
 
 STACK = Path(__file__).resolve().parents[1]
 FIXTURE = Path(__file__).parent / "fixtures" / "profile.yaml"
+ALL_SLOTS_FIXTURE = Path(__file__).parent / "fixtures" / "profile-all-slots.yaml"
 
 
-def _resolved():
+def _resolved(fixture: Path = FIXTURE):
     roster = render.load_roster(STACK / "roster.yaml")
-    profile = render.load_profile(FIXTURE)
+    profile = render.load_profile(fixture)
     return render.resolve_agents(roster, profile), profile
 
 
@@ -420,6 +421,7 @@ def _sandbox(tmp_path, monkeypatch) -> dict:
     targets = {h: home / h / "agents" for h in ("pi", "opencode", "vibe", "claude")}
     monkeypatch.setattr(render, "TARGETS", targets)
     monkeypatch.setattr(render, "AGENTS_MD_TARGETS", [home / "pi" / "AGENTS.md"])
+    monkeypatch.setattr(render, "BACKUP_ROOT", tmp_path / "backups")
     return {"stack": stack, "home": home, "targets": targets}
 
 
@@ -479,3 +481,210 @@ def test_write_all_writes_nothing_when_a_slot_binding_is_broken(tmp_path, monkey
     for directory in box["targets"].values():
         assert not directory.exists()
     assert not (box["stack"] / "profile.env").exists()
+
+
+# --- thinking: each harness expresses a reasoning level differently ---------
+
+
+def _reviewer(slot: str):
+    agents, profile = _resolved(ALL_SLOTS_FIXTURE)
+    return next(a for a in agents if a.name == f"reviewer-{slot}"), profile
+
+
+def _strip_identity(agent, content: str) -> str:
+    """Blank out everything that differs between two agents purely by name.
+
+    What is left is the substantive configuration, so an assertion on it cannot
+    pass just because the two files spell a different agent name.
+    """
+    for token, placeholder in (
+        (agent.name.replace("-", " ").title(), "TITLE"),
+        (agent.name, "AGENT"),
+        (agent.slot, "SLOT"),
+    ):
+        content = content.replace(token, placeholder)
+    return content
+
+
+def test_alt_and_alt_xhigh_render_differently_in_every_harness():
+    """The two reviewer slots share a model id and differ only in `thinking`.
+
+    All four harnesses can express a reasoning level, each in its own way, so
+    every one of them must produce a substantively different file. If a harness
+    ever loses that ability this test is where it shows up, instead of the two
+    agents silently collapsing into byte-identical copies.
+    """
+    high, profile = _reviewer("alt")
+    xhigh, _ = _reviewer("alt-xhigh")
+    assert high.model == xhigh.model, "fixture must isolate thinking as the variable"
+
+    emitters = {
+        "pi": lambda a: render.emit_pi(a, profile)[1],
+        "opencode": lambda a: render.emit_opencode(a, profile)[1],
+        "vibe": lambda a: render.emit_vibe(a)[1],
+        "claude": lambda a: render.emit_claude(a)[1],
+    }
+    for harness, emit in emitters.items():
+        assert _strip_identity(high, emit(high)) != _strip_identity(xhigh, emit(xhigh)), (
+            f"{harness} renders alt and alt-xhigh identically: thinking is dropped"
+        )
+
+
+def test_emit_pi_appends_thinking_as_a_model_ref_suffix():
+    high, profile = _reviewer("alt")
+    xhigh, _ = _reviewer("alt-xhigh")
+    assert "model: prov-openai/model-mid:high\n" in render.emit_pi(high, profile)[1]
+    assert "model: prov-openai/model-mid:xhigh\n" in render.emit_pi(xhigh, profile)[1]
+
+
+def test_emit_opencode_sets_the_model_variant():
+    high, profile = _reviewer("alt")
+    xhigh, _ = _reviewer("alt-xhigh")
+    assert "variant: high\n" in render.emit_opencode(high, profile)[1]
+    assert "variant: xhigh\n" in render.emit_opencode(xhigh, profile)[1]
+
+
+def test_emit_claude_sets_the_effort_level():
+    high, _ = _reviewer("alt")
+    xhigh, _ = _reviewer("alt-xhigh")
+    assert "effort: high\n" in render.emit_claude(high)[1]
+    assert "effort: xhigh\n" in render.emit_claude(xhigh)[1]
+
+
+def test_emit_vibe_selects_the_thinking_bearing_model_alias():
+    """Vibe holds `thinking` on the [[models]] alias, not on the agent.
+
+    So the agent expresses a reasoning level only by pointing active_model at an
+    alias that carries one; the optional profile key `vibe_model` names it.
+    """
+    high, _ = _reviewer("alt")
+    xhigh, _ = _reviewer("alt-xhigh")
+    assert 'active_model = "model-mid-high-alias"' in render.emit_vibe(high)[1]
+    assert 'active_model = "model-mid-xhigh-alias"' in render.emit_vibe(xhigh)[1]
+
+
+def test_emit_vibe_falls_back_to_model_when_vibe_model_is_absent():
+    primary, _ = _reviewer("primary")
+    assert primary.vibe_model is None
+    assert 'active_model = "model-big"' in render.emit_vibe(primary)[1]
+
+
+def test_a_slot_without_thinking_emits_no_reasoning_field():
+    fast, profile = _reviewer("fast")
+    assert fast.thinking is None
+    assert "model: prov-openai/model-small\n" in render.emit_pi(fast, profile)[1]
+    assert "variant:" not in render.emit_opencode(fast, profile)[1]
+    assert "effort:" not in render.emit_claude(fast)[1]
+
+
+# --- AGENTS.md: aliased targets and pre-overwrite backups ------------------
+
+
+def test_distinct_agents_md_targets_collapses_a_symlink_alias(tmp_path):
+    """~/.pi/agent/AGENTS.md is a symlink to ~/.vibe/AGENTS.md on the live box."""
+    real = tmp_path / "vibe" / "AGENTS.md"
+    real.parent.mkdir(parents=True)
+    real.write_text("shared")
+    alias_dir = tmp_path / "pi"
+    alias_dir.mkdir()
+    alias = alias_dir / "AGENTS.md"
+    alias.symlink_to(real)
+    other = tmp_path / "opencode" / "AGENTS.md"
+    other.parent.mkdir()
+
+    distinct = render.distinct_agents_md_targets([alias, real, other])
+
+    assert distinct == [real.resolve(), other.resolve()]
+
+
+def test_backup_agents_md_preserves_content_it_is_about_to_clobber(tmp_path, monkeypatch):
+    monkeypatch.setattr(render, "BACKUP_ROOT", tmp_path / "backups")
+    target = tmp_path / "claude" / "CLAUDE.md"
+    target.parent.mkdir()
+    target.write_text("hand written by the user")
+
+    saved = render.backup_agents_md([target], "rendered")
+
+    assert len(saved) == 1
+    assert Path(saved[0]).read_text() == "hand written by the user"
+    assert target.read_text() == "hand written by the user", "backup must not move it"
+
+
+def test_backup_agents_md_is_a_noop_when_content_already_matches(tmp_path, monkeypatch):
+    monkeypatch.setattr(render, "BACKUP_ROOT", tmp_path / "backups")
+    target = tmp_path / "vibe" / "AGENTS.md"
+    target.parent.mkdir()
+    target.write_text("rendered")
+
+    assert render.backup_agents_md([target], "rendered") == []
+    assert not (tmp_path / "backups").exists(), "an unchanged render must not litter"
+
+
+def test_backup_agents_md_uses_one_directory_per_render(tmp_path, monkeypatch):
+    """Two targets share the basename AGENTS.md, so names must stay distinct."""
+    monkeypatch.setattr(render, "BACKUP_ROOT", tmp_path / "backups")
+    first = tmp_path / "vibe" / "AGENTS.md"
+    second = tmp_path / "opencode" / "AGENTS.md"
+    for path, text in ((first, "vibe copy"), (second, "opencode copy")):
+        path.parent.mkdir()
+        path.write_text(text)
+
+    saved = [Path(p) for p in render.backup_agents_md([first, second], "rendered")]
+
+    assert len({p.parent for p in saved}) == 1, "one backup directory per render"
+    assert len({p.name for p in saved}) == 2, "same-basename targets must not collide"
+    assert sorted(p.read_text() for p in saved) == ["opencode copy", "vibe copy"]
+
+
+def test_backup_agents_md_back_to_back_keeps_both_generations(tmp_path, monkeypatch):
+    monkeypatch.setattr(render, "BACKUP_ROOT", tmp_path / "backups")
+    target = tmp_path / "claude" / "CLAUDE.md"
+    target.parent.mkdir()
+
+    target.write_text("first generation")
+    assert render.backup_agents_md([target], "rendered")
+    target.write_text("second generation")
+    assert render.backup_agents_md([target], "rendered")
+
+    backups = sorted((tmp_path / "backups").glob("agents-md.pre-render-*/*"))
+    assert sorted(p.read_text() for p in backups) == [
+        "first generation",
+        "second generation",
+    ]
+
+
+def test_write_all_backs_up_and_deduplicates_agents_md(tmp_path, monkeypatch):
+    box = _sandbox(tmp_path, monkeypatch)
+    real = box["home"] / "vibe" / "AGENTS.md"
+    real.parent.mkdir(parents=True)
+    real.write_text("hand written, untracked, irreplaceable")
+    alias_dir = box["home"] / "pi"
+    alias_dir.mkdir(parents=True)
+    alias = alias_dir / "AGENTS.md"
+    alias.symlink_to(real)
+    monkeypatch.setattr(render, "AGENTS_MD_TARGETS", [alias, real])
+
+    render.write_all(render.load_roster(STACK / "roster.yaml"),
+                     render.load_profile(FIXTURE))
+
+    backups = list((tmp_path / "backups").glob("agents-md.pre-render-*/*"))
+    assert [p.read_text() for p in backups] == ["hand written, untracked, irreplaceable"], (
+        "the alias pair is one file and must be backed up exactly once"
+    )
+    assert "Superpowers Skill Use" in real.read_text()
+    assert alias.is_symlink(), "writing must not replace the alias with a real file"
+
+
+# --- CLI: profile errors must not surface as tracebacks --------------------
+
+
+def test_main_turns_a_config_error_into_a_plain_message(tmp_path, monkeypatch, capsys):
+    missing = tmp_path / "nope" / "profile.yaml"
+    monkeypatch.setattr(sys, "argv", ["render.py", "--profile", str(missing)])
+
+    with pytest.raises(SystemExit) as exc:
+        render.main()
+
+    assert isinstance(exc.value.__cause__, render.ConfigError)
+    assert f"No profile at {missing}" in str(exc.value)
+    assert "Traceback" not in capsys.readouterr().err

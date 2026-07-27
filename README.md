@@ -110,11 +110,45 @@ Prints "All good!" if everything is present, or lists each missing tool.
 curl -L https://gist.github.com/hugcis/73191d55b6bc77815fc4df3b9a62a9a3/raw/ | /bin/bash
 ```
 
-### After cloning on a new machine
+## Setting up the agent stack on a new machine
 
-The pre-commit guard is not carried by git. Recreate it:
+`~/.config/agent-stack/` renders one shared roster of coding agents into four
+harnesses (pi, opencode, vibe, Claude Code) and installs the shared skills. Three
+pieces of it are deliberately **not** in git — this repo is public — so a fresh
+clone needs them recreated by hand, in this order.
 
 ```bash
+# 1. Bootstrap the ignore rule, in dry form. install.sh creates ~/.cfg/info/exclude
+#    (git never clones it) and then stops, because there is no profile yet.
+~/.config/agent-stack/install.sh
+
+# 2. Machine profile: endpoints, per-harness provider spellings, and which model
+#    fills each abstract slot. Never committed.
+cp ~/.config/agent-stack/profile.example.yaml ~/.config/agent-stack/profile.yaml
+$EDITOR ~/.config/agent-stack/profile.yaml   # replace every REPLACE-ME
+
+# 3. Pre-commit denylist: the strings this machine must never publish. Never
+#    committed — a denylist in a public repo publishes what it protects.
+cp ~/.config/agent-stack/denylist.example.txt ~/.config/agent-stack/denylist.txt
+$EDITOR ~/.config/agent-stack/denylist.txt   # one extended-regex pattern per line
+
+# 4. Pre-commit guard. Git does not clone hooks either, and the hook refuses to
+#    run without step 3, so every commit is blocked until both are in place.
+mkdir -p ~/.cfg/hooks
 cp ~/.config/agent-stack/pre-commit.sample ~/.cfg/hooks/pre-commit
 chmod +x ~/.cfg/hooks/pre-commit
+
+# 5. Now the real run: skills symlinked into each harness, agents rendered,
+#    profile.env written, and profile.env sourced from ~/.zshenv.<os>.
+~/.config/agent-stack/install.sh
 ```
+
+Step 1 is safe to repeat: it only appends the `*` rule when `info/exclude` does
+not already contain one. Run `install.sh` again after editing `profile.yaml`,
+`roster.yaml`, or the prompts.
+
+`~/.config/agent-stack/render.py` does the rendering and can be run on its own
+(`python3 ~/.config/agent-stack/render.py`) once `profile.yaml` exists. It
+overwrites the per-harness agent directories and the `AGENTS.md`/`CLAUDE.md`
+files wholesale, keeping timestamped copies of anything it displaces under
+`~/.local/state/agent-stack/`.

@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import re
 import shlex
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,6 +36,11 @@ class Agent:
     bash: str
     acceptance: str
     prompt: str
+    # Optional: the vibe [[models]] alias to select for this slot. Vibe stores
+    # `thinking` on the model alias, not on the agent, so an agent can only pick
+    # a reasoning level by naming an alias that already carries it. Falls back to
+    # `model` when the profile does not set it.
+    vibe_model: str | None = None
 
 
 def load_roster(path: Path) -> dict:
@@ -79,6 +85,7 @@ def resolve_agents(roster: dict, profile: dict) -> list[Agent]:
                     bash=role["bash"],
                     acceptance=role["acceptance"],
                     prompt=prompt,
+                    vibe_model=binding.get("vibe_model"),
                 )
             )
     return agents
@@ -109,10 +116,18 @@ def emit_pi(agent: Agent, profile: dict) -> tuple[str, str]:
     tools = "read, grep, find, ls, bash"
     if agent.write == "allow":
         tools += ", edit, write"
+    # pi selects a reasoning level with a `:<level>` suffix on the model ref
+    # (`pi --model <provider>/<model>:high`). pi-subagents' own `thinking:`
+    # frontmatter key is documented as producing exactly this suffix ("Appended
+    # as a `:level` suffix at runtime unless a suffix is already present"), so
+    # the suffix is the primitive both routes converge on.
+    model = model_ref(agent, profile, "pi")
+    if agent.thinking:
+        model = f"{model}:{agent.thinking}"
     content = f"""---
 name: {agent.name}
 description: {agent.role.capitalize()} agent on the {agent.slot} model slot.
-model: {model_ref(agent, profile, "pi")}
+model: {model}
 tools: {tools}
 acceptanceRole: {agent.acceptance}
 systemPromptMode: replace
@@ -125,11 +140,17 @@ inheritProjectContext: true
 
 
 def emit_opencode(agent: Agent, profile: dict) -> tuple[str, str]:
+    # opencode expresses reasoning effort as a model `variant`: the provider
+    # table in opencode.jsonc declares `variants: {high: {options: {reasoningEffort:
+    # ...}}}` per model, and an agent picks one with a `variant:` frontmatter key.
+    # Verified with `opencode debug agent <name>`, which echoes the resolved
+    # "variant" field back for an agent file that sets it.
+    variant = f"variant: {agent.thinking}\n" if agent.thinking else ""
     content = f"""---
 description: {agent.role.capitalize()} agent on the {agent.slot} model slot.
 mode: subagent
 model: {model_ref(agent, profile, "opencode")}
-permission:
+{variant}permission:
   edit: {agent.write}
   bash: {agent.bash}
 ---
@@ -148,7 +169,13 @@ def emit_vibe(agent: Agent) -> tuple[str, str]:
         f'description = "{agent.role.capitalize()} agent on the {agent.slot} slot."',
         f'safety = "{safety}"',
         'agent_type = "subagent"',
-        f'active_model = "{agent.model}"',
+        # Vibe has no per-agent thinking level: `thinking` is a property of the
+        # [[models]] entry, and `active_model` is looked up by that entry's alias
+        # (vibe 2.21.0 vibe_schema.py:352 `self.models.get(self.active_model)`,
+        # with `models` keyed by alias). A slot therefore expresses a reasoning
+        # level by naming an alias that carries it, via the optional profile key
+        # `vibe_model`; without it we fall back to the bare model id.
+        f'active_model = "{agent.vibe_model or agent.model}"',
         f'system_prompt_id = "{agent.role}"',
         "",
         "[tools.bash]",
@@ -170,19 +197,24 @@ def emit_claude(agent: Agent) -> tuple[str, str]:
     tools = "Read, Grep, Glob, Bash"
     if agent.write == "allow":
         tools += ", Edit, Write"
+    # Claude Code takes a per-agent reasoning level as `effort`. Verified against
+    # the installed Claude Code 2.1.220 binary: the strict agent frontmatter
+    # schema declares `effort` ("Thinking effort: low, medium, high, max, or an
+    # integer"), the agent-file parser validates it against
+    # ["low","medium","high","xhigh","max"] (warning "Agent file ... has invalid
+    # effort" otherwise) and carries it onto the resolved agent. A profile
+    # `thinking` outside that set is passed through and Claude will warn.
+    effort = f"effort: {agent.thinking}\n" if agent.thinking else ""
     content = f"""---
 name: {agent.name}
 description: {agent.role.capitalize()} agent on the {agent.slot} model slot.
 model: {agent.model}
-tools: {tools}
+{effort}tools: {tools}
 ---
 
 {agent.prompt}
 """
     return f"{agent.name}.md", content
-
-
-# Future CLI main(): catch ConfigError and re-raise SystemExit(str(exc)) from exc.
 
 TARGETS = {
     "pi": Path.home() / ".pi/agent/agents",
@@ -192,11 +224,68 @@ TARGETS = {
 }
 
 AGENTS_MD_TARGETS = [
+    # ~/.pi/agent/AGENTS.md is a SYMLINK to ~/.vibe/AGENTS.md, so these four
+    # paths are only three distinct files. distinct_agents_md_targets() collapses
+    # the alias; ~/.pi/agent/prompts and ~/.pi/agent/skills are the same pattern.
     Path.home() / ".pi/agent/AGENTS.md",
     Path.home() / ".vibe/AGENTS.md",
     Path.home() / ".config/opencode/AGENTS.md",
     Path.home() / ".claude/CLAUDE.md",
 ]
+
+# Where pre-render copies of clobbered AGENTS.md files go. Outside every harness
+# directory so no harness ever loads a backup as a live config.
+BACKUP_ROOT = Path.home() / ".local/state/agent-stack"
+
+
+def distinct_agents_md_targets(targets: list[Path] | None = None) -> list[Path]:
+    """Resolve AGENTS.md targets and drop aliases of the same file.
+
+    Path.write_text follows symlinks, so writing both ends of an alias writes the
+    same file twice and reports a count nobody can act on. Resolving first makes
+    the write honest and lets the caller report the real number of files touched.
+    """
+    distinct: dict[Path, Path] = {}
+    for target in (AGENTS_MD_TARGETS if targets is None else targets):
+        distinct.setdefault(target.resolve(), target.resolve())
+    return list(distinct.values())
+
+
+def _backup_name(path: Path) -> str:
+    """A collision-free flat filename for a backup of `path`.
+
+    Two AGENTS.md targets share a basename, so the backup name has to carry the
+    directory too.
+    """
+    try:
+        relative = path.relative_to(Path.home())
+    except ValueError:
+        relative = Path(*path.parts[1:]) if path.is_absolute() else path
+    return str(relative).replace("/", "__")
+
+
+def backup_agents_md(targets: list[Path], content: str) -> list[str]:
+    """Copy every target that differs from `content` into one backup directory.
+
+    These files are untracked, so git holds no copy: an unconditional overwrite
+    destroys hand-written content irrecoverably, and a new machine's own
+    CLAUDE.md is exactly the case that matters. One backup directory per render,
+    created with mkdtemp for the same collision safety prune_stale relies on.
+    """
+    doomed = [t for t in targets if t.is_file() and t.read_text() != content]
+    if not doomed:
+        return []
+    BACKUP_ROOT.mkdir(parents=True, exist_ok=True)
+    backup = Path(tempfile.mkdtemp(prefix="agents-md.pre-render-", dir=BACKUP_ROOT))
+    for target in doomed:
+        destination = backup / _backup_name(target)
+        if destination.exists():
+            raise FileExistsError(
+                f"refusing to overwrite existing backup file {destination} "
+                f"while backing up {target}"
+            )
+        shutil.copy2(target, destination)
+    return [str(backup / _backup_name(t)) for t in doomed]
 
 
 def _read_fragment(name: str) -> str:
@@ -305,7 +394,11 @@ def write_all(roster: dict, profile: dict) -> None:
         directory.mkdir(parents=True, exist_ok=True)
         for fname, content in planned[harness].items():
             (directory / fname).write_text(content)
-    for target in AGENTS_MD_TARGETS:
+    agents_md_targets = distinct_agents_md_targets()
+    saved = backup_agents_md(agents_md_targets, agents_md)
+    for path in saved:
+        print(f"backed up existing AGENTS.md to {path}")
+    for target in agents_md_targets:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(agents_md)
     (STACK / "profile.env").write_text(profile_env)
@@ -317,6 +410,10 @@ def write_all(roster: dict, profile: dict) -> None:
             print(f"{harness}: moved {len(moved)} stale file(s) aside: {', '.join(sorted(moved))}")
 
     print(f"rendered {len(agents)} agents to {len(TARGETS)} harnesses")
+    print(
+        f"wrote AGENTS.md to {len(agents_md_targets)} distinct file(s) "
+        f"from {len(AGENTS_MD_TARGETS)} configured path(s)"
+    )
 
 
 def main() -> None:
@@ -324,7 +421,12 @@ def main() -> None:
     parser.add_argument("--profile", type=Path,
                         default=STACK / "profile.yaml")
     args = parser.parse_args()
-    write_all(load_roster(STACK / "roster.yaml"), load_profile(args.profile))
+    try:
+        write_all(load_roster(STACK / "roster.yaml"), load_profile(args.profile))
+    except ConfigError as exc:
+        # Profile errors are written for a human on a new machine's first run.
+        # SystemExit prints the message and exits 1 with no traceback.
+        raise SystemExit(str(exc)) from exc
 
 
 if __name__ == "__main__":

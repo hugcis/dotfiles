@@ -9,10 +9,18 @@ provider_names:
   vibe:     {anthropic: REPLACE-ME, openai: REPLACE-ME}
 
 # Omit a slot entirely to emit no agent for it on this machine.
+#
+# thinking (optional) is the reasoning level. pi gets it as a `:level` suffix on
+# the model ref, opencode as `variant:`, Claude Code as `effort:`.
+#
+# vibe_model (optional) is the vibe [[models]] ALIAS to select for this slot.
+# Vibe stores `thinking` on the model alias rather than on the agent, so it can
+# only reach a reasoning level by naming an alias that already carries one.
+# Omit it and the bare `model` is used as the alias instead.
 slots:
-  primary:   {provider: anthropic, model: REPLACE-ME, thinking: high}
-  alt:       {provider: openai,    model: REPLACE-ME, thinking: high}
-  alt-xhigh: {provider: openai,    model: REPLACE-ME, thinking: xhigh}
+  primary:   {provider: anthropic, model: REPLACE-ME, thinking: high,  vibe_model: REPLACE-ME}
+  alt:       {provider: openai,    model: REPLACE-ME, thinking: high,  vibe_model: REPLACE-ME}
+  alt-xhigh: {provider: openai,    model: REPLACE-ME, thinking: xhigh, vibe_model: REPLACE-ME}
   fast:      {provider: openai,    model: REPLACE-ME}
 
 # Extra AGENTS.md fragments from agents.md.d/, appended after 00-universal.md.
