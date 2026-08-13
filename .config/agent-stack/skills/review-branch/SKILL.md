@@ -38,7 +38,9 @@ cross-shard interfaces. Run at most ten subagents concurrently, using waves when
 ## 3. Dispatch Dedicated Reviewers
 
 Read [REVIEWERS.md](REVIEWERS.md). Give every reviewer the exact scope, commits, intent,
-standards sources, and common output contract. Launch in one parallel dispatch per wave:
+standards sources, and common output contract. Require findings to follow
+`../full-review-and-fix/review-finding-schema.md`. Launch in one parallel dispatch per
+wave:
 
 1. `reviewer-alt`: documented standards and local conventions.
 2. `reviewer-alt`: spec compliance and scope, only when a spec exists.
@@ -59,8 +61,8 @@ Deduplicate overlap without hiding material disagreement. Do not use majority vo
 adjudicate from code, intent, standards, and tests. Report unresolved disputes explicitly.
 
 Keep every noteworthy validated finding, including uncertain concerns, with a confidence
-score. Suppress cosmetic noise. Preserve the review axes so intent, correctness, and
-maintainability do not mask each other.
+score and finding ID. Suppress cosmetic noise. Preserve the review axes so intent,
+correctness, and maintainability do not mask each other.
 
 ## 5. Report
 

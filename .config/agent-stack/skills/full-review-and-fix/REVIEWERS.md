@@ -7,17 +7,8 @@ code to understand it. Read direct callers and callees when contracts or behavio
 on them. Do not assume the diff is correct merely because tests pass.
 
 Return every noteworthy finding, including uncertain ones, but avoid cosmetic noise.
-Use this structure for each finding:
-
-```text
-[severity] Short title (confidence: NN%)
-path/to/file.py:START-END
-Quote: exact relevant current source lines
-Impact: concrete failure or maintenance cost
-Evidence: why this follows from code, spec, or repository rules
-Remedy: smallest sound correction or structural reframing
-Auto-fix: yes/no, with one-sentence justification
-```
+Use `review-finding-schema.md` for each finding. The schema gives the coordinator stable
+IDs, fix eligibility, and verification hooks for deduplication and postfix validation.
 
 Line numbers must be exact current lines verified by opening the file, not diff offsets or
 estimates. Cite additional declarations or call sites when they establish the contract.
@@ -40,6 +31,13 @@ code, mixed abstraction levels, unclear names, and wasteful work. Preserve behav
 Prefer direct readable code over fewer lines. Flag both local cleanups and code-judo moves
 that delete concepts or special cases.
 
+## Comments
+
+Apply `rationalizing-code-comments`: comments should explain why, not how.
+Delete comments that narrate the code or explain obvious how. Keep or compress comments
+that explain why: surprising constraints,
+invariants, external contracts, compatibility, safety, or performance reasons.
+
 ## Tests, Edge Cases, and Performance
 
 Check whether tests exercise meaningful behavior, regressions, boundary values, failures,
@@ -47,6 +45,16 @@ and changed contracts rather than implementation trivia. Identify missing focuse
 Inspect algorithmic regressions, repeated work, excess allocation/I/O, serialized
 independent work, unbounded growth, and operational failure modes. Avoid speculative
 micro-optimization.
+
+## Final-Test Audit
+
+Use `auditing-final-tests`. Inspect every added or changed test in its broader context:
+package responsibility, suite purpose, neighboring tests, and any higher-level policy or
+release checks. Flag TDD scaffolding that should be raised, moved, or removed before the
+diff is finalized. Treat many exact filenames, paths, package names, private constants,
+negative assertions against old implementation details, dependency hygiene tests in
+behavior suites, and duplicated near-identical cases as smells, not automatic failures.
+Preserve specific tests when the exact detail is the public contract or the suite's policy.
 
 ## Architecture and Thermo-Nuclear Maintainability
 

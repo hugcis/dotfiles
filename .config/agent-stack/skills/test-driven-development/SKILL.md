@@ -205,7 +205,7 @@ Keep tests that protect durable behavior, public/API contracts, domain invariant
 
 Prefer moving durable checks into domain-specific test files over keeping stabilization/graveyard files. A file like `test_review_feedback_stabilization.py` is usually a development artifact; extract any durable behavior coverage and delete the file if nothing durable remains.
 
-Run the focused suite after reworking or deleting tests. See [post-tdd-test-curation.md](post-tdd-test-curation.md); helper: `post-tdd-test-audit.sh [base-ref]`.
+Run the focused suite after reworking or deleting tests. Use `auditing-final-tests` for a dedicated final-test review when tests were added or changed. See [post-tdd-test-curation.md](post-tdd-test-curation.md); helper: `post-tdd-test-audit.sh [base-ref]`.
 
 ### Repeat
 

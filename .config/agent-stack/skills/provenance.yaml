@@ -1,0 +1,41 @@
+version: 1
+policy:
+  public_safe: true
+  note: "Origins are broad categories for maintenance decisions; keep private context out of this file."
+origins:
+  external-upstream: "Imported from a third-party skill source with minimal local changes."
+  inherited-process: "Inherited process skill; preserve discipline language unless pressure-tested."
+  imported-adapted: "Imported or previously installed skill that has local adaptations."
+  local-adapted: "Locally maintained workflow built from prior local practice."
+  local: "Locally authored generic workflow."
+  unknown: "Origin not yet classified."
+skills:
+  auditing-final-tests: { origin: local-adapted }
+  brainstorming: { origin: inherited-process }
+  ci-red-triage: { origin: local }
+  diagnose: { origin: external-upstream }
+  dispatching-parallel-agents: { origin: inherited-process }
+  drafting-github-replies: { origin: local }
+  evaluate-codebase: { origin: inherited-process }
+  executing-plans: { origin: inherited-process }
+  finishing-a-development-branch: { origin: inherited-process }
+  full-review-and-fix: { origin: local-adapted }
+  grill-me: { origin: external-upstream }
+  grill-with-docs: { origin: external-upstream }
+  merging-main-resolving-conflicts: { origin: inherited-process }
+  pr-feedback-watch-loop: { origin: local }
+  rationalizing-code-comments: { origin: local }
+  receiving-code-review: { origin: inherited-process }
+  requesting-code-review: { origin: inherited-process }
+  review-branch: { origin: local-adapted }
+  simplify-code: { origin: imported-adapted }
+  subagent-driven-development: { origin: inherited-process }
+  systematic-debugging: { origin: inherited-process }
+  test-driven-development: { origin: inherited-process }
+  thermo-nuclear-code-quality-review: { origin: imported-adapted }
+  using-git-worktrees: { origin: inherited-process }
+  using-superpowers: { origin: inherited-process }
+  verification-before-completion: { origin: inherited-process }
+  write-a-skill: { origin: external-upstream }
+  writing-plans: { origin: inherited-process }
+  writing-skills: { origin: inherited-process }

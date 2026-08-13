@@ -233,6 +233,10 @@ AGENTS_MD_TARGETS = [
     Path.home() / ".claude/CLAUDE.md",
 ]
 
+# Skill directories that are allowed to contain third-party skills, but not
+# personal skills that shadow agent-stack's canonical names.
+DEFAULT_EXTERNAL_SKILL_DIRS = [Path.home() / ".agents/skills"]
+
 # Where pre-render copies of clobbered AGENTS.md files go. Outside every harness
 # directory so no harness ever loads a backup as a live config.
 BACKUP_ROOT = Path.home() / ".local/state/agent-stack"
@@ -337,6 +341,57 @@ def render_profile_env(profile: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def skill_names(directory: Path) -> set[str]:
+    """Return skill entry names from `directory`.
+
+    Skill entries are directories, including symlinks that resolve to
+    directories. A missing directory means that harness has no skills installed
+    at that surface yet, not that doctor should fail.
+    """
+    if not directory.is_dir():
+        return set()
+    return {path.name for path in directory.iterdir() if path.is_dir()}
+
+
+def external_skill_collisions(
+    stack_skills: Path,
+    external_skill_dirs: list[Path],
+) -> dict[Path, set[str]]:
+    """Find third-party skill names that shadow canonical agent-stack skills."""
+    canonical = skill_names(stack_skills)
+    collisions: dict[Path, set[str]] = {}
+    for directory in external_skill_dirs:
+        overlap = canonical & skill_names(directory)
+        if overlap:
+            collisions[directory] = overlap
+    return collisions
+
+
+def doctor(
+    *,
+    stack: Path = STACK,
+    external_skill_dirs: list[Path] | None = None,
+) -> list[str]:
+    """Run read-only consistency checks for the rendered agent stack.
+
+    Option B policy: agent-stack owns personal skills; external skill surfaces
+    such as ~/.agents/skills may contain third-party skills only when their names
+    do not collide with agent-stack skills.
+    """
+    if external_skill_dirs is None:
+        external_skill_dirs = DEFAULT_EXTERNAL_SKILL_DIRS
+    collisions = external_skill_collisions(stack / "skills", external_skill_dirs)
+    if collisions:
+        lines = [
+            "External skill name collision(s) detected.",
+            "agent-stack is the source of truth for personal skills; external skill dirs may only contain non-overlapping third-party skills.",
+        ]
+        for directory, names in sorted(collisions.items(), key=lambda item: str(item[0])):
+            lines.append(f"- {directory}: {', '.join(sorted(names))}")
+        raise ConfigError("\n".join(lines))
+    return []
+
+
 def prune_stale(directory: Path, keep: set[str]) -> list[str]:
     """Move files this render did not produce into a fresh backup directory.
 
@@ -418,14 +473,23 @@ def write_all(roster: dict, profile: dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", nargs="?", choices=("render", "doctor"),
+                        default="render")
     parser.add_argument("--profile", type=Path,
                         default=STACK / "profile.yaml")
+    parser.add_argument("--external-skill-dir", action="append", type=Path,
+                        help="External third-party skill directory to check for name collisions. Repeatable; defaults to ~/.agents/skills.")
     args = parser.parse_args()
     try:
+        if args.command == "doctor":
+            for message in doctor(stack=STACK, external_skill_dirs=args.external_skill_dir):
+                print(message)
+            print("agent-stack doctor: ok")
+            return
         write_all(load_roster(STACK / "roster.yaml"), load_profile(args.profile))
     except ConfigError as exc:
-        # Profile errors are written for a human on a new machine's first run.
-        # SystemExit prints the message and exits 1 with no traceback.
+        # Profile and doctor errors are written for a human on a new machine's
+        # first run. SystemExit prints the message and exits 1 with no traceback.
         raise SystemExit(str(exc)) from exc
 
 

@@ -11,8 +11,6 @@ their trigger conditions apply.
 Personal design docs, ADRs, plans, and Superpowers specs belong under `~/docs/`,
 never inside a repository and never in a commit.
 
-Prefer `vtrash` over `rm -rf` when clearing generated output directories or run
-artifacts. Use destructive removal only when `vtrash` is unavailable or the target
-is an explicitly disposable temporary path.
+Avoid destructive cleanup commands unless the target is explicitly disposable or the user approved the removal.
 
 Do not leave Superpowers runtime artifacts inside a repository.

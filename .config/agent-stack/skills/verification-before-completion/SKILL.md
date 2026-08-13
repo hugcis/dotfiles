@@ -90,7 +90,7 @@ Skip any step = lying, not verifying
 
 **Post-TDD test curation:**
 ```
-✅ Added tests reviewed: durable behavior kept, implementation/source-text/dev-artifact tests reworked or deleted
+✅ Added tests reviewed with auditing-final-tests: durable behavior kept, implementation/source-text/dev-artifact tests reworked or deleted
 ❌ "More tests is safer" / keeping stabilization files because they helped during development
 ```
 
