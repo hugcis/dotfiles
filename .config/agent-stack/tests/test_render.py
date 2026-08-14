@@ -548,6 +548,18 @@ def test_composed_agents_md_does_not_reference_unavailable_trash_tools():
         extra.unlink()
 
 
+def test_composed_agents_md_requires_signed_commits_and_socket_recovery():
+    text = render.compose_agents_md(render.load_profile(FIXTURE))
+
+    assert "Always keep git commit signing enabled" in text
+    assert "do not bypass" in text
+    assert "--no-gpg-sign" in text
+    assert "commit.gpgsign=false" in text
+    assert "SSH_AUTH_SOCK" in text
+    assert "/tmp/ssh-*/agent.*" in text
+    assert "ssh-add -l" in text
+
+
 def test_prune_stale_moves_unknown_files_aside(tmp_path):
     target = tmp_path / "agents"
     target.mkdir()
