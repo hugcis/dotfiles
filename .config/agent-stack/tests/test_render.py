@@ -350,16 +350,21 @@ def test_review_contracts_apply_comment_rationalization():
         assert "Delete comments" in reviewers
 
 
-def test_auditing_final_tests_has_test_rationalization_language():
+def test_auditing_final_tests_curates_against_development_artifacts():
+    """The gate has to keep saying how a useful RED-GREEN test becomes wrong.
+
+    The four outcomes and the record schema are asserted by the gate suite; what
+    is asserted here is the curation semantics an auditor applies to reach them.
+    """
     text = (STACK / "skills" / "auditing-final-tests" / "SKILL.md").read_text()
 
     for phrase in (
-        "Test Rationalization",
         "durable behavior",
-        "development artifacts",
-        "duplicate variants",
-        "implementation-coupled",
-        "meaningfully testing logic",
+        "Merge duplicates unless each protects a distinct boundary.",
+        "Exercise public behavior instead of private helpers when possible.",
+        "Extract durable coverage from stabilization or graveyard files",
+        "A test can help during RED-GREEN development and still be wrong for the "
+        "final suite.",
     ):
         assert phrase in text
 
@@ -393,6 +398,8 @@ def test_skill_provenance_record_is_public_safe():
     assert provenance["skills"]["write-a-skill"]["origin"] == "external-upstream"
     assert provenance["skills"]["full-review-and-fix"]["origin"] == "local-adapted"
     assert provenance["skills"]["ci-red-triage"]["origin"] == "local"
+    assert provenance["skills"]["auditing-final-tests"]["origin"] == "local-adapted"
+    assert provenance["skills"]["pr-feedback-watch-loop"]["origin"] == "local"
 
     text = path.read_text().lower()
     placeholders_for_private_details = {
@@ -402,6 +409,58 @@ def test_skill_provenance_record_is_public_safe():
     }
     assert placeholders_for_private_details.isdisjoint(
         set(re.findall(r"[a-z0-9_-]+", text))
+    )
+
+
+def test_provenance_origins_are_declared_and_immutable_skills_keep_origins():
+    """Origin decides edit rights, so immutable ownership changes must be explicit."""
+    provenance = render.yaml.safe_load(
+        (STACK / "skills" / "provenance.yaml").read_text()
+    )
+    declared = set(provenance["origins"])
+    origins = {
+        name: record["origin"] for name, record in provenance["skills"].items()
+    }
+
+    undeclared = sorted(n for n, o in origins.items() if o not in declared)
+    assert undeclared == [], f"skills carry an undeclared origin: {undeclared}"
+
+    locally_owned = {"local", "local-adapted"}
+    assert locally_owned <= declared, "local ownership categories must stay declared"
+
+    immutable_origin_names = {"inherited-process", "external-upstream"}
+    expected_immutable_origins = frozenset(
+        {
+            ("brainstorming", "inherited-process"),
+            ("diagnose", "external-upstream"),
+            ("dispatching-parallel-agents", "inherited-process"),
+            ("evaluate-codebase", "inherited-process"),
+            ("executing-plans", "inherited-process"),
+            ("finishing-a-development-branch", "inherited-process"),
+            ("grill-me", "external-upstream"),
+            ("grill-with-docs", "external-upstream"),
+            ("merging-main-resolving-conflicts", "inherited-process"),
+            ("receiving-code-review", "inherited-process"),
+            ("requesting-code-review", "inherited-process"),
+            ("subagent-driven-development", "inherited-process"),
+            ("systematic-debugging", "inherited-process"),
+            ("test-driven-development", "inherited-process"),
+            ("using-git-worktrees", "inherited-process"),
+            ("using-superpowers", "inherited-process"),
+            ("verification-before-completion", "inherited-process"),
+            ("write-a-skill", "external-upstream"),
+            ("writing-plans", "inherited-process"),
+            ("writing-skills", "inherited-process"),
+        }
+    )
+    actual_immutable_origins = frozenset(
+        (name, origin)
+        for name, origin in origins.items()
+        if origin in immutable_origin_names
+    )
+    assert actual_immutable_origins == expected_immutable_origins, (
+        "inherited-process and external-upstream origins are an explicit immutable "
+        "contract; update this contract for an intentional ownership change"
     )
 
 

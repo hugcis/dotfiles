@@ -63,8 +63,8 @@ Read [REVIEWERS.md](REVIEWERS.md). In one parallel dispatch per wave, launch:
 Give every reviewer the exact scope, selected mode, shard map when present,
 spec/context, applicable standards, and common contract from `REVIEWERS.md`. Require
 findings to follow `review-finding-schema.md`. The final-test audit reviewer must receive
-the full `auditing-final-tests` skill content or an exact summary of its workflow and
-context-fit checks. Architecture reviewers must work independently. If these agents are
+the full canonical `auditing-final-tests` skill content, and must not restate or summarize
+its rubric. Architecture reviewers must work independently. If these agents are
 unavailable, stop and ask the user to restart your agent harness; do not silently
 substitute models.
 
@@ -104,6 +104,12 @@ or unrelated work, and leave the finding unresolved.
 Re-run correctness plus only the reviewer roles whose finding IDs were fixed, against
 the resulting diff. Apply at most one follow-up batch through the same single fixer: two
 fix cycles maximum. Then stop even if additional opportunities remain.
+
+After the final mutation wave, apply the **Final-test gate:** invoke `auditing-final-tests`
+over the workflow's full change scope. Continue to reporting only
+on `PASS` or `NOT_APPLICABLE`. Resolve `ACTION_REQUIRED`; report `BLOCKED` honestly. The
+earlier read-only final-test reviewer does not replace this gate because later fixes may
+add or alter tests.
 
 ## 8. Report
 
