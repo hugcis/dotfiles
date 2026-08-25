@@ -10,6 +10,7 @@ repositories, and ``pi`` is emulated against a temporary settings file.
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -127,12 +128,16 @@ class FakeRunner:
     """
 
     NON_LOCAL_PREFIXES = ("npm:", "git:", "github:", "http:", "https:", "ssh:")
+    NPM_SPEC = re.compile(r"^(@?[^@]+(?:/[^@]+)?)(?:@(.+))?$")
 
     def __init__(self, home: Path):
         self.home = home
         self.calls: list[tuple[tuple[str, ...], str | None]] = []
         self.settings_path = home / ".pi" / "agent" / "settings.json"
         self.failing_pi_sources: set[str] = set()
+        # Sources whose command writes settings and *then* exits nonzero, the
+        # way a real `pi install` fails after persisting the new entry.
+        self.mutating_pi_failures: set[str] = set()
 
     @property
     def pi_calls(self) -> list[tuple[str, ...]]:
@@ -151,7 +156,19 @@ class FakeRunner:
             text = os.path.join(str(self.settings_path.parent), text)
         return os.path.normpath(text)
 
+    def _identity(self, source: str) -> str | None:
+        """pi's npm package identity: `npm:<name>`, version stripped."""
+        text = source.strip()
+        if not text.startswith("npm:"):
+            return None
+        spec = text[len("npm:") :].strip()
+        match = self.NPM_SPEC.match(spec)
+        return "npm:" + (match.group(1) if match else spec)
+
     def _matches(self, entry: str, source: str) -> bool:
+        left, right = self._identity(entry), self._identity(source)
+        if left is not None or right is not None:
+            return left == right
         left, right = self._resolve(entry), self._resolve(source)
         if left is None or right is None:
             return entry.strip() == source.strip()
@@ -192,6 +209,10 @@ class FakeRunner:
             else:  # pragma: no cover - guard against silent API drift
                 raise AssertionError(f"unexpected pi command {args}")
             self._write_packages(packages)
+            if source in self.mutating_pi_failures:
+                raise subprocess.CalledProcessError(
+                    1, list(args), "", f"pi: {args[1]} {source} failed after write\n"
+                )
             return subprocess.CompletedProcess(list(args), 0, "", "")
         environment = os.environ.copy()
         environment["HOME"] = str(self.home)
@@ -261,8 +282,10 @@ class Harness:
             "    checkout: ~/.local/share/agent-stack/compound-engineering-plugin\n"
             f"    expected_skill_count: {expected_skill_count}\n"
             "    pi_companions:\n"
-            "      - npm:pi-subagents\n"
-            "      - npm:pi-ask-user\n"
+            "      - source: npm:pi-subagents\n"
+            "        policy: required\n"
+            "      - source: npm:pi-ask-user\n"
+            "        policy: install-if-absent\n"
         )
         self.profile_path = self.stack / "profile.yaml"
         self.write_profile("superpowers")
@@ -453,7 +476,10 @@ def test_tracked_manifest_pins_the_reviewed_compound_engineering_source():
     spec = manifest.compound_engineering
     assert spec.revision == "26bf5b1e377212c0e4996824fee1dea1eddd817d"
     assert spec.expected_skill_count == 33
-    assert spec.pi_companions == ("npm:pi-subagents", "npm:pi-ask-user")
+    assert [(c.source, c.policy) for c in spec.pi_companions] == [
+        ("npm:pi-subagents", "required"),
+        ("npm:pi-ask-user", "install-if-absent"),
+    ]
     assert spec.checkout == Path(
         "/nonexistent-home/.local/share/agent-stack/compound-engineering-plugin"
     )
@@ -464,15 +490,15 @@ def test_state_file_records_the_documented_schema(harness):
 
     state = harness.state()
 
-    assert state["version"] == 1
+    assert state["version"] == 2
     assert state["active"] == "compound-engineering"
     assert state["ce_revision"] == harness.revision
-    assert state["pi_ask_user_added"] is True
+    assert state["added_companions"] == ["npm:pi-ask-user"]
     assert sorted(state) == [
         "active",
+        "added_companions",
         "ce_revision",
         "managed_links",
-        "pi_ask_user_added",
         "version",
     ]
     assert all(link.startswith(str(harness.home)) for link in state["managed_links"])
@@ -708,21 +734,21 @@ def test_returning_to_superpowers_restores_links_and_preserves_ce_checkout(harne
 @pytest.mark.parametrize(
     "initial_packages, added, still_present_after_rollback",
     [
-        (["npm:pi-subagents"], True, False),
-        (["npm:pi-subagents", "npm:pi-ask-user"], False, True),
+        (["npm:pi-subagents"], ["npm:pi-ask-user"], False),
+        (["npm:pi-subagents", "npm:pi-ask-user"], [], True),
     ],
 )
 def test_pi_ask_user_is_removed_only_when_this_migration_added_it(
     harness, initial_packages, added, still_present_after_rollback
 ):
     harness.activate_ce(packages=list(initial_packages))
-    assert harness.state()["pi_ask_user_added"] is added
+    assert harness.state()["added_companions"] == added
 
     harness.controller.activate("superpowers")
 
     packages = json.loads(harness.runner.settings_path.read_text())["packages"]
     assert ("npm:pi-ask-user" in packages) is still_present_after_rollback
-    assert harness.state()["pi_ask_user_added"] is False
+    assert harness.state()["added_companions"] == []
 
 
 def test_second_identical_activation_changes_nothing(harness):
@@ -953,11 +979,11 @@ def test_cli_doctor_runs_in_an_isolated_home(harness):
 
 def valid_state(**overrides) -> dict:
     state = {
-        "version": 1,
+        "version": 2,
         "active": "superpowers",
         "ce_revision": None,
         "managed_links": [],
-        "pi_ask_user_added": False,
+        "added_companions": [],
     }
     state.update(overrides)
     return state
@@ -971,7 +997,7 @@ def write_state(harness, payload: dict) -> Path:
 
 @pytest.mark.parametrize(
     "missing",
-    ["version", "active", "ce_revision", "managed_links", "pi_ask_user_added"],
+    ["version", "active", "ce_revision", "managed_links", "added_companions"],
 )
 def test_state_requires_every_schema_key(harness, missing):
     payload = valid_state()
@@ -1333,3 +1359,241 @@ def test_prepare_rejects_an_abbreviated_revision_override(harness):
 
     assert "26bf5b1" in str(error.value)
     assert harness.runner.calls == []
+
+
+# --------------------------------------------------------------------------
+# pi package identity: versions, scopes, and manifest-declared companions
+# --------------------------------------------------------------------------
+
+
+def test_package_identity_ignores_the_version_and_keeps_the_scope():
+    identity = methodology.package_identity
+
+    assert identity("npm:pi-ask-user") == "npm:pi-ask-user"
+    assert identity("npm:pi-ask-user@2.0.1") == "npm:pi-ask-user"
+    assert identity("npm: pi-ask-user@^2.0 ") == "npm:pi-ask-user"
+    assert identity("npm:@acme/pi-ask-user") == "npm:@acme/pi-ask-user"
+    assert identity("npm:@acme/pi-ask-user@1.2.3-rc.1") == "npm:@acme/pi-ask-user"
+    assert identity("/local/checkout") is None
+    assert identity("git:example.com/pkg") is None
+
+
+def test_a_versioned_companion_satisfies_the_manifest_prerequisite(harness):
+    harness.activate_ce(packages=["npm:pi-subagents@1.4.0"])
+
+    assert harness.state()["active"] == "compound-engineering"
+    packages = json.loads(harness.runner.settings_path.read_text())["packages"]
+    assert "npm:pi-subagents@1.4.0" in packages
+    assert "npm:pi-subagents" not in packages
+
+
+def test_a_pinned_pre_existing_companion_is_never_rewritten_or_removed(harness):
+    harness.activate_ce(packages=["npm:pi-subagents@1.4.0", "npm:pi-ask-user@2.0.1"])
+
+    packages = json.loads(harness.runner.settings_path.read_text())["packages"]
+    assert "npm:pi-ask-user@2.0.1" in packages
+    assert "npm:pi-ask-user" not in packages
+    assert harness.state()["added_companions"] == []
+
+    harness.controller.activate("superpowers")
+
+    packages = json.loads(harness.runner.settings_path.read_text())["packages"]
+    assert "npm:pi-ask-user@2.0.1" in packages
+    assert [c for c in harness.runner.pi_calls if "pi-ask-user" in c[2]] == []
+
+
+def rewrite_companions(harness, companions: str) -> "methodology.Controller":
+    """Replace the manifest companion list and return a fresh controller."""
+    text = harness.manifest_path.read_text()
+    head, _, _ = text.partition("    pi_companions:\n")
+    harness.manifest_path.write_text(head + "    pi_companions:\n" + companions)
+    return methodology.Controller(
+        home=harness.home, stack=harness.stack, runner=harness.runner
+    )
+
+
+def test_required_and_installable_companions_come_from_the_manifest(harness):
+    controller = rewrite_companions(
+        harness,
+        "      - source: npm:@acme/pi-guard\n"
+        "        policy: required\n"
+        "      - source: npm:@acme/pi-extra\n"
+        "        policy: install-if-absent\n",
+    )
+    harness.write_pi_settings(["npm:pi-subagents"])
+    controller.prepare("compound-engineering")
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        controller.activate("compound-engineering")
+
+    assert "npm:@acme/pi-guard" in str(error.value)
+    assert harness.runner.pi_calls == []
+
+    harness.write_pi_settings(["npm:@acme/pi-guard@3.1.0"])
+    controller.activate("compound-engineering")
+
+    packages = json.loads(harness.runner.settings_path.read_text())["packages"]
+    assert "npm:@acme/pi-guard@3.1.0" in packages
+    assert "npm:@acme/pi-extra" in packages
+    assert harness.state()["added_companions"] == ["npm:@acme/pi-extra"]
+
+    controller.activate("superpowers")
+
+    packages = json.loads(harness.runner.settings_path.read_text())["packages"]
+    assert "npm:@acme/pi-guard@3.1.0" in packages
+    assert "npm:@acme/pi-extra" not in packages
+
+
+def test_ce_package_recognition_accepts_a_file_url_entry(harness):
+    controller = harness.controller
+    checkout = harness.checkout
+
+    for entry in (f"file://{checkout}", f"file://localhost{checkout}"):
+        assert controller._ce_package_entry([entry]) == entry, entry
+    for entry in (
+        f"file://{checkout}/skills",
+        f"file://elsewhere{checkout}",
+        f"file://{checkout.parent}",
+    ):
+        assert controller._ce_package_entry([entry]) is None, entry
+
+
+def test_superpowers_activates_when_the_manifest_declares_no_ce(harness):
+    harness.manifest_path.write_text(
+        "version: 1\nmethodologies:\n  superpowers:\n    skills_path: skills\n"
+    )
+    harness.write_pi_settings(["npm:pi-subagents"])
+    controller = methodology.Controller(
+        home=harness.home, stack=harness.stack, runner=harness.runner
+    )
+
+    controller.activate("superpowers")
+
+    for name in ("pi", "claude", "vibe"):
+        assert harness.entries(name) == set(SUPERPOWERS_SKILLS)
+    assert harness.state()["active"] == "superpowers"
+    assert harness.runner.pi_calls == []
+    harness.write_instructions("superpowers")
+    assert failures(controller.doctor("superpowers", cwd=harness.tmp_path)) == []
+
+
+def test_a_pi_command_that_mutates_settings_then_fails_is_undone(harness):
+    harness.activate_superpowers()
+    harness.write_pi_settings(["npm:pi-subagents"])
+    harness.controller.prepare("compound-engineering")
+    harness.runner.mutating_pi_failures = {"npm:pi-ask-user"}
+    before = harness.baseline()
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.activate("compound-engineering")
+
+    assert "npm:pi-ask-user" in str(error.value)
+    packages = json.loads(harness.runner.settings_path.read_text())["packages"]
+    assert packages == ["npm:pi-subagents"]
+    assert harness.baseline() == before
+    assert harness.state()["active"] == "superpowers"
+
+
+# --------------------------------------------------------------------------
+# update while compound-engineering is active
+# --------------------------------------------------------------------------
+
+
+NEW_CE_SKILLS = ("ce-brainstorm", "ce-plan", "ce-ship")
+
+
+def test_update_relinks_and_records_the_new_revision_while_ce_is_active(harness):
+    harness.activate_ce()
+    harness.write_instructions("compound-engineering")
+    candidate = commit_ce_revision(harness.upstream, skills=NEW_CE_SKILLS)
+
+    harness.controller.update(candidate)
+
+    for name in ("claude", "vibe"):
+        assert harness.entries(name) == set(NEW_CE_SKILLS)
+        for skill in NEW_CE_SKILLS:
+            link = harness.dest(name) / skill
+            assert link.is_symlink()
+            assert link.resolve() == (harness.checkout / "skills" / skill).resolve()
+    state = harness.state()
+    assert state["ce_revision"] == candidate
+    assert sorted(state["managed_links"]) == sorted(
+        str(harness.dest(name) / skill)
+        for name in ("claude", "vibe")
+        for skill in NEW_CE_SKILLS
+    )
+    findings = harness.controller.doctor(
+        "compound-engineering", cwd=harness.tmp_path
+    )
+    assert failures(findings) == []
+
+
+def test_a_failed_relink_during_update_restores_links_state_and_manifest(harness):
+    harness.activate_ce()
+    candidate = commit_ce_revision(harness.upstream, skills=NEW_CE_SKILLS)
+    collision = harness.dest("vibe") / "ce-ship"
+    collision.mkdir()
+    (collision / "SKILL.md").write_text("hand written\n")
+    manifest_before = harness.manifest_path.read_bytes()
+    before = harness.baseline()
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.update(candidate)
+
+    assert "ce-ship" in str(error.value)
+    assert harness.manifest_path.read_bytes() == manifest_before
+    assert git("rev-parse", "HEAD", cwd=harness.checkout) == harness.revision
+    assert harness.baseline() == before
+    assert harness.state()["ce_revision"] == harness.revision
+
+
+# --------------------------------------------------------------------------
+# doctor: state revision, skill coverage, missing fragments
+# --------------------------------------------------------------------------
+
+
+def test_doctor_detects_a_state_revision_that_differs_from_the_manifest(harness):
+    harness.activate_ce()
+    harness.write_instructions("compound-engineering")
+    state = harness.state()
+    state["ce_revision"] = "b" * 40
+    harness.state_path.write_text(json.dumps(state, indent=2) + "\n")
+
+    findings = harness.controller.doctor(
+        "compound-engineering", cwd=harness.tmp_path
+    )
+
+    assert "state-revision" in failures(findings)
+
+
+@pytest.mark.parametrize("target", ["claude", "vibe"])
+def test_doctor_detects_a_missing_managed_ce_skill_in_each_harness(harness, target):
+    harness.activate_ce()
+    harness.write_instructions("compound-engineering")
+    (harness.dest(target) / "ce-plan").unlink()
+
+    findings = harness.controller.doctor(
+        "compound-engineering", cwd=harness.tmp_path
+    )
+
+    missing = [
+        f for f in findings if f.check == "skill-coverage" and f.level == "error"
+    ]
+    assert len(missing) == 1
+    assert str(harness.dest(target)) in missing[0].message
+    assert "ce-plan" in missing[0].message
+
+
+def test_doctor_reports_a_missing_instruction_fragment_as_a_finding(harness):
+    harness.activate_ce()
+    harness.write_instructions("compound-engineering")
+    (harness.stack / "agents.md.d" / "10-compound-engineering.md").unlink()
+
+    findings = harness.controller.doctor(
+        "compound-engineering", cwd=harness.tmp_path
+    )
+
+    instructions = [f for f in findings if f.check == "instructions"]
+    assert instructions
+    assert all(f.level == "error" for f in instructions)
+    assert "10-compound-engineering.md" in instructions[0].message

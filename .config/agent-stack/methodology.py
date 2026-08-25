@@ -32,17 +32,43 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 import yaml
 
 STACK = Path(__file__).resolve().parent
-STATE_VERSION = 1
+STATE_VERSION = 2
 SUPERPOWERS = "superpowers"
 COMPOUND_ENGINEERING = "compound-engineering"
 REVISION_PATTERN = re.compile(r"[0-9a-f]{40}")
 # Source prefixes pi treats as remote; everything else is a local path
-# (pi's utils/paths.js: isLocalPath).
+# (pi's utils/paths.js: isLocalPath). `file://` is deliberately absent: pi
+# resolves file URLs to local paths.
 PI_REMOTE_PREFIXES = ("npm:", "git:", "github:", "http:", "https:", "ssh:")
+NPM_PREFIX = "npm:"
+# pi's parseNpmSpec regular expression, so `@scope/name@1.2.3` splits into the
+# scoped name and the version exactly the way pi splits it.
+NPM_SPEC_PATTERN = re.compile(r"^(@?[^@]+(?:/[^@]+)?)(?:@(.+))?$")
+# Companion install policies a manifest may declare.
+REQUIRED = "required"
+INSTALL_IF_ABSENT = "install-if-absent"
+COMPANION_POLICIES = (REQUIRED, INSTALL_IF_ABSENT)
+
+
+def package_identity(source: str) -> str | None:
+    """pi's package identity for an npm source: `npm:<name>`, or None.
+
+    Mirrors pi's ``getPackageIdentity``/``getSourceMatchKey*``: the version or
+    range is dropped and a scope is kept, so ``npm:pi-subagents@1.4.0`` and
+    ``npm:pi-subagents`` are the same package to pi and must be to us too.
+    Non-npm sources have no version-independent identity here and return None.
+    """
+    text = source.strip()
+    if not text.startswith(NPM_PREFIX):
+        return None
+    spec = text[len(NPM_PREFIX) :].strip()
+    match = NPM_SPEC_PATTERN.match(spec)
+    return NPM_PREFIX + (match.group(1) if match else spec)
 
 
 def _load_render():
@@ -91,12 +117,29 @@ def run_command(args, *, cwd=None, check=True, env=None):
 
 
 @dataclass(frozen=True)
+class PiCompanion:
+    """A pi package the manifest ties to compound-engineering.
+
+    ``required`` companions must already be installed; ``install-if-absent``
+    companions are installed by the migration when their identity is missing
+    and removed again on rollback.
+    """
+
+    source: str
+    policy: str = REQUIRED
+
+    @property
+    def identity(self) -> str:
+        return package_identity(self.source) or self.source.strip()
+
+
+@dataclass(frozen=True)
 class CompoundEngineeringSpec:
     repository: str
     revision: str
     checkout: Path
     expected_skill_count: int
-    pi_companions: tuple[str, ...]
+    pi_companions: tuple[PiCompanion, ...]
 
 
 @dataclass(frozen=True)
@@ -131,7 +174,10 @@ class Manifest:
                 "revision": spec.revision,
                 "checkout": str(spec.checkout),
                 "expected_skill_count": spec.expected_skill_count,
-                "pi_companions": list(spec.pi_companions),
+                "pi_companions": [
+                    {"source": companion.source, "policy": companion.policy}
+                    for companion in spec.pi_companions
+                ],
             }
         return {"version": self.version, "methodologies": methodologies}
 
@@ -148,6 +194,19 @@ def _field(mapping: dict, key: str, kind, source: Path, prefix: str = ""):
             f"{source}: {path} must be {kind.__name__}; got {value!r}."
         )
     return value
+
+
+def _file_url_to_path(value: str) -> Path | None:
+    """Convert a ``file://`` URL to a path the way node's fileURLToPath does.
+
+    Only an empty or ``localhost`` host names a local file; anything else is
+    another machine's path and must never be mistaken for the managed
+    checkout.
+    """
+    parsed = urlparse(value)
+    if parsed.netloc not in ("", "localhost"):
+        return None
+    return Path(unquote(parsed.path))
 
 
 def _expand_home(value: str, home: Path) -> Path:
@@ -210,13 +269,9 @@ def parse_manifest(text: str, *, path: Path, home: Path) -> Manifest:
             f"{path}: {prefix}.revision must be a full 40-character commit sha; "
             f"got {revision!r}."
         )
-    companions = _field(ce, "pi_companions", list, path, prefix)
-    for index, companion in enumerate(companions):
-        if not isinstance(companion, str):
-            raise ConfigError(
-                f"{path}: {prefix}.pi_companions[{index}] must be a string; "
-                f"got {companion!r}."
-            )
+    companions = _parse_companions(
+        _field(ce, "pi_companions", list, path, prefix), path, prefix
+    )
     return Manifest(
         path=path,
         version=version,
@@ -228,9 +283,37 @@ def parse_manifest(text: str, *, path: Path, home: Path) -> Manifest:
             expected_skill_count=_field(
                 ce, "expected_skill_count", int, path, prefix
             ),
-            pi_companions=tuple(companions),
+            pi_companions=companions,
         ),
     )
+
+
+def _parse_companions(
+    entries: list, path: Path, prefix: str
+) -> tuple[PiCompanion, ...]:
+    """Parse `pi_companions`; a bare string means the fail-closed policy."""
+    companions: list[PiCompanion] = []
+    for index, entry in enumerate(entries):
+        item = f"{prefix}.pi_companions[{index}]"
+        if isinstance(entry, str):
+            companions.append(PiCompanion(source=entry, policy=REQUIRED))
+            continue
+        if not isinstance(entry, dict):
+            raise ConfigError(
+                f"{path}: {item} must be a string or a mapping; got {entry!r}."
+            )
+        unknown = sorted(set(entry) - {"source", "policy"})
+        if unknown:
+            raise ConfigError(f"{path}: {item}.{unknown[0]} is not a known field.")
+        source = _field(entry, "source", str, path, item)
+        policy = entry.get("policy", REQUIRED)
+        if policy not in COMPANION_POLICIES:
+            raise ConfigError(
+                f"{path}: {item}.policy must be one of "
+                f"{', '.join(COMPANION_POLICIES)}; got {policy!r}."
+            )
+        companions.append(PiCompanion(source=source, policy=policy))
+    return tuple(companions)
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +327,9 @@ class MethodologyState:
     active: str = SUPERPOWERS
     ce_revision: str | None = None
     managed_links: list[str] = field(default_factory=list)
-    pi_ask_user_added: bool = False
+    # Identities of the manifest companions this migration installed, so a
+    # rollback removes exactly those and never a pre-existing pinned entry.
+    added_companions: list[str] = field(default_factory=list)
 
     def to_json(self) -> dict:
         return {
@@ -252,7 +337,7 @@ class MethodologyState:
             "active": self.active,
             "ce_revision": self.ce_revision,
             "managed_links": list(self.managed_links),
-            "pi_ask_user_added": self.pi_ask_user_added,
+            "added_companions": list(self.added_companions),
         }
 
 
@@ -284,6 +369,13 @@ def load_state(path: Path) -> MethodologyState:
             raise ConfigError(
                 f"{path}: managed_links[{index}] must be a string; got {link!r}."
             )
+    companions = _field(raw, "added_companions", list, path)
+    for index, companion in enumerate(companions):
+        if not isinstance(companion, str):
+            raise ConfigError(
+                f"{path}: added_companions[{index}] must be a string; "
+                f"got {companion!r}."
+            )
     if "ce_revision" not in raw:
         raise ConfigError(f"{path}: ce_revision is missing.")
     revision = raw["ce_revision"]
@@ -303,7 +395,7 @@ def load_state(path: Path) -> MethodologyState:
         active=active,
         ce_revision=revision,
         managed_links=list(links),
-        pi_ask_user_added=_field(raw, "pi_ask_user_added", bool, path),
+        added_companions=list(companions),
     )
 
 
@@ -673,6 +765,11 @@ class Controller:
         first: the sha shape, the manifest rewrite, and a strict parse of the
         candidate manifest. Only then is the checkout replaced and the manifest
         written, and any failure afterwards restores both byte-identically.
+
+        When compound-engineering is the active methodology, the new skill set
+        is part of the same transaction: harness links and the recorded
+        revision are reconciled with the new checkout, or everything (links,
+        state, manifest, checkout) is put back.
         """
         revision = self._require_full_revision(revision, "--revision")
         path = self.manifest.path
@@ -690,6 +787,20 @@ class Controller:
             f"candidate revision:      {revision}",
         ]
 
+        state = load_state(self.state_path)
+        reconcile = state.active == COMPOUND_ENGINEERING
+        state_before = (
+            self.state_path.read_text() if self.state_path.is_file() else None
+        )
+        manifest_before = self.manifest
+        snapshot = (
+            self.snapshot(COMPOUND_ENGINEERING, COMPOUND_ENGINEERING)
+            if reconcile
+            else None
+        )
+        if snapshot is not None:
+            messages.append(f"snapshot: {snapshot}")
+        journal = LinkJournal()
         retired = None
         try:
             prepared, retired = self._prepare_compound_engineering(
@@ -697,15 +808,59 @@ class Controller:
             )
             _write_atomically(path, candidate_text)
             self.manifest = load_manifest(path, home=self.home)
-        except BaseException:
+            if reconcile:
+                prepared += self._reconcile_active_ce(state, journal)
+        except BaseException as error:
+            failures = self._undo_links(journal)
+            self._restore_state(state_before)
             self._restore_manifest(path, original)
             self._restore_checkout(retired)
+            self.manifest = manifest_before
+            if snapshot is not None:
+                self._discard_snapshot(snapshot)
+            if failures:
+                raise MethodologyError(
+                    "\n".join([f"{error}", "rollback was incomplete:", *failures])
+                ) from error
             raise
         finally:
             self._discard(retired)
         messages += prepared
         messages.append(f"manifest revision updated: {previous} -> {revision}")
         return messages
+
+    def _reconcile_active_ce(
+        self, state: MethodologyState, journal: LinkJournal
+    ) -> list[str]:
+        """Re-link the harnesses and re-record the revision after an update.
+
+        The checkout path does not change, so stale links survive an update by
+        name alone: a skill dropped upstream leaves a broken link and a new one
+        is never published. Both are fixed here, inside the update's
+        transaction, together with the recorded revision.
+        """
+        plan = self._plan_links(COMPOUND_ENGINEERING)
+        desired = MethodologyState(
+            version=STATE_VERSION,
+            active=COMPOUND_ENGINEERING,
+            ce_revision=self._head_revision(self.ce_checkout),
+            managed_links=plan.links,
+            added_companions=list(state.added_companions),
+        )
+        self._apply_links(plan, journal)
+        save_state(self.state_path, desired)
+        return [
+            f"reconciled active compound-engineering: {len(plan.creates)} link(s) "
+            f"created, {len(plan.removals)} stale link(s) removed"
+        ]
+
+    def _restore_state(self, original: str | None) -> None:
+        """Put the state file back exactly as the transaction found it."""
+        if original is None:
+            if self.state_path.is_file():
+                self.state_path.unlink()
+            return
+        _write_atomically(self.state_path, original)
 
     def _candidate_manifest_text(
         self, text: str, previous: str, revision: str
@@ -978,15 +1133,22 @@ class Controller:
         """Resolve a local package source exactly the way pi resolves it.
 
         pi treats every source that is not ``npm:``/``git:``/``github:``/
-        ``http(s):``/``ssh:`` as a local path, expands a leading ``~``, and
-        resolves a relative path against the agent directory for user scope
+        ``http(s):``/``ssh:`` as a local path, expands a leading ``~``,
+        converts a ``file://`` URL with ``fileURLToPath``, and resolves a
+        relative path against the agent directory for user scope
         (``resolvePathFromBase(path, agentDir)``). Resolution is lexical: pi
         never calls realpath, so neither does this.
         """
         text = entry.strip()
         if not text or text.startswith(PI_REMOTE_PREFIXES):
             return None
-        expanded = _expand_home(text, self.home)
+        if text.startswith("file://"):
+            local = _file_url_to_path(text)
+            if local is None:
+                return None
+            expanded = local
+        else:
+            expanded = _expand_home(text, self.home)
         if not expanded.is_absolute():
             expanded = self.pi_settings_path.parent / expanded
         return Path(os.path.normpath(expanded))
@@ -998,40 +1160,72 @@ class Controller:
         different package and must never be treated as ours, or removing CE
         would remove somebody else's registration.
         """
+        if self.manifest.compound_engineering is None:
+            return None
         checkout = Path(os.path.normpath(self.ce_checkout))
         for entry in packages:
             if self._package_source_path(entry) == checkout:
                 return entry
         return None
 
+    def _package_present(self, source: str, packages: list[str]) -> bool:
+        """Whether `packages` already provides `source`, the way pi decides.
+
+        npm sources match by identity, so an entry pinned to a version or a
+        range satisfies a manifest requirement written without one and is left
+        exactly as the user wrote it. Local sources match by resolved path.
+        """
+        identity = package_identity(source)
+        if identity is not None:
+            return any(package_identity(entry) == identity for entry in packages)
+        wanted = self._package_source_path(source)
+        return wanted is not None and any(
+            self._package_source_path(entry) == wanted for entry in packages
+        )
+
     def _plan_packages(
         self, name: str, state: MethodologyState
-    ) -> tuple[list[tuple[str, str]], bool]:
+    ) -> tuple[list[tuple[str, str]], list[str]]:
         packages = self._pi_packages()
-        registered = self._ce_package_entry(packages)
         operations: list[tuple[str, str]] = []
-        ask_user_added = state.pi_ask_user_added
+        added = list(state.added_companions)
         if name == COMPOUND_ENGINEERING:
-            if "npm:pi-subagents" not in packages:
+            companions = self.manifest.ce.pi_companions
+            missing = [
+                companion.source
+                for companion in companions
+                if companion.policy == REQUIRED
+                and not self._package_present(companion.source, packages)
+            ]
+            if missing:
                 raise MethodologyError(
-                    "pi package npm:pi-subagents is not installed; install it "
-                    "before activating compound-engineering."
+                    f"required pi package(s) {', '.join(missing)} are not "
+                    "installed; install them before activating "
+                    "compound-engineering."
                 )
-            if registered is None:
+            if self._ce_package_entry(packages) is None:
                 operations.append(("install", str(self.ce_checkout)))
-            if "npm:pi-ask-user" not in packages:
-                operations.append(("install", "npm:pi-ask-user"))
-                ask_user_added = True
+            for companion in companions:
+                if companion.policy != INSTALL_IF_ABSENT:
+                    continue
+                if self._package_present(companion.source, packages):
+                    continue
+                operations.append(("install", companion.source))
+                if companion.identity not in added:
+                    added.append(companion.identity)
         else:
-            if registered is not None:
+            if self._ce_package_entry(packages) is not None:
                 # pi resolves a remove argument against the process cwd, so
                 # the absolute checkout path is the only representation that
                 # reliably matches the recorded (agent-dir relative) entry.
                 operations.append(("remove", str(self.ce_checkout)))
-            if ask_user_added and "npm:pi-ask-user" in packages:
-                operations.append(("remove", "npm:pi-ask-user"))
-            ask_user_added = False
-        return operations, ask_user_added
+            for identity in added:
+                # The recorded identity is what pi matches against, so a
+                # companion installed pinned is still removed by identity.
+                if self._package_present(identity, packages):
+                    operations.append(("remove", identity))
+            added = []
+        return operations, added
 
     def _apply_packages(
         self, operations: list[tuple[str, str]], applied: list[tuple[str, str]]
@@ -1041,11 +1235,29 @@ class Controller:
                 self.runner(["pi", operation, source])
             except subprocess.CalledProcessError as error:
                 detail = (error.stderr or error.stdout or "").strip()
+                if self._package_operation_took_effect(operation, source):
+                    applied.append((operation, source))
                 raise MethodologyError(
                     f"pi {operation} {source} failed"
                     + (f": {detail}" if detail else "")
                 ) from error
             applied.append((operation, source))
+
+    def _package_operation_took_effect(self, operation: str, source: str) -> bool:
+        """Whether a failed `pi` command still changed settings.
+
+        pi writes settings before the rest of its work can fail, so the exit
+        code says nothing about the recorded package list. Only the list on
+        disk does, and a mutation that survived a failure has to be journalled
+        or the rollback would leave it behind.
+        """
+        try:
+            packages = self._pi_packages()
+        except MethodologyError:
+            # Unreadable settings: assume the mutation landed, so the undo is
+            # attempted and any remaining problem is reported, not hidden.
+            return True
+        return self._package_present(source, packages) == (operation == "install")
 
     def _undo_packages(self, applied: list[tuple[str, str]]) -> list[str]:
         inverse = {"install": "remove", "remove": "install"}
@@ -1085,7 +1297,7 @@ class Controller:
             self._prepare_superpowers()
 
         plan = self._plan_links(name)
-        operations, ask_user_added = self._plan_packages(name, state)
+        operations, added_companions = self._plan_packages(name, state)
         desired = MethodologyState(
             version=STATE_VERSION,
             active=name,
@@ -1095,7 +1307,7 @@ class Controller:
                 else None
             ),
             managed_links=plan.links,
-            pi_ask_user_added=ask_user_added,
+            added_companions=added_companions,
         )
         if plan.empty and not operations and desired == state:
             return [f"{name} already active; no changes"]
@@ -1175,22 +1387,47 @@ class Controller:
         findings += self._check_instructions(name)
         if name == COMPOUND_ENGINEERING:
             findings += self._check_checkout()
+            findings += self._check_state_revision()
             findings += self._check_pi_packages()
         findings += self._check_managed_links(name)
+        findings += self._check_skill_coverage(name)
         findings += self._check_discovery(name)
         findings += self._check_artifact_root(Path(cwd))
         findings += self._check_vibe(name)
         return findings
 
+    def _read_fragment(self, name: str) -> tuple[str | None, Finding | None]:
+        """The instruction fragment for `name`, or an actionable finding.
+
+        A missing fragment means a broken or partial stack installation. That
+        is a diagnosis doctor should report, not a traceback out of doctor.
+        """
+        path = self.stack / "agents.md.d" / METHODOLOGY_FRAGMENTS[name]
+        try:
+            return path.read_text().strip(), None
+        except OSError as error:
+            return None, Finding(
+                "error",
+                "instructions",
+                f"the {name} instruction fragment {path} cannot be read "
+                f"({error.strerror or error}); reinstall the agent stack before "
+                "trusting this report",
+            )
+
     def _check_instructions(self, name: str) -> list[Finding]:
-        fragments = self.stack / "agents.md.d"
-        selected = (fragments / METHODOLOGY_FRAGMENTS[name]).read_text().strip()
-        inactive = [
-            (other, (fragments / filename).read_text().strip())
-            for other, filename in METHODOLOGY_FRAGMENTS.items()
-            if other != name
-        ]
         findings: list[Finding] = []
+        selected, problem = self._read_fragment(name)
+        if problem is not None:
+            findings.append(problem)
+        inactive: list[tuple[str, str]] = []
+        for other in METHODOLOGY_FRAGMENTS:
+            if other == name:
+                continue
+            text, issue = self._read_fragment(other)
+            if issue is not None:
+                findings.append(issue)
+            else:
+                inactive.append((other, text))
         for target in self.instruction_targets:
             if not target.is_file():
                 findings.append(
@@ -1198,7 +1435,7 @@ class Controller:
                 )
                 continue
             content = target.read_text()
-            if selected not in content:
+            if selected is not None and selected not in content:
                 findings.append(
                     Finding(
                         "error",
@@ -1250,13 +1487,62 @@ class Controller:
             )
         return findings
 
+    def _check_state_revision(self) -> list[Finding]:
+        """The recorded revision must be the one the manifest pins.
+
+        A drift here means the links published to the harnesses were computed
+        from a different checkout than the manifest now describes.
+        """
+        state = load_state(self.state_path)
+        expected = self.manifest.ce.revision
+        if state.ce_revision == expected:
+            return []
+        return [
+            Finding(
+                "error",
+                "state-revision",
+                f"{self.state_path} records ce_revision {state.ce_revision}; "
+                f"the manifest pins {expected}",
+            )
+        ]
+
+    def _check_skill_coverage(self, name: str) -> list[Finding]:
+        """Every harness that must publish the active skill set really does."""
+        findings: list[Finding] = []
+        for harness, desired in self._desired_links(name).items():
+            if not desired:
+                continue
+            destination = self.skill_destinations[harness]
+            present: set[str] = set()
+            if destination.is_dir() and not destination.is_symlink():
+                present = {
+                    entry.name
+                    for entry in destination.iterdir()
+                    if entry.is_symlink() and entry.exists()
+                }
+            missing = sorted(set(desired) - present)
+            if missing:
+                findings.append(
+                    Finding(
+                        "error",
+                        "skill-coverage",
+                        f"{destination} is missing {len(missing)} managed "
+                        f"{name} skill(s): {', '.join(missing)}",
+                    )
+                )
+        return findings
+
     def _check_pi_packages(self) -> list[Finding]:
         spec = self.manifest.ce
         packages = self._pi_packages()
         findings = [
-            Finding("error", "pi-companions", f"pi package {companion} is missing")
+            Finding(
+                "error",
+                "pi-companions",
+                f"pi package {companion.source} is missing",
+            )
             for companion in spec.pi_companions
-            if companion not in packages
+            if not self._package_present(companion.source, packages)
         ]
         if self._ce_package_entry(packages) is None:
             findings.append(
