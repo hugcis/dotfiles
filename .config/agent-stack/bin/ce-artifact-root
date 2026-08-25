@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import errno
 import hashlib
 import os
 import re
@@ -72,10 +73,21 @@ def canonical_identity(cwd: Path) -> tuple[str, str] | None:
         return identity, sanitize_name(_remote_basename(identity))
 
     common_path = Path(common_dir).resolve()
-    primary_checkout = (
-        common_path.parent if common_path.name == ".git" else Path(top_level).resolve()
-    )
-    return str(common_path), sanitize_name(primary_checkout.name)
+    return str(common_path), sanitize_name(_common_base_name(common_path, top_level))
+
+
+def _common_base_name(common_path: Path, top_level: str) -> str:
+    """Derive a base name that every checkout sharing a common Git directory agrees on.
+
+    The current checkout basename cannot be used: linked worktrees and
+    ``--separate-git-dir`` layouts would each claim a different artifact root.
+    """
+    if common_path.name == ".git":
+        return common_path.parent.name
+    name = common_path.name
+    if name.endswith(".git") and name != ".git":
+        name = name[: -len(".git")]
+    return name or Path(top_level).resolve().name
 
 
 def sanitize_name(value: str) -> str:
@@ -83,31 +95,83 @@ def sanitize_name(value: str) -> str:
     return sanitized or "repository"
 
 
-def _marker_matches(directory: Path, identity: str) -> bool | None:
-    marker = directory / MARKER_NAME
+def _open_directory(directory: Path) -> int | None:
+    """Open ``directory`` itself, never a symlink standing in for it."""
     try:
-        return marker.read_text() == f"{identity}\n"
+        return os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except FileNotFoundError:
         return None
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR):
+            raise RuntimeError(f"refusing symlinked artifact directory {directory}")
+        raise
 
 
-def _claim_directory(directory: Path, identity: str) -> bool:
-    directory.mkdir(parents=True, exist_ok=True)
-    marker = directory / MARKER_NAME
+def _read_marker(directory: Path, dir_fd: int) -> str | None:
     try:
-        descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        descriptor = os.open(MARKER_NAME, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR):
+            raise RuntimeError(f"refusing symlinked identity marker in {directory}")
+        raise
+    with os.fdopen(descriptor, "r") as stream:
+        return stream.read()
+
+
+def _marker_matches(directory: Path, identity: str) -> bool | None:
+    dir_fd = _open_directory(directory)
+    if dir_fd is None:
+        return None
+    try:
+        content = _read_marker(directory, dir_fd)
+    finally:
+        os.close(dir_fd)
+    if content is None:
+        return None
+    return content == f"{identity}\n"
+
+
+def _make_directory(docs_home: Path, directory: Path) -> None:
+    docs_home.mkdir(parents=True, exist_ok=True)
+    try:
+        os.mkdir(directory, 0o755)
     except FileExistsError:
-        return _marker_matches(directory, identity) is True
-    with os.fdopen(descriptor, "w") as stream:
-        stream.write(f"{identity}\n")
+        pass
+
+
+def _claim_directory(docs_home: Path, directory: Path, identity: str) -> bool:
+    _make_directory(docs_home, directory)
+    dir_fd = _open_directory(directory)
+    if dir_fd is None:
+        raise RuntimeError(f"artifact directory disappeared: {directory}")
+    try:
+        try:
+            descriptor = os.open(
+                MARKER_NAME,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o644,
+                dir_fd=dir_fd,
+            )
+        except FileExistsError:
+            return _read_marker(directory, dir_fd) == f"{identity}\n"
+        with os.fdopen(descriptor, "w") as stream:
+            stream.write(f"{identity}\n")
+    finally:
+        os.close(dir_fd)
     return True
 
 
 def _validated_child(docs_home: Path, name: str) -> Path:
-    result = (docs_home / name).resolve()
-    if result.parent != docs_home:
+    if not name or name in (".", "..") or "/" in name:
+        raise RuntimeError(f"refusing artifact directory name {name!r}")
+    candidate = docs_home / name
+    if candidate.is_symlink():
+        raise RuntimeError(f"refusing symlinked artifact directory {candidate}")
+    if candidate.resolve() != candidate:
         raise RuntimeError(f"refusing artifact path outside {docs_home}")
-    return result
+    return candidate
 
 
 def resolve_artifact_root(cwd: Path, docs_home: Path, create: bool) -> Path:
@@ -116,7 +180,10 @@ def resolve_artifact_root(cwd: Path, docs_home: Path, create: bool) -> Path:
     if repository is None:
         result = _validated_child(docs_home, "general")
         if create:
-            result.mkdir(parents=True, exist_ok=True)
+            _make_directory(docs_home, result)
+            dir_fd = _open_directory(result)
+            if dir_fd is not None:
+                os.close(dir_fd)
     else:
         identity, name = repository
         result = _validated_child(docs_home, name)
@@ -127,11 +194,15 @@ def resolve_artifact_root(cwd: Path, docs_home: Path, create: bool) -> Path:
             marker_matches = _marker_matches(result, identity)
             if marker_matches is False:
                 raise RuntimeError(f"artifact identity collision at {result}")
-        if create and marker_matches is not True and not _claim_directory(result, identity):
+        if (
+            create
+            and marker_matches is not True
+            and not _claim_directory(docs_home, result, identity)
+        ):
             if result.name == name:
                 suffix = hashlib.sha256(identity.encode()).hexdigest()[:8]
                 result = _validated_child(docs_home, f"{name}-{suffix}")
-                if not _claim_directory(result, identity):
+                if not _claim_directory(docs_home, result, identity):
                     raise RuntimeError(f"artifact identity collision at {result}")
             else:
                 raise RuntimeError(f"artifact identity collision at {result}")
@@ -144,8 +215,9 @@ def main() -> int:
     parser.add_argument("--cwd", type=Path, default=Path.cwd())
     parser.add_argument("--no-create", action="store_true")
     args = parser.parse_args()
-    docs_home = Path(os.environ.get("CE_DOCS_HOME", Path.home() / "docs"))
-    result = resolve_artifact_root(args.cwd.resolve(), docs_home, not args.no_create)
+    result = resolve_artifact_root(
+        args.cwd.resolve(), Path.home() / "docs", not args.no_create
+    )
     print(result)
     return 0
 
