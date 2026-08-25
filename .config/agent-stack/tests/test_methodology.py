@@ -73,26 +73,60 @@ def write_skill(root: Path, name: str) -> None:
     (directory / "SKILL.md").write_text(f"---\nname: {name}\n---\n\nbody\n")
 
 
+# Mirrors the pinned upstream extension: only node built-ins, no dependency.
+EXTENSION_SOURCE = (
+    'import { dirname, resolve } from "node:path"\n'
+    'import { fileURLToPath } from "node:url"\n'
+    "export default function extension(pi: any) { return pi }\n"
+)
+
+
+def package_manifest(*, extra: dict | None = None) -> dict:
+    """A package.json shaped like the pinned upstream one."""
+    manifest = {
+        "name": "compound-engineering-plugin",
+        "pi": {
+            "extensions": ["./.pi/extensions/compound-engineering.ts"],
+            "skills": ["./skills"],
+        },
+    }
+    if extra:
+        manifest.update(extra)
+    return manifest
+
+
 def make_ce_upstream(
     path: Path,
     *,
     skills: tuple[str, ...] = CE_SKILLS,
     extension: bool = True,
     package: bool = True,
+    package_extra: dict | None = None,
+    extension_source: str | None = None,
+    skill_body: str | None = None,
+    extra_files: dict[str, str] | None = None,
 ) -> str:
     """Create a local CE-shaped git repository and return its HEAD revision."""
     path.mkdir(parents=True)
     git("init", "-q", "-b", "main", ".", cwd=path)
     if package:
         (path / "package.json").write_text(
-            json.dumps({"name": "compound-engineering-plugin"}) + "\n"
+            json.dumps(package_manifest(extra=package_extra)) + "\n"
         )
     if extension:
         extensions = path / ".pi" / "extensions"
         extensions.mkdir(parents=True)
-        (extensions / "compound-engineering.ts").write_text("export default {};\n")
+        (extensions / "compound-engineering.ts").write_text(
+            EXTENSION_SOURCE if extension_source is None else extension_source
+        )
     for name in skills:
         write_skill(path / "skills", name)
+        if skill_body is not None:
+            (path / "skills" / name / "SKILL.md").write_text(skill_body)
+    for relative, content in (extra_files or {}).items():
+        target = path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
     git("add", "-A", cwd=path)
     git("commit", "-q", "-m", "ce", cwd=path)
     return git("rev-parse", "HEAD", cwd=path)
@@ -245,12 +279,15 @@ class Harness:
         home: Path | None = None,
         expected_skill_count: int = len(CE_SKILLS),
         pi_extension: bool = True,
+        **upstream_kwargs,
     ):
         self.tmp_path = tmp_path
         self.home = home if home is not None else tmp_path / "home"
         self.home.mkdir(parents=True)
         self.upstream = tmp_path / "upstream" / "compound-engineering-plugin"
-        self.revision = make_ce_upstream(self.upstream, extension=pi_extension)
+        self.revision = make_ce_upstream(
+            self.upstream, extension=pi_extension, **upstream_kwargs
+        )
         self.stack = self.home / ".config" / "agent-stack"
         self._build_stack(expected_skill_count)
         self.runner = FakeRunner(self.home)
@@ -552,6 +589,142 @@ def test_prepare_rejects_a_checkout_missing_the_pi_extension(tmp_path):
     assert not harness.checkout.exists()
 
 
+def test_prepare_refuses_a_checkout_path_holding_a_foreign_directory(harness):
+    harness.checkout.mkdir(parents=True)
+    (harness.checkout / "notes.md").write_text("someone else's work\n")
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.prepare("compound-engineering")
+
+    assert str(harness.checkout) in str(error.value)
+    assert "git checkout" in str(error.value)
+    assert (harness.checkout / "notes.md").read_text() == "someone else's work\n"
+
+
+def test_prepare_refuses_a_checkout_of_another_repository(harness, tmp_path):
+    other = tmp_path / "upstream" / "someone-elses-plugin"
+    make_ce_upstream(other)
+    harness.checkout.parent.mkdir(parents=True, exist_ok=True)
+    git("clone", "-q", str(other), str(harness.checkout), cwd=tmp_path)
+    before = tree_fingerprint(harness.checkout)
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.prepare("compound-engineering")
+
+    assert str(other) in str(error.value)
+    assert str(harness.upstream) in str(error.value)
+    assert tree_fingerprint(harness.checkout) == before
+
+
+def test_prepare_refuses_a_symlink_at_the_checkout_path(harness, tmp_path):
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    harness.checkout.parent.mkdir(parents=True, exist_ok=True)
+    harness.checkout.symlink_to(target)
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.prepare("compound-engineering")
+
+    assert str(harness.checkout) in str(error.value)
+    assert harness.checkout.is_symlink()
+    assert target.is_dir()
+
+
+def test_prepare_replaces_a_checkout_this_controller_owns(harness):
+    harness.controller.prepare("compound-engineering")
+    shutil.rmtree(harness.checkout / "skills/ce-plan")
+
+    harness.controller.prepare("compound-engineering")
+
+    assert git("rev-parse", "HEAD", cwd=harness.checkout) == harness.revision
+    assert (harness.checkout / "skills/ce-plan/SKILL.md").is_file()
+
+
+# --------------------------------------------------------------------------
+# prepare: runtime dependencies
+# --------------------------------------------------------------------------
+
+
+def test_prepare_rejects_an_extension_importing_a_third_party_module(tmp_path):
+    harness = Harness(
+        tmp_path,
+        extension_source=(
+            'import { defineCommand } from "citty"\n'
+            "export default function extension(pi: any) { return pi }\n"
+        ),
+    )
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.prepare("compound-engineering")
+
+    message = str(error.value)
+    assert "citty" in message
+    assert "dependenc" in message
+    assert not harness.checkout.exists()
+
+
+def test_prepare_accepts_relative_imports_that_stay_inside_the_checkout(tmp_path):
+    harness = Harness(
+        tmp_path,
+        extension_source=(
+            'import { helper } from "./helper.ts"\n'
+            'import { resolve } from "node:path"\n'
+            "export default function extension(pi: any) { return pi }\n"
+        ),
+        extra_files={
+            ".pi/extensions/helper.ts": (
+                'import { sep } from "node:path"\nexport const helper = sep\n'
+            )
+        },
+    )
+
+    harness.controller.prepare("compound-engineering")
+
+    assert git("rev-parse", "HEAD", cwd=harness.checkout) == harness.revision
+
+
+def test_prepare_rejects_a_relative_import_that_does_not_resolve(tmp_path):
+    harness = Harness(
+        tmp_path,
+        extension_source='import { helper } from "./missing.ts"\n',
+    )
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.prepare("compound-engineering")
+
+    assert "./missing.ts" in str(error.value)
+    assert not harness.checkout.exists()
+
+
+def test_prepare_rejects_a_checkout_that_declares_no_pi_extension_entrypoint(
+    tmp_path,
+):
+    harness = Harness(tmp_path, package_extra={"pi": {"skills": ["./skills"]}})
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.prepare("compound-engineering")
+
+    assert "pi.extensions" in str(error.value)
+    assert not harness.checkout.exists()
+
+
+def test_prepare_rejects_a_skill_that_invokes_the_package_cli(tmp_path):
+    harness = Harness(
+        tmp_path,
+        package_extra={"scripts": {"convert": "bun run src/index.ts convert"}},
+        skill_body="---\nname: ce-plan\n---\n\nRun `bun run src/index.ts convert`.\n",
+        extra_files={"src/index.ts": "export default {}\n"},
+    )
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.prepare("compound-engineering")
+
+    message = str(error.value)
+    assert "src/index.ts" in message
+    assert "dependenc" in message
+    assert not harness.checkout.exists()
+
+
 def test_failed_prepare_leaves_the_previous_checkout_active(harness):
     harness.controller.prepare("compound-engineering")
     before = tree_fingerprint(harness.checkout)
@@ -569,7 +742,9 @@ def test_prepare_repairs_a_dirty_checkout_already_at_the_pinned_revision(harness
     clean = tree_fingerprint(harness.checkout)
     # Dirt that still validates: the skill count and the required files are
     # intact, only tracked content differs from the reviewed revision.
-    (harness.checkout / "package.json").write_text('{"name": "tampered"}\n')
+    (harness.checkout / "package.json").write_text(
+        json.dumps(package_manifest(extra={"description": "tampered"})) + "\n"
+    )
     (harness.checkout / "skills/ce-plan/SKILL.md").write_text("tampered\n")
     assert harness.controller._validate_checkout(harness.checkout, len(CE_SKILLS)) == []
     harness.runner.calls.clear()
@@ -678,10 +853,13 @@ def test_activation_stops_before_replacing_a_real_directory_collision(harness):
     assert harness.migration_dirs() == snapshots_before
 
 
-def test_activation_fails_closed_on_a_symlinked_skills_directory(harness):
+@pytest.mark.parametrize("outside", [False, True])
+def test_activation_fails_closed_on_a_foreign_skills_directory_alias(
+    tmp_path, harness, outside
+):
     aliased = harness.home / ".vibe/skills"
     aliased.parent.mkdir(parents=True)
-    other = harness.home / ".pi/agent/skills"
+    other = tmp_path / "foreign-skills" if outside else harness.home / "skills-elsewhere"
     other.mkdir(parents=True)
     aliased.symlink_to(other)
 
@@ -690,7 +868,52 @@ def test_activation_fails_closed_on_a_symlinked_skills_directory(harness):
 
     assert str(aliased) in str(error.value)
     assert aliased.is_symlink()
+    assert os.readlink(aliased) == str(other)
     assert harness.entries("pi") == set()
+
+
+def test_activation_migrates_a_legacy_alias_between_skill_destinations(harness):
+    """The stack used to ship ~/.pi/agent/skills as a link to ~/.vibe/skills."""
+    vibe = harness.dest("vibe")
+    vibe.mkdir(parents=True)
+    alias = harness.dest("pi")
+    alias.parent.mkdir(parents=True)
+    alias.symlink_to(vibe)
+
+    messages = harness.controller.activate("superpowers")
+
+    assert not alias.is_symlink()
+    assert alias.is_dir()
+    assert alias.resolve() != vibe.resolve()
+    for name in ("pi", "vibe"):
+        assert harness.entries(name) == set(SUPERPOWERS_SKILLS)
+        for skill in SUPERPOWERS_SKILLS:
+            link = harness.dest(name) / skill
+            assert link.is_symlink()
+            assert link.resolve() == (harness.stack / "skills" / skill).resolve()
+    assert any(str(alias) in message and str(vibe) in message for message in messages)
+
+
+def test_a_failed_activation_restores_a_legacy_destination_alias(harness):
+    vibe = harness.dest("vibe")
+    vibe.mkdir(parents=True)
+    alias = harness.dest("pi")
+    alias.parent.mkdir(parents=True)
+    alias.symlink_to(vibe)
+    harness.write_pi_settings(["npm:pi-subagents"])
+    harness.controller.prepare("compound-engineering")
+    harness.runner.failing_pi_sources.add(str(harness.checkout))
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.activate("compound-engineering")
+
+    # the alias was migrated, then the *package* step failed: the rollback has
+    # to put the exact symlink back, not merely refuse to start.
+    assert "pi install" in str(error.value)
+    assert "rollback was incomplete" not in str(error.value)
+    assert alias.is_symlink()
+    assert os.readlink(alias) == str(vibe)
+    assert harness.entries("vibe") == set()
 
 
 # --------------------------------------------------------------------------
@@ -940,6 +1163,52 @@ def test_doctor_detects_pi_companion_package_drift(harness):
     findings = harness.controller.doctor("compound-engineering", cwd=harness.tmp_path)
 
     assert "pi-companions" in failures(findings)
+
+
+def test_doctor_names_an_external_skill_shadowing_an_active_ce_skill(harness):
+    harness.activate_ce()
+    harness.write_instructions("compound-engineering")
+    external = harness.home / ".agents/skills"
+    write_skill(external, "ce-plan")
+    write_skill(external, "third-party-only")
+
+    findings = harness.controller.doctor(
+        "compound-engineering", cwd=harness.tmp_path
+    )
+
+    collisions = [f for f in findings if f.check == "external-skills"]
+    assert len(collisions) == 1
+    assert collisions[0].level == "error"
+    assert "ce-plan" in collisions[0].message
+    assert "third-party-only" not in collisions[0].message
+
+
+def test_doctor_ignores_an_external_skill_named_after_the_inactive_methodology(
+    harness,
+):
+    harness.activate_ce()
+    harness.write_instructions("compound-engineering")
+    write_skill(harness.home / ".agents/skills", SUPERPOWERS_SKILLS[0])
+
+    findings = harness.controller.doctor(
+        "compound-engineering", cwd=harness.tmp_path
+    )
+
+    assert [f for f in findings if f.check == "external-skills"] == []
+
+
+def test_doctor_names_an_external_skill_shadowing_an_active_superpowers_skill(
+    harness,
+):
+    harness.activate_superpowers()
+    harness.write_instructions("superpowers")
+    write_skill(harness.home / ".agents/skills", SUPERPOWERS_SKILLS[0])
+
+    findings = harness.controller.doctor("superpowers", cwd=harness.tmp_path)
+
+    collisions = [f for f in findings if f.check == "external-skills"]
+    assert len(collisions) == 1
+    assert SUPERPOWERS_SKILLS[0] in collisions[0].message
 
 
 def test_doctor_detects_an_artifact_root_inside_the_current_repository(tmp_path):
@@ -1789,8 +2058,8 @@ def test_installer_runs_the_methodology_lifecycle_without_linking_skills(tmp_pat
     profile = stack / "profile.yaml"
     assert call_log.read_text().splitlines() == [
         f"methodology.py prepare --profile {profile}",
-        "render.py",
         f"methodology.py activate --profile {profile}",
+        "render.py",
         f"methodology.py doctor --profile {profile}",
     ]
     assert not pi_log.exists()

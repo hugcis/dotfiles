@@ -7,11 +7,14 @@ native config for each harness. Slots absent from the profile emit no agent.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import re
 import shlex
 import shutil
+import sys
 import tempfile
 from dataclasses import dataclass
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 import yaml
@@ -404,12 +407,45 @@ def skill_names(directory: Path) -> set[str]:
     return {path.name for path in directory.iterdir() if path.is_dir()}
 
 
+def _load_methodology():
+    """Load methodology.py by path, so the manifest has a single definition.
+
+    Imported lazily and only by doctor: methodology.py loads this module in
+    turn, and nothing here may depend on it at import time.
+    """
+    name = "agent_stack_methodology"
+    if name in sys.modules:
+        return sys.modules[name]
+    loader = SourceFileLoader(name, str(STACK / "methodology.py"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        loader.exec_module(module)
+    except Exception:
+        del sys.modules[name]
+        raise
+    return module
+
+
+def active_skill_names(*, stack: Path, profile: Path, home: Path) -> set[str]:
+    """Skill names the methodology selected in `profile` publishes.
+
+    Collision checks have to follow the active methodology: in
+    compound-engineering mode the canonical names are the CE skill names, so a
+    third-party ``ce-*`` skill on an external surface is a collision and a
+    superpowers name is not.
+    """
+    methodology = _load_methodology()
+    controller = methodology.Controller(home=home, stack=stack, profile=profile)
+    return skill_names(controller.active_source(controller.selected_methodology()))
+
+
 def external_skill_collisions(
-    stack_skills: Path,
+    canonical: set[str],
     external_skill_dirs: list[Path],
 ) -> dict[Path, set[str]]:
     """Find third-party skill names that shadow canonical agent-stack skills."""
-    canonical = skill_names(stack_skills)
     collisions: dict[Path, set[str]] = {}
     for directory in external_skill_dirs:
         overlap = canonical & skill_names(directory)
@@ -422,6 +458,7 @@ def doctor(
     *,
     stack: Path = STACK,
     external_skill_dirs: list[Path] | None = None,
+    canonical_skill_names: set[str] | None = None,
 ) -> list[str]:
     """Run read-only consistency checks for the rendered agent stack.
 
@@ -431,7 +468,9 @@ def doctor(
     """
     if external_skill_dirs is None:
         external_skill_dirs = DEFAULT_EXTERNAL_SKILL_DIRS
-    collisions = external_skill_collisions(stack / "skills", external_skill_dirs)
+    if canonical_skill_names is None:
+        canonical_skill_names = skill_names(stack / "skills")
+    collisions = external_skill_collisions(canonical_skill_names, external_skill_dirs)
     if collisions:
         lines = [
             "External skill name collision(s) detected.",
@@ -530,10 +569,21 @@ def main() -> None:
                         default=STACK / "profile.yaml")
     parser.add_argument("--external-skill-dir", action="append", type=Path,
                         help="External third-party skill directory to check for name collisions. Repeatable; defaults to ~/.agents/skills.")
+    parser.add_argument("--home", type=Path, default=Path.home(),
+                        help="Home directory used to resolve the active methodology. Defaults to $HOME.")
     args = parser.parse_args()
     try:
         if args.command == "doctor":
-            for message in doctor(stack=STACK, external_skill_dirs=args.external_skill_dir):
+            canonical = active_skill_names(
+                stack=STACK, profile=args.profile, home=args.home
+            )
+            for message in doctor(
+                stack=STACK,
+                external_skill_dirs=(
+                    args.external_skill_dir or [args.home / ".agents/skills"]
+                ),
+                canonical_skill_names=canonical,
+            ):
                 print(message)
             print("agent-stack doctor: ok")
             return

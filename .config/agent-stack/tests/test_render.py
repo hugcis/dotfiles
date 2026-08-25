@@ -1082,9 +1082,9 @@ def test_external_skill_collisions_detect_duplicate_names(tmp_path):
     for name in ("owned-skill", "third-party-only"):
         (external / name).mkdir(parents=True)
 
-    assert render.external_skill_collisions(stack_skills, [external]) == {
-        external: {"owned-skill"},
-    }
+    assert render.external_skill_collisions(
+        render.skill_names(stack_skills), [external]
+    ) == {external: {"owned-skill"}}
 
 
 def test_external_skill_collisions_ignore_missing_external_dirs(tmp_path):
@@ -1092,7 +1092,7 @@ def test_external_skill_collisions_ignore_missing_external_dirs(tmp_path):
     (stack_skills / "owned-skill").mkdir(parents=True)
 
     assert render.external_skill_collisions(
-        stack_skills, [tmp_path / "missing" / "skills"]
+        render.skill_names(stack_skills), [tmp_path / "missing" / "skills"]
     ) == {}
 
 
@@ -1120,16 +1120,118 @@ def test_doctor_allows_non_overlapping_external_skills(tmp_path):
     assert render.doctor(stack=stack, external_skill_dirs=[external]) == []
 
 
-def test_main_doctor_turns_collisions_into_a_plain_message(tmp_path, monkeypatch, capsys):
-    stack = tmp_path / "stack"
-    external = tmp_path / ".agents" / "skills"
+def _methodology_stack(tmp_path, *, methodology: str, ce_skills=("ce-plan",)):
+    """A stack whose profile and manifest select `methodology`."""
+    home = tmp_path / "home"
+    stack = home / ".config/agent-stack"
     (stack / "skills" / "owned-skill").mkdir(parents=True)
+    checkout = home / ".local/share/agent-stack/compound-engineering-plugin"
+    for name in ce_skills:
+        (checkout / "skills" / name).mkdir(parents=True)
+    (stack / "methodologies.yaml").write_text(
+        "version: 1\n"
+        "methodologies:\n"
+        "  superpowers:\n"
+        "    skills_path: skills\n"
+        "  compound-engineering:\n"
+        "    repository: https://example.invalid/ce.git\n"
+        f"    revision: {'a' * 40}\n"
+        "    checkout: ~/.local/share/agent-stack/compound-engineering-plugin\n"
+        f"    expected_skill_count: {len(ce_skills)}\n"
+        "    pi_companions: []\n"
+    )
+    profile = stack / "profile.yaml"
+    profile.write_text(f"methodology: {methodology}\n")
+    return home, stack, profile
+
+
+def test_active_skill_names_follow_the_selected_methodology(tmp_path):
+    home, stack, profile = _methodology_stack(
+        tmp_path, methodology="compound-engineering"
+    )
+
+    assert render.active_skill_names(stack=stack, profile=profile, home=home) == {
+        "ce-plan"
+    }
+
+    profile.write_text("methodology: superpowers\n")
+    assert render.active_skill_names(stack=stack, profile=profile, home=home) == {
+        "owned-skill"
+    }
+
+
+def test_doctor_rejects_an_external_skill_shadowing_an_active_ce_skill(tmp_path):
+    home, stack, profile = _methodology_stack(
+        tmp_path, methodology="compound-engineering"
+    )
+    external = home / ".agents/skills"
+    (external / "ce-plan").mkdir(parents=True)
+    (external / "owned-skill").mkdir(parents=True)
+
+    with pytest.raises(render.ConfigError) as exc:
+        render.doctor(
+            stack=stack,
+            external_skill_dirs=[external],
+            canonical_skill_names=render.active_skill_names(
+                stack=stack, profile=profile, home=home
+            ),
+        )
+
+    message = str(exc.value)
+    assert "ce-plan" in message
+    # superpowers is inactive, so its names are not canonical right now
+    assert "owned-skill" not in message
+
+
+def test_main_doctor_checks_the_active_methodology_skill_names(
+    tmp_path, monkeypatch, capsys
+):
+    home, stack, profile = _methodology_stack(
+        tmp_path, methodology="compound-engineering"
+    )
+    external = home / ".agents/skills"
+    (external / "ce-plan").mkdir(parents=True)
+    monkeypatch.setattr(render, "STACK", stack)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "render.py",
+            "doctor",
+            "--profile",
+            str(profile),
+            "--home",
+            str(home),
+            "--external-skill-dir",
+            str(external),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        render.main()
+
+    assert "ce-plan" in str(exc.value)
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_main_doctor_turns_collisions_into_a_plain_message(tmp_path, monkeypatch, capsys):
+    home, stack, profile = _methodology_stack(tmp_path, methodology="superpowers")
+    external = home / ".agents/skills"
     (external / "owned-skill").mkdir(parents=True)
     monkeypatch.setattr(render, "STACK", stack)
     monkeypatch.setattr(
         sys,
         "argv",
-        ["render.py", "doctor", "--external-skill-dir", str(external)],
+        [
+            "render.py",
+            "doctor",
+            "--profile",
+            str(profile),
+            "--home",
+            str(home),
+            "--external-skill-dir",
+            str(external),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:

@@ -48,9 +48,16 @@ if [[ ! -f "$STACK/profile.yaml" ]]; then
 	exit 1
 fi
 
+# prepare -> activate -> render -> doctor.
+#
+# Activation is transactional and rendering is not, so the switch of skill
+# links and pi packages happens first: a rejected activation rolls itself back
+# and aborts here, leaving the instruction files describing the methodology
+# that is still installed. Rendering the fragment before activating would
+# publish instructions for a methodology the harnesses never got.
 python3 "$STACK/methodology.py" prepare --profile "$STACK/profile.yaml"
-python3 "$STACK/render.py"
 python3 "$STACK/methodology.py" activate --profile "$STACK/profile.yaml"
+python3 "$STACK/render.py"
 python3 "$STACK/methodology.py" doctor --profile "$STACK/profile.yaml"
 
 # Shell wiring: source profile.env if not already wired.

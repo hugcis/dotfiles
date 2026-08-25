@@ -54,6 +54,19 @@ NPM_SPEC_PATTERN = re.compile(r"^(@?[^@]+(?:/[^@]+)?)(?:@(.+))?$")
 # place for ever after, including on a rollback to superpowers. Every other
 # companion is a prerequisite that must already be installed (fail closed).
 PI_ASK_USER = "npm:pi-ask-user"
+# Import specifiers in a runtime entrypoint: `from "x"`, `import "x"`,
+# `import("x")`, and `require("x")` alike.
+IMPORT_PATTERN = re.compile(r"""(?:\bfrom|\bimport|\brequire)\s*\(?\s*(['"])([^'"]+)\1""")
+# File paths named by a package.json script, e.g. `bun run src/index.ts`.
+SCRIPT_PATH_PATTERN = re.compile(r"[\w./-]+\.(?:ts|tsx|js|mjs|cjs)")
+# Node's built-in modules: importable without installing anything.
+NODE_BUILTINS = frozenset(
+    "assert async_hooks buffer child_process cluster console constants crypto "
+    "dgram diagnostics_channel dns domain events fs http http2 https inspector "
+    "module net os path perf_hooks process punycode querystring readline repl "
+    "stream string_decoder sys timers tls trace_events tty url util v8 vm wasi "
+    "worker_threads zlib".split()
+)
 
 
 def package_identity(source: str) -> str | None:
@@ -412,10 +425,13 @@ class LinkPlan:
     creates: list[tuple[Path, Path]] = field(default_factory=list)
     removals: list[Path] = field(default_factory=list)
     links: list[str] = field(default_factory=list)
+    # Legacy destination aliases to replace with independent directories,
+    # as (destination, exact symlink target) pairs.
+    alias_migrations: list[tuple[Path, str]] = field(default_factory=list)
 
     @property
     def empty(self) -> bool:
-        return not self.creates and not self.removals
+        return not self.creates and not self.removals and not self.alias_migrations
 
 
 def _link_target(link: Path) -> Path:
@@ -519,6 +535,15 @@ class Controller:
     @property
     def artifact_resolver(self) -> Path:
         return self.stack / "bin/ce-artifact-root"
+
+    @property
+    def external_skill_dirs(self) -> list[Path]:
+        """Skill surfaces this stack does not own but every harness reads.
+
+        Third-party skills may live here; a name that shadows an *active*
+        methodology skill may not, because which one wins is not defined.
+        """
+        return [self.home / ".agents/skills"]
 
     # -- profile -----------------------------------------------------------
 
@@ -648,6 +673,7 @@ class Controller:
             else self._require_full_revision(revision, "revision")
         )
         checkout = spec.checkout
+        self._require_owned_checkout(checkout, spec.repository)
         # A checkout already at the wanted revision is only reusable when it is
         # also clean: edited tracked files are exactly the drift a repair must
         # remove, so they force the same transactional replacement a wrong
@@ -695,25 +721,229 @@ class Controller:
         messages.append(f"compound-engineering checkout installed at {wanted}")
         return messages, retired
 
+    def _repository_key(self, value: str) -> str:
+        """A comparable identity for a git remote URL.
+
+        Only the differences that never change which repository is named are
+        normalised away: a ``file://`` wrapper, a trailing slash, and the
+        ``.git`` suffix. A local path is compared by real path so a symlinked
+        parent cannot disguise the same repository as a different one.
+        """
+        text = value.strip()
+        if text.startswith("file://"):
+            local = _file_url_to_path(text)
+            if local is not None:
+                text = str(local)
+        text = text.rstrip("/")
+        if text.endswith(".git"):
+            text = text[: -len(".git")]
+        candidate = _expand_home(text, self.home)
+        if candidate.is_absolute():
+            return os.path.normpath(os.path.realpath(candidate))
+        return text
+
+    def _require_owned_checkout(self, checkout: Path, repository: str) -> None:
+        """Refuse to touch anything at the checkout path this stack did not create.
+
+        `prepare` replaces the checkout by renaming the old one aside and
+        deleting it, so it must first prove the path holds this controller's
+        own clone: a real directory that is a git checkout of the configured
+        repository. A foreign directory, a file, a symlink, or a clone of
+        somebody else's repository is reported and left byte-for-byte alone --
+        no rename, no delete -- because nothing here can prove the stack owns
+        it.
+        """
+        if not checkout.exists() and not checkout.is_symlink():
+            return
+        advice = (
+            "move it aside by hand before preparing compound-engineering; this "
+            "controller only replaces a checkout it can prove it owns."
+        )
+        if checkout.is_symlink():
+            raise MethodologyError(
+                f"{checkout} is a symlink to {_link_target(checkout)}, not a "
+                f"checkout this stack created; {advice}"
+            )
+        if not checkout.is_dir():
+            raise MethodologyError(
+                f"{checkout} exists but is not a directory; {advice}"
+            )
+        if not (checkout / ".git").exists():
+            raise MethodologyError(
+                f"{checkout} is a directory but not a git checkout, so this "
+                f"stack cannot prove it owns it; {advice}"
+            )
+        result = self._git(
+            "config", "--get", "remote.origin.url", cwd=checkout, check=False
+        )
+        origin = (result.stdout or "").strip() if result.returncode == 0 else ""
+        if not origin:
+            raise MethodologyError(
+                f"{checkout} is a git checkout with no origin remote, so this "
+                f"stack cannot prove it owns it; {advice}"
+            )
+        if self._repository_key(origin) != self._repository_key(repository):
+            raise MethodologyError(
+                f"{checkout} is a checkout of {origin}, not of the configured "
+                f"repository {repository}; {advice}"
+            )
+
     def _validate_checkout(self, root: Path, expected_skill_count: int) -> list[str]:
         problems: list[str] = []
         package = root / "package.json"
+        manifest: dict | None = None
         if not package.is_file():
             problems.append(f"{package} is missing")
         else:
             try:
-                json.loads(package.read_text())
+                parsed = json.loads(package.read_text())
             except json.JSONDecodeError as error:
                 problems.append(f"{package} is not valid JSON: {error}")
+            else:
+                if isinstance(parsed, dict):
+                    manifest = parsed
+                else:
+                    problems.append(f"{package} is not a JSON object")
         extension = root / ".pi/extensions/compound-engineering.ts"
         if not extension.is_file():
             problems.append(f"{extension} is missing")
+        if manifest is not None:
+            problems += self._runtime_dependency_problems(root, manifest)
         found = len(_skill_entries(root / "skills"))
         if found != expected_skill_count:
             problems.append(
                 f"{root}/skills holds {found} direct skills with SKILL.md; "
                 f"the manifest expects {expected_skill_count}"
             )
+        return problems
+
+    # -- runtime dependencies ---------------------------------------------
+    #
+    # This controller installs *no* runtime dependencies for the CE checkout,
+    # and that is a validated property of the pinned revision, not an omission:
+    #
+    # * pi loads a local package by path; it runs `npm install` only for npm
+    #   and git sources (pi docs, "Dependencies"), so nothing installs the
+    #   checkout's `dependencies` for us.
+    # * at the pinned revision the only entrypoint pi loads,
+    #   `.pi/extensions/compound-engineering.ts` (declared in package.json
+    #   `pi.extensions`), imports `node:path` and `node:url` and nothing else,
+    #   and the shipped skills never invoke the package's own CLI
+    #   (`bun run src/index.ts`), which is what would need `citty`/`js-yaml`.
+    #
+    # Both halves are re-checked on every prepare, so an upstream revision that
+    # starts importing a third-party module, adds an entrypoint we cannot read,
+    # or ships a skill that runs the package CLI, fails the checkout validation
+    # instead of silently installing a plugin whose dependencies are missing.
+
+    def _runtime_dependency_problems(self, root: Path, manifest: dict) -> list[str]:
+        problems: list[str] = []
+        pi = manifest.get("pi")
+        if not isinstance(pi, dict):
+            return [
+                f"{root}/package.json declares no `pi` section, so the "
+                "entrypoints pi would load cannot be validated"
+            ]
+        entrypoints = pi.get("extensions")
+        if (
+            not isinstance(entrypoints, list)
+            or not entrypoints
+            or not all(isinstance(entry, str) for entry in entrypoints)
+        ):
+            return [
+                f"{root}/package.json: pi.extensions must be a non-empty list "
+                f"of paths; got {entrypoints!r}"
+            ]
+        seen: set[Path] = set()
+        for entry in entrypoints:
+            problems += self._scan_module(root, root / entry, entry, seen)
+        problems += self._package_cli_problems(root, manifest)
+        return problems
+
+    @staticmethod
+    def _resolve_module(path: Path) -> Path | None:
+        """Resolve an import target the way a TS/JS loader would."""
+        candidates = [path] + [
+            path.with_name(path.name + suffix)
+            for suffix in (".ts", ".tsx", ".js", ".mjs", ".cjs")
+        ]
+        candidates += [path / f"index{suffix}" for suffix in (".ts", ".js", ".mjs")]
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+        return None
+
+    def _scan_module(
+        self, root: Path, path: Path, label: str, seen: set[Path]
+    ) -> list[str]:
+        """Report every import in `path` that needs something we do not install."""
+        resolved = self._resolve_module(Path(os.path.normpath(path)))
+        if resolved is None:
+            return [
+                f"{root}: the runtime entrypoint {label} does not resolve to a "
+                "file inside the checkout"
+            ]
+        if not _is_beneath(resolved, root):
+            return [f"{root}: the runtime entrypoint {label} escapes the checkout"]
+        if resolved in seen:
+            return []
+        seen.add(resolved)
+        problems: list[str] = []
+        for _, specifier in IMPORT_PATTERN.findall(resolved.read_text(errors="replace")):
+            if specifier.startswith("."):
+                problems += self._scan_module(
+                    root, resolved.parent / specifier, specifier, seen
+                )
+                continue
+            module = specifier[len("node:") :] if specifier.startswith("node:") else specifier
+            if module.split("/")[0] in NODE_BUILTINS:
+                continue
+            problems.append(
+                f"{resolved} imports {specifier!r}, which is not a node "
+                "built-in: the pinned checkout would need its npm dependencies "
+                "installed, and this controller installs none"
+            )
+        return problems
+
+    def _package_cli_problems(self, root: Path, manifest: dict) -> list[str]:
+        """Report shipped skills that invoke the checkout's own CLI.
+
+        A skill that runs the package's binary or its script entrypoint needs
+        the checkout's npm dependencies at runtime; a skill that only tells the
+        agent to run *the user's project* dev server does not, which is why
+        only the package's own entrypoints are searched for.
+        """
+        tokens: set[str] = set()
+        binaries = manifest.get("bin")
+        if isinstance(binaries, str):
+            name = manifest.get("name")
+            if isinstance(name, str):
+                tokens.add(name.rsplit("/", 1)[-1])
+        elif isinstance(binaries, dict):
+            tokens.update(key for key in binaries if isinstance(key, str))
+        main = manifest.get("main")
+        if isinstance(main, str) and (root / main).is_file():
+            tokens.add(main)
+        scripts = manifest.get("scripts")
+        if isinstance(scripts, dict):
+            for command in scripts.values():
+                if not isinstance(command, str):
+                    continue
+                for candidate in SCRIPT_PATH_PATTERN.findall(command):
+                    if (root / candidate).is_file():
+                        tokens.add(candidate)
+        if not tokens:
+            return []
+        problems: list[str] = []
+        for document in sorted((root / "skills").rglob("*.md")):
+            text = document.read_text(errors="replace")
+            hits = sorted(token for token in tokens if token in text)
+            if hits:
+                problems.append(
+                    f"{document} invokes the checkout's own entrypoint(s) "
+                    f"{', '.join(hits)}, which needs the checkout's npm "
+                    "dependencies, and this controller installs none"
+                )
         return problems
 
     def _temporary_sibling(self, target: Path, tag: str) -> Path:
@@ -961,7 +1191,7 @@ class Controller:
             "vibe": dict(skills),
         }
 
-    def _preflight_destinations(self) -> None:
+    def _preflight_destinations(self) -> list[tuple[Path, str]]:
         """Reject every unsafe skill-destination topology before planning.
 
         Each destination must be a real directory (or absent) inside the
@@ -969,9 +1199,25 @@ class Controller:
         ancestor escaping home would make link creation land somewhere this
         controller does not own. All destinations are checked before any of
         them is planned, so no partial work can precede a rejection.
+
+        Exactly one legacy topology is migrated instead of rejected: a
+        destination that is a symlink to *another* configured skills
+        destination under this home. The pre-migration installer shipped
+        ``~/.pi/agent/skills`` as a link to ``~/.vibe/skills``, so a fresh
+        machine would otherwise hard-fail on its very first install. Those
+        aliases are returned (with their exact link text) so the caller can
+        unlink them inside the transaction, give each harness an independent
+        directory, and restore the link untouched on a rollback. A symlink to
+        anything else -- another user's directory, a path outside home, a
+        non-destination directory -- is still refused.
         """
         home = Path(os.path.realpath(self.home))
-        for destination in self.skill_destinations.values():
+        destinations = self.skill_destinations
+        by_real_path = {
+            Path(os.path.realpath(path)): path for path in destinations.values()
+        }
+        aliases: list[tuple[Path, str]] = []
+        for destination in destinations.values():
             try:
                 relative = destination.relative_to(self.home)
             except ValueError as error:
@@ -991,6 +1237,12 @@ class Controller:
                         "directory before switching methodology."
                     )
             if destination.is_symlink():
+                resolved = Path(os.path.realpath(destination))
+                sibling = by_real_path.get(resolved)
+                inside_home = resolved == home or home in resolved.parents
+                if sibling is not None and sibling != destination and inside_home:
+                    aliases.append((destination, os.readlink(destination)))
+                    continue
                 raise MethodologyError(
                     f"{destination} is a symlink to {_link_target(destination)}; "
                     "replace it with a real directory before switching methodology."
@@ -1000,16 +1252,20 @@ class Controller:
                     f"{destination} exists but is not a directory; "
                     "move it aside before switching methodology."
                 )
+        return aliases
 
     def _plan_links(self, name: str) -> LinkPlan:
         plan = LinkPlan()
-        self._preflight_destinations()
+        plan.alias_migrations = self._preflight_destinations()
+        aliased = {destination for destination, _ in plan.alias_migrations}
         desired_by_harness = self._desired_links(name)
         for harness, destination in self.skill_destinations.items():
             desired = desired_by_harness[harness]
+            # An aliased destination becomes an independent, empty directory,
+            # so what it currently shows through the link is not its content.
             existing = (
                 {entry.name: entry for entry in sorted(destination.iterdir())}
-                if destination.is_dir()
+                if destination.is_dir() and destination not in aliased
                 else {}
             )
             for skill, source in desired.items():
@@ -1048,6 +1304,11 @@ class Controller:
         The journal is filled as the work happens, so a partially applied plan
         is still fully reversible by the caller.
         """
+        for destination, target in plan.alias_migrations:
+            journal.removed.append((destination, target))
+            destination.unlink()
+            destination.mkdir()
+            journal.created_dirs.append(destination)
         for link in plan.removals:
             journal.removed.append((link, os.readlink(link)))
             link.unlink()
@@ -1078,8 +1339,13 @@ class Controller:
                 failures.append(f"could not remove {directory}: {error}")
         for link, target in reversed(journal.removed):
             try:
-                if not link.is_symlink() and not link.exists():
-                    os.symlink(target, link)
+                if link.is_symlink() or link.exists():
+                    failures.append(
+                        f"could not restore {link} -> {target}: the path is "
+                        "occupied by something this rollback did not create"
+                    )
+                    continue
+                os.symlink(target, link)
             except OSError as error:  # pragma: no cover - defensive
                 failures.append(f"could not restore {link} -> {target}: {error}")
         journal.created.clear()
@@ -1357,6 +1623,11 @@ class Controller:
                     "\n".join([f"{error}", "rollback was incomplete:", *failures])
                 ) from error
             raise
+        for destination, target in plan.alias_migrations:
+            messages.append(
+                f"replaced the legacy skills alias {destination} -> {target} "
+                "with an independent directory"
+            )
         messages.append(
             f"activated {name}: {len(plan.creates)} link(s) created, "
             f"{len(plan.removals)} managed link(s) removed, "
@@ -1410,6 +1681,7 @@ class Controller:
         findings += self._check_managed_links(name)
         findings += self._check_skill_coverage(name)
         findings += self._check_discovery(name)
+        findings += self._check_external_skills(name)
         findings += self._check_artifact_root(Path(cwd))
         findings += self._check_vibe(name)
         return findings
@@ -1593,8 +1865,12 @@ class Controller:
             )
         ]
 
-    def _active_source(self, name: str) -> Path:
+    def active_source(self, name: str) -> Path:
+        """The skill source directory the methodology `name` publishes from."""
         return self.superpowers_skills if name == SUPERPOWERS else self.ce_skills
+
+    # Kept for readability at the call sites inside doctor.
+    _active_source = active_source
 
     def _check_managed_links(self, name: str) -> list[Finding]:
         source = self._active_source(name)
@@ -1657,6 +1933,38 @@ class Controller:
                             f"{entry} shadows an inactive-methodology skill name",
                         )
                     )
+        return findings
+
+    def _check_external_skills(self, name: str) -> list[Finding]:
+        """External skill dirs must not shadow the *active* methodology's names.
+
+        The check follows the active methodology, so in compound-engineering
+        mode a third-party ``ce-*`` skill in ``~/.agents/skills`` is reported
+        and a superpowers name is not, and the other way round in superpowers
+        mode. Managed links into the active source are the same skill, not a
+        collision.
+        """
+        active = set(_skill_entries(self.active_source(name)))
+        findings: list[Finding] = []
+        for directory in self.external_skill_dirs:
+            if not directory.is_dir():
+                continue
+            shadowing = sorted(
+                entry.name
+                for entry in directory.iterdir()
+                if entry.name in active
+                and entry.is_dir()
+                and not (entry.is_symlink() and self._is_managed(entry))
+            )
+            if shadowing:
+                findings.append(
+                    Finding(
+                        "error",
+                        "external-skills",
+                        f"{directory} holds {len(shadowing)} skill(s) shadowing "
+                        f"active {name} skill names: {', '.join(shadowing)}",
+                    )
+                )
         return findings
 
     def _check_artifact_root(self, cwd: Path) -> list[Finding]:
