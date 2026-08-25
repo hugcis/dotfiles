@@ -583,6 +583,25 @@ def test_methodology_name_rejects_unknown_value():
         render.methodology_name({"methodology": "unknown"})
 
 
+@pytest.mark.parametrize(
+    "value",
+    [["superpowers"], {"superpowers": None}, 3, None],
+    ids=["list", "dict", "int", "null"],
+)
+def test_methodology_name_rejects_non_string_value(value):
+    with pytest.raises(render.ConfigError, match="methodology"):
+        render.methodology_name({"methodology": value})
+
+
+@pytest.mark.parametrize("name", sorted(render.METHODOLOGY_FRAGMENTS))
+def test_every_mapped_methodology_is_selectable_and_renders(name):
+    profile = render.load_profile(FIXTURE)
+    profile["methodology"] = name
+
+    assert render.methodology_name(profile) == name
+    assert render.compose_agents_md(profile).strip()
+
+
 def test_compose_agents_md_selects_exactly_one_methodology():
     profile = render.load_profile(FIXTURE)
     profile["methodology"] = "compound-engineering"
@@ -604,6 +623,29 @@ def test_compose_agents_md_includes_extra_fragments(tmp_path):
         assert "WORK ONLY MARKER" in text
     finally:
         extra.unlink()
+
+
+@pytest.mark.parametrize(
+    "selected,extra",
+    [
+        ("superpowers", "10-compound-engineering.md"),
+        ("compound-engineering", "10-superpowers.md"),
+        ("superpowers", "10-superpowers.md"),
+        ("compound-engineering", "10-compound-engineering.md"),
+    ],
+    ids=["opposite-ce", "opposite-sp", "duplicate-sp", "duplicate-ce"],
+)
+def test_compose_agents_md_rejects_methodology_fragment_in_extra(selected, extra):
+    profile = render.load_profile(FIXTURE)
+    profile["methodology"] = selected
+    profile["agents_md_extra"] = [extra]
+
+    with pytest.raises(render.ConfigError) as exc:
+        render.compose_agents_md(profile)
+
+    msg = str(exc.value)
+    assert extra in msg
+    assert "methodology" in msg
 
 
 def test_compose_agents_md_missing_fragment_raises_config_error():

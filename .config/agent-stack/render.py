@@ -22,11 +22,13 @@ SHELL_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # The global software-engineering methodology. Exactly one of these supplies the
 # methodology-specific half of AGENTS.md; the profile picks it, and an absent
 # key keeps pre-migration profiles on superpowers.
-METHODOLOGIES = frozenset({"superpowers", "compound-engineering"})
 METHODOLOGY_FRAGMENTS = {
     "superpowers": "10-superpowers.md",
     "compound-engineering": "10-compound-engineering.md",
 }
+# The mapping above is the only list of legal methodology names; adding a
+# methodology means adding its fragment, so the two can never drift apart.
+METHODOLOGIES = frozenset(METHODOLOGY_FRAGMENTS)
 
 
 class ConfigError(ValueError):
@@ -315,7 +317,9 @@ def _read_fragment(name: str) -> str:
 
 def methodology_name(profile: dict) -> str:
     name = profile.get("methodology", "superpowers")
-    if name not in METHODOLOGIES:
+    # A YAML list or dict is unhashable, so the membership test below would blow
+    # up with a TypeError instead of the profile error a human can act on.
+    if not isinstance(name, str) or name not in METHODOLOGIES:
         raise ConfigError(
             "profile.yaml: methodology must be one of "
             f"{', '.join(sorted(METHODOLOGIES))}; got {name!r}"
@@ -324,11 +328,21 @@ def methodology_name(profile: dict) -> str:
 
 
 def compose_agents_md(profile: dict) -> str:
+    selected = methodology_name(profile)
     parts = [
         _read_fragment("00-universal.md"),
-        _read_fragment(METHODOLOGY_FRAGMENTS[methodology_name(profile)]),
+        _read_fragment(METHODOLOGY_FRAGMENTS[selected]),
     ]
     for name in profile.get("agents_md_extra") or []:
+        # agents_md_extra must not name a methodology fragment: the other one
+        # would render two conflicting methodologies, and the selected one would
+        # render twice. The profile's `methodology` key is the only way in.
+        if str(name) in set(METHODOLOGY_FRAGMENTS.values()):
+            raise ConfigError(
+                f"profile.yaml: agents_md_extra must not list the methodology "
+                f"fragment '{name}'. Set methodology: <name> instead; "
+                f"this profile selects {selected!r}."
+            )
         parts.append(_read_fragment(name))
     return "\n\n".join(parts) + "\n"
 
