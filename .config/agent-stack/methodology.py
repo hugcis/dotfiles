@@ -37,7 +37,7 @@ from urllib.parse import unquote, urlparse
 import yaml
 
 STACK = Path(__file__).resolve().parent
-STATE_VERSION = 2
+STATE_VERSION = 1
 SUPERPOWERS = "superpowers"
 COMPOUND_ENGINEERING = "compound-engineering"
 REVISION_PATTERN = re.compile(r"[0-9a-f]{40}")
@@ -49,10 +49,11 @@ NPM_PREFIX = "npm:"
 # pi's parseNpmSpec regular expression, so `@scope/name@1.2.3` splits into the
 # scoped name and the version exactly the way pi splits it.
 NPM_SPEC_PATTERN = re.compile(r"^(@?[^@]+(?:/[^@]+)?)(?:@(.+))?$")
-# Companion install policies a manifest may declare.
-REQUIRED = "required"
-INSTALL_IF_ABSENT = "install-if-absent"
-COMPANION_POLICIES = (REQUIRED, INSTALL_IF_ABSENT)
+# pi-ask-user is a general-purpose pi utility, not a compound-engineering
+# component: the migration installs it when it is missing, and leaves it in
+# place for ever after, including on a rollback to superpowers. Every other
+# companion is a prerequisite that must already be installed (fail closed).
+PI_ASK_USER = "npm:pi-ask-user"
 
 
 def package_identity(source: str) -> str | None:
@@ -116,21 +117,9 @@ def run_command(args, *, cwd=None, check=True, env=None):
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class PiCompanion:
-    """A pi package the manifest ties to compound-engineering.
-
-    ``required`` companions must already be installed; ``install-if-absent``
-    companions are installed by the migration when their identity is missing
-    and removed again on rollback.
-    """
-
-    source: str
-    policy: str = REQUIRED
-
-    @property
-    def identity(self) -> str:
-        return package_identity(self.source) or self.source.strip()
+def is_pi_ask_user(source: str) -> bool:
+    """Whether `source` names the pi-ask-user utility, version-independently."""
+    return package_identity(source) == PI_ASK_USER
 
 
 @dataclass(frozen=True)
@@ -139,7 +128,7 @@ class CompoundEngineeringSpec:
     revision: str
     checkout: Path
     expected_skill_count: int
-    pi_companions: tuple[PiCompanion, ...]
+    pi_companions: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -174,10 +163,7 @@ class Manifest:
                 "revision": spec.revision,
                 "checkout": str(spec.checkout),
                 "expected_skill_count": spec.expected_skill_count,
-                "pi_companions": [
-                    {"source": companion.source, "policy": companion.policy}
-                    for companion in spec.pi_companions
-                ],
+                "pi_companions": list(spec.pi_companions),
             }
         return {"version": self.version, "methodologies": methodologies}
 
@@ -288,31 +274,16 @@ def parse_manifest(text: str, *, path: Path, home: Path) -> Manifest:
     )
 
 
-def _parse_companions(
-    entries: list, path: Path, prefix: str
-) -> tuple[PiCompanion, ...]:
-    """Parse `pi_companions`; a bare string means the fail-closed policy."""
-    companions: list[PiCompanion] = []
+def _parse_companions(entries: list, path: Path, prefix: str) -> tuple[str, ...]:
+    """Parse `pi_companions`: a plain list of pi package sources."""
+    companions: list[str] = []
     for index, entry in enumerate(entries):
-        item = f"{prefix}.pi_companions[{index}]"
-        if isinstance(entry, str):
-            companions.append(PiCompanion(source=entry, policy=REQUIRED))
-            continue
-        if not isinstance(entry, dict):
+        if not isinstance(entry, str):
             raise ConfigError(
-                f"{path}: {item} must be a string or a mapping; got {entry!r}."
+                f"{path}: {prefix}.pi_companions[{index}] must be a string; "
+                f"got {entry!r}."
             )
-        unknown = sorted(set(entry) - {"source", "policy"})
-        if unknown:
-            raise ConfigError(f"{path}: {item}.{unknown[0]} is not a known field.")
-        source = _field(entry, "source", str, path, item)
-        policy = entry.get("policy", REQUIRED)
-        if policy not in COMPANION_POLICIES:
-            raise ConfigError(
-                f"{path}: {item}.policy must be one of "
-                f"{', '.join(COMPANION_POLICIES)}; got {policy!r}."
-            )
-        companions.append(PiCompanion(source=source, policy=policy))
+        companions.append(entry)
     return tuple(companions)
 
 
@@ -327,9 +298,9 @@ class MethodologyState:
     active: str = SUPERPOWERS
     ce_revision: str | None = None
     managed_links: list[str] = field(default_factory=list)
-    # Identities of the manifest companions this migration installed, so a
-    # rollback removes exactly those and never a pre-existing pinned entry.
-    added_companions: list[str] = field(default_factory=list)
+    # Whether this migration installed pi-ask-user. Recorded for provenance
+    # only: pi-ask-user is an independent pi utility and is never removed.
+    pi_ask_user_added: bool = False
 
     def to_json(self) -> dict:
         return {
@@ -337,7 +308,7 @@ class MethodologyState:
             "active": self.active,
             "ce_revision": self.ce_revision,
             "managed_links": list(self.managed_links),
-            "added_companions": list(self.added_companions),
+            "pi_ask_user_added": self.pi_ask_user_added,
         }
 
 
@@ -369,13 +340,7 @@ def load_state(path: Path) -> MethodologyState:
             raise ConfigError(
                 f"{path}: managed_links[{index}] must be a string; got {link!r}."
             )
-    companions = _field(raw, "added_companions", list, path)
-    for index, companion in enumerate(companions):
-        if not isinstance(companion, str):
-            raise ConfigError(
-                f"{path}: added_companions[{index}] must be a string; "
-                f"got {companion!r}."
-            )
+    ask_user_added = _field(raw, "pi_ask_user_added", bool, path)
     if "ce_revision" not in raw:
         raise ConfigError(f"{path}: ce_revision is missing.")
     revision = raw["ce_revision"]
@@ -395,7 +360,7 @@ def load_state(path: Path) -> MethodologyState:
         active=active,
         ce_revision=revision,
         managed_links=list(links),
-        added_companions=list(companions),
+        pi_ask_user_added=ask_user_added,
     )
 
 
@@ -597,6 +562,22 @@ class Controller:
             return None
         return (result.stdout or "").strip()
 
+    def _dirty_paths(self, checkout: Path) -> str:
+        """Uncommitted changes to tracked files, as git reports them."""
+        status = self._git(
+            "status",
+            "--porcelain",
+            "--untracked-files=no",
+            cwd=checkout,
+            check=False,
+        )
+        if status.returncode != 0:
+            raise MethodologyError(
+                f"git status failed in {checkout}: "
+                f"{(status.stderr or '').strip()}"
+            )
+        return (status.stdout or "").strip()
+
     def _has_commit(self, checkout: Path, revision: str) -> bool:
         result = self._git(
             "cat-file", "-e", f"{revision}^{{commit}}", cwd=checkout, check=False
@@ -667,10 +648,17 @@ class Controller:
             else self._require_full_revision(revision, "revision")
         )
         checkout = spec.checkout
-        if self._head_revision(checkout) == wanted and not self._validate_checkout(
-            checkout, spec.expected_skill_count
-        ):
-            return [f"compound-engineering checkout already at {wanted}"], None
+        # A checkout already at the wanted revision is only reusable when it is
+        # also clean: edited tracked files are exactly the drift a repair must
+        # remove, so they force the same transactional replacement a wrong
+        # revision does.
+        dirty = ""
+        if self._head_revision(checkout) == wanted:
+            dirty = self._dirty_paths(checkout)
+            if not dirty and not self._validate_checkout(
+                checkout, spec.expected_skill_count
+            ):
+                return [f"compound-engineering checkout already at {wanted}"], None
 
         checkout.parent.mkdir(parents=True, exist_ok=True)
         candidate = self._temporary_sibling(checkout, "tmp")
@@ -698,7 +686,14 @@ class Controller:
         finally:
             if candidate.exists():
                 shutil.rmtree(candidate, ignore_errors=True)
-        return [f"compound-engineering checkout installed at {wanted}"], retired
+        messages = []
+        if dirty:
+            messages.append(
+                "compound-engineering checkout had uncommitted changes to "
+                f"tracked files; replacing it with clean {wanted}:\n{dirty}"
+            )
+        messages.append(f"compound-engineering checkout installed at {wanted}")
+        return messages, retired
 
     def _validate_checkout(self, root: Path, expected_skill_count: int) -> list[str]:
         problems: list[str] = []
@@ -845,7 +840,7 @@ class Controller:
             active=COMPOUND_ENGINEERING,
             ce_revision=self._head_revision(self.ce_checkout),
             managed_links=plan.links,
-            added_companions=list(state.added_companions),
+            pi_ask_user_added=state.pi_ask_user_added,
         )
         self._apply_links(plan, journal)
         save_state(self.state_path, desired)
@@ -1185,17 +1180,24 @@ class Controller:
 
     def _plan_packages(
         self, name: str, state: MethodologyState
-    ) -> tuple[list[tuple[str, str]], list[str]]:
+    ) -> tuple[list[tuple[str, str]], bool]:
+        """The pi operations `name` needs, and the resulting pi-ask-user flag.
+
+        Only the local compound-engineering package belongs to this migration.
+        pi-ask-user is installed when it is missing because compound
+        engineering expects it, but it is an independent pi utility: a
+        rollback leaves it installed and only records who installed it.
+        """
         packages = self._pi_packages()
         operations: list[tuple[str, str]] = []
-        added = list(state.added_companions)
+        ask_user_added = state.pi_ask_user_added
         if name == COMPOUND_ENGINEERING:
             companions = self.manifest.ce.pi_companions
             missing = [
-                companion.source
-                for companion in companions
-                if companion.policy == REQUIRED
-                and not self._package_present(companion.source, packages)
+                source
+                for source in companions
+                if not is_pi_ask_user(source)
+                and not self._package_present(source, packages)
             ]
             if missing:
                 raise MethodologyError(
@@ -1205,27 +1207,19 @@ class Controller:
                 )
             if self._ce_package_entry(packages) is None:
                 operations.append(("install", str(self.ce_checkout)))
-            for companion in companions:
-                if companion.policy != INSTALL_IF_ABSENT:
+            for source in companions:
+                if not is_pi_ask_user(source):
                     continue
-                if self._package_present(companion.source, packages):
+                if self._package_present(source, packages):
                     continue
-                operations.append(("install", companion.source))
-                if companion.identity not in added:
-                    added.append(companion.identity)
-        else:
-            if self._ce_package_entry(packages) is not None:
-                # pi resolves a remove argument against the process cwd, so
-                # the absolute checkout path is the only representation that
-                # reliably matches the recorded (agent-dir relative) entry.
-                operations.append(("remove", str(self.ce_checkout)))
-            for identity in added:
-                # The recorded identity is what pi matches against, so a
-                # companion installed pinned is still removed by identity.
-                if self._package_present(identity, packages):
-                    operations.append(("remove", identity))
-            added = []
-        return operations, added
+                operations.append(("install", source))
+                ask_user_added = True
+        elif self._ce_package_entry(packages) is not None:
+            # pi resolves a remove argument against the process cwd, so the
+            # absolute checkout path is the only representation that reliably
+            # matches the recorded (agent-dir relative) entry.
+            operations.append(("remove", str(self.ce_checkout)))
+        return operations, ask_user_added
 
     def _apply_packages(
         self, operations: list[tuple[str, str]], applied: list[tuple[str, str]]
@@ -1258,6 +1252,34 @@ class Controller:
             # attempted and any remaining problem is reported, not hidden.
             return True
         return self._package_present(source, packages) == (operation == "install")
+
+    def _restore_pi_settings(self, original: bytes | None) -> list[str]:
+        """Put the pi settings file back exactly as the transaction found it.
+
+        The inverse `pi` commands compensate what pi did outside the settings
+        file, but they cannot promise the file itself comes back unchanged:
+        a reinstalled entry loses its object metadata and is appended at the
+        end of the list. The original bytes are the only faithful restore, so
+        they are written last, after the compensating commands have run.
+        """
+        path = self.pi_settings_path
+        failures: list[str] = []
+        try:
+            if original is None:
+                if path.is_file():
+                    path.unlink()
+                return failures
+            if path.is_file() and path.read_bytes() == original:
+                return failures
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.parent / (
+                f".{path.name}.restore-{os.getpid()}-{secrets.token_hex(4)}"
+            )
+            temporary.write_bytes(original)
+            os.replace(temporary, path)
+        except OSError as error:  # pragma: no cover - defensive
+            failures.append(f"could not restore {path}: {error}")
+        return failures
 
     def _undo_packages(self, applied: list[tuple[str, str]]) -> list[str]:
         inverse = {"install": "remove", "remove": "install"}
@@ -1297,7 +1319,7 @@ class Controller:
             self._prepare_superpowers()
 
         plan = self._plan_links(name)
-        operations, added_companions = self._plan_packages(name, state)
+        operations, ask_user_added = self._plan_packages(name, state)
         desired = MethodologyState(
             version=STATE_VERSION,
             active=name,
@@ -1307,7 +1329,7 @@ class Controller:
                 else None
             ),
             managed_links=plan.links,
-            added_companions=added_companions,
+            pi_ask_user_added=ask_user_added,
         )
         if plan.empty and not operations and desired == state:
             return [f"{name} already active; no changes"]
@@ -1316,12 +1338,18 @@ class Controller:
         messages = [f"snapshot: {snapshot}"]
         journal = LinkJournal()
         applied: list[tuple[str, str]] = []
+        settings_before = (
+            self.pi_settings_path.read_bytes()
+            if self.pi_settings_path.is_file()
+            else None
+        )
         try:
             self._apply_links(plan, journal)
             self._apply_packages(operations, applied)
             save_state(self.state_path, desired)
         except BaseException as error:
             failures = self._undo_packages(applied)
+            failures += self._restore_pi_settings(settings_before)
             failures += self._undo_links(journal)
             self._discard_snapshot(snapshot)
             if failures:
@@ -1355,19 +1383,7 @@ class Controller:
                 f"{spec.checkout} is at {head}; the manifest pins "
                 f"{spec.revision}. Run `methodology.py prepare` first."
             )
-        status = self._git(
-            "status",
-            "--porcelain",
-            "--untracked-files=no",
-            cwd=spec.checkout,
-            check=False,
-        )
-        if status.returncode != 0:
-            raise MethodologyError(
-                f"git status failed in {spec.checkout}: "
-                f"{(status.stderr or '').strip()}"
-            )
-        dirty = (status.stdout or "").strip()
+        dirty = self._dirty_paths(spec.checkout)
         if dirty:
             raise MethodologyError(
                 f"{spec.checkout} has uncommitted changes to tracked files, so "
@@ -1389,6 +1405,8 @@ class Controller:
             findings += self._check_checkout()
             findings += self._check_state_revision()
             findings += self._check_pi_packages()
+        else:
+            findings += self._check_ce_package_absent()
         findings += self._check_managed_links(name)
         findings += self._check_skill_coverage(name)
         findings += self._check_discovery(name)
@@ -1539,10 +1557,10 @@ class Controller:
             Finding(
                 "error",
                 "pi-companions",
-                f"pi package {companion.source} is missing",
+                f"pi package {source} is missing",
             )
-            for companion in spec.pi_companions
-            if not self._package_present(companion.source, packages)
+            for source in spec.pi_companions
+            if not self._package_present(source, packages)
         ]
         if self._ce_package_entry(packages) is None:
             findings.append(
@@ -1553,6 +1571,27 @@ class Controller:
                 )
             )
         return findings
+
+    def _check_ce_package_absent(self) -> list[Finding]:
+        """In superpowers mode the managed CE pi package must be gone.
+
+        A leftover registration keeps pi loading compound-engineering, so
+        doctor names the exact settings entry that has to go; pi-ask-user and
+        every other package are none of this check's business.
+        """
+        entry = self._ce_package_entry(self._pi_packages())
+        if entry is None:
+            return []
+        return [
+            Finding(
+                "error",
+                "pi-package",
+                f"{self.pi_settings_path} still registers the managed "
+                f"compound-engineering package as {entry!r} "
+                f"({self.ce_checkout}); remove it with "
+                f"`pi remove {self.ce_checkout}`",
+            )
+        ]
 
     def _active_source(self, name: str) -> Path:
         return self.superpowers_skills if name == SUPERPOWERS else self.ce_skills

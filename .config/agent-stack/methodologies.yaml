@@ -8,7 +8,5 @@ methodologies:
     checkout: ~/.local/share/agent-stack/compound-engineering-plugin
     expected_skill_count: 33
     pi_companions:
-      - source: npm:pi-subagents
-        policy: required
-      - source: npm:pi-ask-user
-        policy: install-if-absent
+      - npm:pi-subagents
+      - npm:pi-ask-user
