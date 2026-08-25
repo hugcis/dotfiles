@@ -509,19 +509,9 @@ def prune_stale(directory: Path, keep: set[str]) -> list[str]:
     return [p.name for p in stale]
 
 
-def write_all(roster: dict, profile: dict) -> None:
-    """Render every harness in three strict phases.
-
-    1. Resolve and build every output in memory. Any ConfigError surfaces here,
-       before a single byte is written.
-    2. Write the files.
-    3. Prune stale files.
-
-    This is not a transaction, but nothing on disk changes until every input
-    has been validated, so a bad profile can no longer leave a half-updated
-    roster across four live directories.
-    """
-    # Phase 1: build everything in memory.
+def build_all(
+    roster: dict, profile: dict
+) -> tuple[list[Agent], dict[str, dict[str, str]], str, str]:
     agents = resolve_agents(roster, profile)
     planned: dict[str, dict[str, str]] = {h: {} for h in TARGETS}
     for agent in agents:
@@ -531,8 +521,12 @@ def write_all(roster: dict, profile: dict) -> None:
         for harness, emitter in (("claude", emit_claude), ("vibe", emit_vibe)):
             fname, content = emitter(agent)
             planned[harness][fname] = content
-    agents_md = compose_agents_md(profile)
-    profile_env = render_profile_env(profile)
+    return agents, planned, compose_agents_md(profile), render_profile_env(profile)
+
+
+def write_all(roster: dict, profile: dict) -> None:
+    """Render every harness after building and validating every output."""
+    agents, planned, agents_md, profile_env = build_all(roster, profile)
 
     # Phase 2: write.
     for harness, directory in TARGETS.items():
@@ -563,7 +557,7 @@ def write_all(roster: dict, profile: dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", nargs="?", choices=("render", "doctor"),
+    parser.add_argument("command", nargs="?", choices=("render", "validate", "doctor"),
                         default="render")
     parser.add_argument("--profile", type=Path,
                         default=STACK / "profile.yaml")
@@ -587,7 +581,13 @@ def main() -> None:
                 print(message)
             print("agent-stack doctor: ok")
             return
-        write_all(load_roster(STACK / "roster.yaml"), load_profile(args.profile))
+        roster = load_roster(STACK / "roster.yaml")
+        profile = load_profile(args.profile)
+        if args.command == "validate":
+            build_all(roster, profile)
+            print("agent-stack render validation: ok")
+            return
+        write_all(roster, profile)
     except ConfigError as exc:
         # Profile and doctor errors are written for a human on a new machine's
         # first run. SystemExit prints the message and exits 1 with no traceback.

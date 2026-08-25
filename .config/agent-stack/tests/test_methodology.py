@@ -725,6 +725,51 @@ def test_prepare_rejects_a_skill_that_invokes_the_package_cli(tmp_path):
     assert not harness.checkout.exists()
 
 
+@pytest.mark.parametrize(
+    "invocation",
+    [
+        "npm run convert",
+        "bun run convert",
+        "pnpm convert",
+        "pnpm run convert",
+        "yarn convert",
+        "yarn run convert",
+    ],
+)
+def test_prepare_rejects_skills_invoking_dependency_bearing_package_scripts(
+    tmp_path, invocation
+):
+    harness = Harness(
+        tmp_path,
+        package_extra={"scripts": {"convert": "bun run src/index.ts convert"}},
+        skill_body=f"---\nname: ce-plan\n---\n\nRun `{invocation}`.\n",
+        extra_files={"src/index.ts": "export default {}\n"},
+    )
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.prepare("compound-engineering")
+
+    assert "convert" in str(error.value)
+    assert "dependenc" in str(error.value)
+    assert not harness.checkout.exists()
+
+
+def test_prepare_ignores_ambiguous_project_lifecycle_script_invocations(tmp_path):
+    harness = Harness(
+        tmp_path,
+        package_extra={"scripts": {"dev": "bun run src/index.ts"}},
+        skill_body=(
+            "---\nname: ce-plan\n---\n\n"
+            "Start the user's project with `npm run dev`.\n"
+        ),
+        extra_files={"src/index.ts": "export default {}\n"},
+    )
+
+    harness.controller.prepare("compound-engineering")
+
+    assert git("rev-parse", "HEAD", cwd=harness.checkout) == harness.revision
+
+
 def test_failed_prepare_leaves_the_previous_checkout_active(harness):
     harness.controller.prepare("compound-engineering")
     before = tree_fingerprint(harness.checkout)
@@ -2058,6 +2103,7 @@ def test_installer_runs_the_methodology_lifecycle_without_linking_skills(tmp_pat
     profile = stack / "profile.yaml"
     assert call_log.read_text().splitlines() == [
         f"methodology.py prepare --profile {profile}",
+        f"render.py validate --profile {profile}",
         f"methodology.py activate --profile {profile}",
         "render.py",
         f"methodology.py doctor --profile {profile}",

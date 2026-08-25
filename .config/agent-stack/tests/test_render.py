@@ -821,6 +821,47 @@ def _sandbox(tmp_path, monkeypatch) -> dict:
     return {"stack": stack, "home": home, "targets": targets}
 
 
+def _tree_contents(root: Path) -> dict[str, bytes | None]:
+    return {
+        str(path.relative_to(root)): path.read_bytes() if path.is_file() else None
+        for path in root.rglob("*")
+    }
+
+
+def test_validate_builds_every_output_without_writing(tmp_path, monkeypatch, capsys):
+    box = _sandbox(tmp_path, monkeypatch)
+    shutil.copy(STACK / "roster.yaml", box["stack"] / "roster.yaml")
+    profile = box["stack"] / "profile.yaml"
+    shutil.copy(FIXTURE, profile)
+    before = _tree_contents(tmp_path)
+    monkeypatch.setattr(
+        sys, "argv", ["render.py", "validate", "--profile", str(profile)]
+    )
+
+    render.main()
+
+    assert _tree_contents(tmp_path) == before
+    assert capsys.readouterr().out == "agent-stack render validation: ok\n"
+
+
+def test_validate_reports_late_phase_one_errors_without_writing(
+    tmp_path, monkeypatch
+):
+    box = _sandbox(tmp_path, monkeypatch)
+    shutil.copy(STACK / "roster.yaml", box["stack"] / "roster.yaml")
+    profile = box["stack"] / "profile.yaml"
+    profile.write_text(FIXTURE.read_text() + "env:\n  ILLEGAL-KEY: value\n")
+    before = _tree_contents(tmp_path)
+    monkeypatch.setattr(
+        sys, "argv", ["render.py", "validate", "--profile", str(profile)]
+    )
+
+    with pytest.raises(SystemExit, match="shell identifier"):
+        render.main()
+
+    assert _tree_contents(tmp_path) == before
+
+
 def test_write_all_writes_and_prunes(tmp_path, monkeypatch):
     box = _sandbox(tmp_path, monkeypatch)
     stale = box["targets"]["pi"] / "legacy-coder.md"

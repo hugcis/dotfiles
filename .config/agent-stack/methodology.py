@@ -59,6 +59,9 @@ PI_ASK_USER = "npm:pi-ask-user"
 IMPORT_PATTERN = re.compile(r"""(?:\bfrom|\bimport|\brequire)\s*\(?\s*(['"])([^'"]+)\1""")
 # File paths named by a package.json script, e.g. `bun run src/index.ts`.
 SCRIPT_PATH_PATTERN = re.compile(r"[\w./-]+\.(?:ts|tsx|js|mjs|cjs)")
+# Skills commonly invoke this script in the user's project, so its bare name
+# cannot establish that the checkout's same-named script is being invoked.
+AMBIGUOUS_PROJECT_SCRIPT_NAMES = frozenset({"dev"})
 # Node's built-in modules: importable without installing anything.
 NODE_BUILTINS = frozenset(
     "assert async_hooks buffer child_process cluster console constants crypto "
@@ -914,6 +917,7 @@ class Controller:
         only the package's own entrypoints are searched for.
         """
         tokens: set[str] = set()
+        runtime_scripts: set[str] = set()
         binaries = manifest.get("bin")
         if isinstance(binaries, str):
             name = manifest.get("name")
@@ -926,18 +930,32 @@ class Controller:
             tokens.add(main)
         scripts = manifest.get("scripts")
         if isinstance(scripts, dict):
-            for command in scripts.values():
-                if not isinstance(command, str):
+            for name, command in scripts.items():
+                if not isinstance(name, str) or not isinstance(command, str):
                     continue
                 for candidate in SCRIPT_PATH_PATTERN.findall(command):
                     if (root / candidate).is_file():
                         tokens.add(candidate)
-        if not tokens:
+                        if name not in AMBIGUOUS_PROJECT_SCRIPT_NAMES:
+                            runtime_scripts.add(name)
+        if not tokens and not runtime_scripts:
             return []
+        script_patterns = {
+            name: re.compile(
+                rf"\b(?:(?:npm|bun)\s+run|(?:pnpm|yarn)(?:\s+run)?)"
+                rf"\s+{re.escape(name)}(?![\w:-])"
+            )
+            for name in runtime_scripts
+        }
         problems: list[str] = []
         for document in sorted((root / "skills").rglob("*.md")):
             text = document.read_text(errors="replace")
             hits = sorted(token for token in tokens if token in text)
+            hits += [
+                f"package script {name!r}"
+                for name, pattern in sorted(script_patterns.items())
+                if pattern.search(text)
+            ]
             if hits:
                 problems.append(
                     f"{document} invokes the checkout's own entrypoint(s) "
