@@ -570,11 +570,34 @@ def test_emit_claude_frontmatter():
     assert "You are a strict code reviewer." in content
 
 
+def test_methodology_name_defaults_to_superpowers():
+    assert render.methodology_name({}) == "superpowers"
+
+
+def test_methodology_name_accepts_compound_engineering():
+    assert render.methodology_name({"methodology": "compound-engineering"}) == "compound-engineering"
+
+
+def test_methodology_name_rejects_unknown_value():
+    with pytest.raises(render.ConfigError, match="methodology"):
+        render.methodology_name({"methodology": "unknown"})
+
+
+def test_compose_agents_md_selects_exactly_one_methodology():
+    profile = render.load_profile(FIXTURE)
+    profile["methodology"] = "compound-engineering"
+    text = render.compose_agents_md(profile)
+    assert "Compound Engineering Workflow" in text
+    assert "Superpowers Skill Use" not in text
+    assert "~/docs/<repository-identity>" in text
+
+
 def test_compose_agents_md_includes_extra_fragments(tmp_path):
     extra = STACK / "agents.md.d" / "_test_fragment.md"
     extra.write_text("WORK ONLY MARKER\n")
     try:
         profile = render.load_profile(FIXTURE)
+        profile["methodology"] = "superpowers"
         profile["agents_md_extra"] = ["_test_fragment.md"]
         text = render.compose_agents_md(profile)
         assert "Superpowers Skill Use" in text
@@ -720,7 +743,8 @@ def _sandbox(tmp_path, monkeypatch) -> dict:
     stack.mkdir()
     shutil.copytree(STACK / "prompts", stack / "prompts")
     (stack / "agents.md.d").mkdir()
-    shutil.copy(STACK / "agents.md.d" / "00-universal.md", stack / "agents.md.d")
+    for fragment in ("00-universal.md", *sorted(render.METHODOLOGY_FRAGMENTS.values())):
+        shutil.copy(STACK / "agents.md.d" / fragment, stack / "agents.md.d")
     monkeypatch.setattr(render, "STACK", stack)
 
     home = tmp_path / "home"

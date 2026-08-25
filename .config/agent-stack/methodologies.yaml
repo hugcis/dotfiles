@@ -1,0 +1,12 @@
+version: 1
+methodologies:
+  superpowers:
+    skills_path: skills
+  compound-engineering:
+    repository: https://github.com/EveryInc/compound-engineering-plugin.git
+    revision: 26bf5b1e377212c0e4996824fee1dea1eddd817d
+    checkout: ~/.local/share/agent-stack/compound-engineering-plugin
+    expected_skill_count: 33
+    pi_companions:
+      - npm:pi-subagents
+      - npm:pi-ask-user

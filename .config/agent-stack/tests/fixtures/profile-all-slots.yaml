@@ -14,4 +14,5 @@ slots:
   alt:       {provider: openai, model: model-mid, thinking: high,  vibe_model: model-mid-high-alias}
   alt-xhigh: {provider: openai, model: model-mid, thinking: xhigh, vibe_model: model-mid-xhigh-alias}
   fast:      {provider: openai, model: model-small}
+methodology: superpowers
 agents_md_extra: []

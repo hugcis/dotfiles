@@ -19,6 +19,15 @@ import yaml
 STACK = Path(__file__).resolve().parent
 SHELL_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
+# The global software-engineering methodology. Exactly one of these supplies the
+# methodology-specific half of AGENTS.md; the profile picks it, and an absent
+# key keeps pre-migration profiles on superpowers.
+METHODOLOGIES = frozenset({"superpowers", "compound-engineering"})
+METHODOLOGY_FRAGMENTS = {
+    "superpowers": "10-superpowers.md",
+    "compound-engineering": "10-compound-engineering.md",
+}
+
 
 class ConfigError(ValueError):
     """Raised when roster.yaml or profile.yaml is invalid or incomplete."""
@@ -304,8 +313,21 @@ def _read_fragment(name: str) -> str:
     return path.read_text().strip()
 
 
+def methodology_name(profile: dict) -> str:
+    name = profile.get("methodology", "superpowers")
+    if name not in METHODOLOGIES:
+        raise ConfigError(
+            "profile.yaml: methodology must be one of "
+            f"{', '.join(sorted(METHODOLOGIES))}; got {name!r}"
+        )
+    return name
+
+
 def compose_agents_md(profile: dict) -> str:
-    parts = [_read_fragment("00-universal.md")]
+    parts = [
+        _read_fragment("00-universal.md"),
+        _read_fragment(METHODOLOGY_FRAGMENTS[methodology_name(profile)]),
+    ]
     for name in profile.get("agents_md_extra") or []:
         parts.append(_read_fragment(name))
     return "\n\n".join(parts) + "\n"

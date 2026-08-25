@@ -23,7 +23,12 @@ slots:
   alt-xhigh: {provider: openai,    model: REPLACE-ME, thinking: xhigh, vibe_model: REPLACE-ME}
   fast:      {provider: openai,    model: REPLACE-ME}
 
-# Extra AGENTS.md fragments from agents.md.d/, appended after 00-universal.md.
+# Global software-engineering methodology: superpowers or compound-engineering.
+# Selects the single methodology fragment appended after 00-universal.md.
+methodology: superpowers
+
+# Extra AGENTS.md fragments from agents.md.d/, appended after the methodology
+# fragment.
 agents_md_extra: []
 
 # Extra shell exports emitted into profile.env.
