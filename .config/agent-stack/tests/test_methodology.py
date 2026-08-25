@@ -726,22 +726,24 @@ def test_prepare_rejects_a_skill_that_invokes_the_package_cli(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "invocation",
+    "script_name, command, invocation",
     [
-        "npm run convert",
-        "bun run convert",
-        "pnpm convert",
-        "pnpm run convert",
-        "yarn convert",
-        "yarn run convert",
+        ("convert", "bun run src/index.ts convert", "npm run convert"),
+        ("convert", "bun run src/index.ts convert", "bun run convert"),
+        ("convert", "bun run src/index.ts convert", "pnpm convert"),
+        ("convert", "bun run src/index.ts convert", "pnpm run convert"),
+        ("convert", "bun run src/index.ts convert", "yarn convert"),
+        ("convert", "bun run src/index.ts convert", "yarn run convert"),
+        ("plugin:validate", "eslint .", "npm run plugin:validate"),
+        ("test", "vitest", "bun run test"),
     ],
 )
 def test_prepare_rejects_skills_invoking_dependency_bearing_package_scripts(
-    tmp_path, invocation
+    tmp_path, script_name, command, invocation
 ):
     harness = Harness(
         tmp_path,
-        package_extra={"scripts": {"convert": "bun run src/index.ts convert"}},
+        package_extra={"scripts": {script_name: command}},
         skill_body=f"---\nname: ce-plan\n---\n\nRun `{invocation}`.\n",
         extra_files={"src/index.ts": "export default {}\n"},
     )
@@ -749,7 +751,7 @@ def test_prepare_rejects_skills_invoking_dependency_bearing_package_scripts(
     with pytest.raises(methodology.MethodologyError) as error:
         harness.controller.prepare("compound-engineering")
 
-    assert "convert" in str(error.value)
+    assert script_name in str(error.value)
     assert "dependenc" in str(error.value)
     assert not harness.checkout.exists()
 

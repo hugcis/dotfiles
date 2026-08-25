@@ -911,10 +911,10 @@ class Controller:
     def _package_cli_problems(self, root: Path, manifest: dict) -> list[str]:
         """Report shipped skills that invoke the checkout's own CLI.
 
-        A skill that runs the package's binary or its script entrypoint needs
-        the checkout's npm dependencies at runtime; a skill that only tells the
-        agent to run *the user's project* dev server does not, which is why
-        only the package's own entrypoints are searched for.
+        A skill that runs the package's binary, a declared package script, or
+        its script entrypoint needs the checkout's npm dependencies at runtime.
+        The ambiguous ``dev`` script is excluded because skills commonly use it
+        to refer to the user's project.
         """
         tokens: set[str] = set()
         runtime_scripts: set[str] = set()
@@ -933,11 +933,11 @@ class Controller:
             for name, command in scripts.items():
                 if not isinstance(name, str) or not isinstance(command, str):
                     continue
+                if name not in AMBIGUOUS_PROJECT_SCRIPT_NAMES:
+                    runtime_scripts.add(name)
                 for candidate in SCRIPT_PATH_PATTERN.findall(command):
                     if (root / candidate).is_file():
                         tokens.add(candidate)
-                        if name not in AMBIGUOUS_PROJECT_SCRIPT_NAMES:
-                            runtime_scripts.add(name)
         if not tokens and not runtime_scripts:
             return []
         script_patterns = {
