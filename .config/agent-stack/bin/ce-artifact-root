@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+
+import argparse
+import hashlib
+import os
+import re
+import subprocess
+from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit, urlunsplit
+
+
+MARKER_NAME = ".ce-repository-identity"
+
+
+def run_git(cwd: Path, *args: str) -> str | None:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def _normalize_remote(remote: str) -> str:
+    value = remote.strip().rstrip("/")
+    if value.endswith(".git"):
+        value = value[:-4]
+
+    if "://" in value:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname or ""
+        if ":" in hostname:
+            hostname = f"[{hostname}]"
+        netloc = hostname
+        if parsed.port is not None:
+            netloc = f"{netloc}:{parsed.port}"
+        return urlunsplit((parsed.scheme.lower(), netloc, parsed.path, "", ""))
+
+    scp_remote = re.fullmatch(r"(?:[^@/]+@)?([^:/]+):(.+)", value)
+    if scp_remote:
+        return f"{scp_remote.group(1)}:{scp_remote.group(2)}"
+    return value
+
+
+def _remote_basename(identity: str) -> str:
+    if "://" in identity:
+        path = urlsplit(identity).path
+    elif re.fullmatch(r"[^:/]+:.+", identity):
+        path = identity.split(":", 1)[1]
+    else:
+        path = identity
+    return PurePosixPath(path).name
+
+
+def canonical_identity(cwd: Path) -> tuple[str, str] | None:
+    top_level = run_git(cwd, "rev-parse", "--show-toplevel")
+    if top_level is None:
+        return None
+    common_dir = run_git(
+        cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"
+    )
+    if common_dir is None:
+        return None
+
+    remote = run_git(cwd, "config", "--get", "remote.origin.url")
+    if remote:
+        identity = _normalize_remote(remote)
+        return identity, sanitize_name(_remote_basename(identity))
+
+    common_path = Path(common_dir).resolve()
+    primary_checkout = (
+        common_path.parent if common_path.name == ".git" else Path(top_level).resolve()
+    )
+    return str(common_path), sanitize_name(primary_checkout.name)
+
+
+def sanitize_name(value: str) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip(".-")
+    return sanitized or "repository"
+
+
+def _marker_matches(directory: Path, identity: str) -> bool | None:
+    marker = directory / MARKER_NAME
+    try:
+        return marker.read_text() == f"{identity}\n"
+    except FileNotFoundError:
+        return None
+
+
+def _claim_directory(directory: Path, identity: str) -> bool:
+    directory.mkdir(parents=True, exist_ok=True)
+    marker = directory / MARKER_NAME
+    try:
+        descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError:
+        return _marker_matches(directory, identity) is True
+    with os.fdopen(descriptor, "w") as stream:
+        stream.write(f"{identity}\n")
+    return True
+
+
+def _validated_child(docs_home: Path, name: str) -> Path:
+    result = (docs_home / name).resolve()
+    if result.parent != docs_home:
+        raise RuntimeError(f"refusing artifact path outside {docs_home}")
+    return result
+
+
+def resolve_artifact_root(cwd: Path, docs_home: Path, create: bool) -> Path:
+    docs_home = docs_home.expanduser().resolve()
+    repository = canonical_identity(cwd)
+    if repository is None:
+        result = _validated_child(docs_home, "general")
+        if create:
+            result.mkdir(parents=True, exist_ok=True)
+    else:
+        identity, name = repository
+        result = _validated_child(docs_home, name)
+        marker_matches = _marker_matches(result, identity)
+        if marker_matches is False:
+            suffix = hashlib.sha256(identity.encode()).hexdigest()[:8]
+            result = _validated_child(docs_home, f"{name}-{suffix}")
+            marker_matches = _marker_matches(result, identity)
+            if marker_matches is False:
+                raise RuntimeError(f"artifact identity collision at {result}")
+        if create and marker_matches is not True and not _claim_directory(result, identity):
+            if result.name == name:
+                suffix = hashlib.sha256(identity.encode()).hexdigest()[:8]
+                result = _validated_child(docs_home, f"{name}-{suffix}")
+                if not _claim_directory(result, identity):
+                    raise RuntimeError(f"artifact identity collision at {result}")
+            else:
+                raise RuntimeError(f"artifact identity collision at {result}")
+
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cwd", type=Path, default=Path.cwd())
+    parser.add_argument("--no-create", action="store_true")
+    args = parser.parse_args()
+    docs_home = Path(os.environ.get("CE_DOCS_HOME", Path.home() / "docs"))
+    result = resolve_artifact_root(args.cwd.resolve(), docs_home, not args.no_create)
+    print(result)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
