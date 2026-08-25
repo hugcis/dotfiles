@@ -48,38 +48,10 @@ if [[ ! -f "$STACK/profile.yaml" ]]; then
 	exit 1
 fi
 
-# Skills: one source, symlinked into each harness.
-#
-# NOTE: ~/.pi/agent/skills ships as a symlink to ~/.vibe/skills, so the two are one
-# directory under two names. Replace any symlinked destination with a real directory
-# first, otherwise the pi and vibe passes write into the same place and the
-# "independent harness" model silently breaks.
-for dest in "$HOME/.pi/agent/skills" "$HOME/.claude/skills" "$HOME/.vibe/skills"; do
-	if [[ -L "$dest" ]]; then
-		echo "unlinking aliased skills dir: $dest -> $(readlink "$dest")"
-		unlink "$dest" # removes the link only, never the target's contents
-	fi
-	mkdir -p "$dest"
-	backup_dir=""
-	for skill in "$STACK"/skills/*/; do
-		name="$(basename "$skill")"
-		link="$dest/$name"
-		if [[ -e "$link" && ! -L "$link" ]]; then
-			if [[ -z "$backup_dir" ]]; then
-				backup_dir="${AGENT_STACK_BACKUP_DIR:-$HOME/.local/state/agent-stack/replaced-skills/$(date +%Y%m%d%H%M%S)-$$}"
-				mkdir -p "$backup_dir"
-			fi
-			safe_dest="${dest#$HOME/}"
-			safe_dest="${safe_dest//\//__}"
-			mkdir -p "$backup_dir/$safe_dest"
-			echo "moving existing skills entry: $link -> $backup_dir/$safe_dest/$name"
-			mv "$link" "$backup_dir/$safe_dest/$name"
-		fi
-		ln -sfn "$skill" "$link"
-	done
-done
-
+python3 "$STACK/methodology.py" prepare --profile "$STACK/profile.yaml"
 python3 "$STACK/render.py"
+python3 "$STACK/methodology.py" activate --profile "$STACK/profile.yaml"
+python3 "$STACK/methodology.py" doctor --profile "$STACK/profile.yaml"
 
 # Shell wiring: source profile.env if not already wired.
 for rc in "$HOME/.zshenv.linux" "$HOME/.zshenv.macos"; do

@@ -1724,3 +1724,79 @@ def test_doctor_reports_a_missing_instruction_fragment_as_a_finding(harness):
     assert instructions
     assert all(f.level == "error" for f in instructions)
     assert "10-compound-engineering.md" in instructions[0].message
+
+
+# --------------------------------------------------------------------------
+# installer orchestration
+# --------------------------------------------------------------------------
+
+
+def test_installer_runs_the_methodology_lifecycle_without_linking_skills(tmp_path):
+    home = tmp_path / "home"
+    stack = home / ".config/agent-stack"
+    stack.mkdir(parents=True)
+    install = stack / "install.sh"
+    shutil.copy2(STACK_SOURCE / "install.sh", install)
+    (stack / "profile.yaml").write_text("methodology: superpowers\n")
+    write_skill(stack / "skills", "example")
+
+    subprocess.run(
+        ["git", "init", "--bare", "-q", str(home / ".cfg")],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    (home / ".cfg/info/exclude").write_text("*\n")
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    call_log = tmp_path / "python-calls"
+    pi_log = tmp_path / "pi-calls"
+    python = fake_bin / "python3"
+    python.write_text(
+        "#!/bin/sh\n"
+        "if [ \"${1:-}\" = -c ]; then exit 0; fi\n"
+        "printf '%s' \"$(basename \"$1\")\" >>\"$AGENT_STACK_CALL_LOG\"\n"
+        "shift\n"
+        "for arg in \"$@\"; do printf ' %s' \"$arg\" >>\"$AGENT_STACK_CALL_LOG\"; done\n"
+        "printf '\\n' >>\"$AGENT_STACK_CALL_LOG\"\n"
+    )
+    python.chmod(0o755)
+    pi = fake_bin / "pi"
+    pi.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"$AGENT_STACK_PI_LOG\"\n")
+    pi.chmod(0o755)
+
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "HOME": str(home),
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "AGENT_STACK_CALL_LOG": str(call_log),
+            "AGENT_STACK_PI_LOG": str(pi_log),
+        }
+    )
+    subprocess.run(
+        ["bash", str(install)],
+        check=True,
+        cwd=tmp_path,
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    profile = stack / "profile.yaml"
+    assert call_log.read_text().splitlines() == [
+        f"methodology.py prepare --profile {profile}",
+        "render.py",
+        f"methodology.py activate --profile {profile}",
+        f"methodology.py doctor --profile {profile}",
+    ]
+    assert not pi_log.exists()
+    for destination in (
+        home / ".pi/agent/skills",
+        home / ".claude/skills",
+        home / ".vibe/skills",
+    ):
+        assert not os.path.lexists(destination)
