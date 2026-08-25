@@ -107,17 +107,55 @@ def commit_ce_revision(path: Path, *, skills: tuple[str, ...]) -> str:
     return git("rev-parse", "HEAD", cwd=path)
 
 
+def pi_local_entry(home: Path, path: Path) -> str:
+    """The string ``pi install <path>`` records in user settings.
+
+    Confirmed against the installed pi sources
+    (``dist/core/package-manager.js``: ``normalizePackageSourceForSettings``
+    stores ``relative(agentDir, resolved)`` for local sources) and by an
+    isolated ``pi install`` probe under a throwaway ``HOME``.
+    """
+    return os.path.relpath(path, home / ".pi" / "agent")
+
+
 class FakeRunner:
-    """Record commands; run git/resolver for real and emulate ``pi``."""
+    """Record commands; run git/resolver for real and emulate ``pi``.
+
+    The ``pi`` emulation mirrors the real package manager: a local source is
+    persisted relative to the agent directory, and install/remove match an
+    existing entry by resolved path rather than by string equality.
+    """
+
+    NON_LOCAL_PREFIXES = ("npm:", "git:", "github:", "http:", "https:", "ssh:")
 
     def __init__(self, home: Path):
         self.home = home
         self.calls: list[tuple[tuple[str, ...], str | None]] = []
         self.settings_path = home / ".pi" / "agent" / "settings.json"
+        self.failing_pi_sources: set[str] = set()
 
     @property
     def pi_calls(self) -> list[tuple[str, ...]]:
         return [args for args, _ in self.calls if args[0] == "pi"]
+
+    def _resolve(self, source: str) -> str | None:
+        """Resolve a local package source the way pi does, or None if remote."""
+        text = source.strip()
+        if text.startswith(self.NON_LOCAL_PREFIXES):
+            return None
+        if text == "~":
+            text = str(self.home)
+        elif text.startswith("~/"):
+            text = str(self.home / text[2:])
+        if not os.path.isabs(text):
+            text = os.path.join(str(self.settings_path.parent), text)
+        return os.path.normpath(text)
+
+    def _matches(self, entry: str, source: str) -> bool:
+        left, right = self._resolve(entry), self._resolve(source)
+        if left is None or right is None:
+            return entry.strip() == source.strip()
+        return left == right
 
     def _packages(self) -> list[str]:
         if not self.settings_path.exists():
@@ -138,11 +176,19 @@ class FakeRunner:
         if args[0] == "pi":
             packages = self._packages()
             source = args[2]
+            if source in self.failing_pi_sources:
+                raise subprocess.CalledProcessError(
+                    1, list(args), "", f"pi: {args[1]} {source} failed\n"
+                )
             if args[1] == "install":
-                if source not in packages:
-                    packages.append(source)
+                if not any(self._matches(p, source) for p in packages):
+                    packages.append(
+                        source
+                        if self._resolve(source) is None
+                        else pi_local_entry(self.home, Path(source))
+                    )
             elif args[1] == "remove":
-                packages = [p for p in packages if p != source]
+                packages = [p for p in packages if not self._matches(p, source)]
             else:  # pragma: no cover - guard against silent API drift
                 raise AssertionError(f"unexpected pi command {args}")
             self._write_packages(packages)
@@ -263,6 +309,37 @@ class Harness:
             for name in ("pi", "claude", "vibe")
             if self.dest(name).is_dir()
             for path in self.dest(name).iterdir()
+        }
+
+    def entry_fingerprint(self) -> dict[str, str]:
+        """Every skill-destination entry, links and real entries alike."""
+        fingerprint = {}
+        for name in ("pi", "claude", "vibe"):
+            directory = self.dest(name)
+            if not directory.is_dir() or directory.is_symlink():
+                continue
+            for path in sorted(directory.iterdir()):
+                if path.is_symlink():
+                    fingerprint[str(path)] = "link:" + os.readlink(path)
+                elif path.is_dir():
+                    fingerprint[str(path)] = "dir"
+                else:
+                    fingerprint[str(path)] = "file:" + path.read_text()
+        return fingerprint
+
+    def baseline(self) -> dict:
+        """Everything an activation is allowed to change, for no-op assertions."""
+        return {
+            "entries": self.entry_fingerprint(),
+            "state": (
+                self.state_path.read_bytes() if self.state_path.exists() else None
+            ),
+            "snapshots": self.migration_dirs(),
+            "settings": (
+                self.runner.settings_path.read_bytes()
+                if self.runner.settings_path.exists()
+                else None
+            ),
         }
 
     def state(self) -> dict:
@@ -512,7 +589,7 @@ def test_ce_activation_registers_the_pi_package_instead_of_pi_skill_links(harnes
 
     assert harness.entries("pi") == set()
     packages = json.loads(harness.runner.settings_path.read_text())["packages"]
-    assert str(harness.checkout) in packages
+    assert pi_local_entry(harness.home, harness.checkout) in packages
     assert ("pi", "install", str(harness.checkout)) in harness.runner.pi_calls
 
 
@@ -620,6 +697,7 @@ def test_returning_to_superpowers_restores_links_and_preserves_ce_checkout(harne
             assert link.is_symlink()
             assert link.resolve() == (harness.stack / "skills" / skill).resolve()
     packages = json.loads(harness.runner.settings_path.read_text())["packages"]
+    assert pi_local_entry(harness.home, harness.checkout) not in packages
     assert str(harness.checkout) not in packages
     assert ("pi", "remove", str(harness.checkout)) in harness.runner.pi_calls
     assert tree_fingerprint(harness.checkout) == checkout_before
@@ -827,8 +905,9 @@ def test_failed_update_fetch_leaves_the_manifest_byte_identical(harness):
     harness.controller.prepare("compound-engineering")
     manifest_before = harness.manifest_path.read_bytes()
 
+    # A well-formed sha that no remote can serve: the fetch is what fails.
     with pytest.raises(methodology.MethodologyError):
-        harness.controller.update("0" * 40)
+        harness.controller.update("a" * 40)
 
     assert harness.manifest_path.read_bytes() == manifest_before
     assert git("rev-parse", "HEAD", cwd=harness.checkout) == harness.revision
@@ -865,3 +944,392 @@ def test_cli_doctor_runs_in_an_isolated_home(harness):
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "superpowers" in result.stdout
+
+
+# --------------------------------------------------------------------------
+# strict state loading
+# --------------------------------------------------------------------------
+
+
+def valid_state(**overrides) -> dict:
+    state = {
+        "version": 1,
+        "active": "superpowers",
+        "ce_revision": None,
+        "managed_links": [],
+        "pi_ask_user_added": False,
+    }
+    state.update(overrides)
+    return state
+
+
+def write_state(harness, payload: dict) -> Path:
+    harness.state_path.parent.mkdir(parents=True, exist_ok=True)
+    harness.state_path.write_text(json.dumps(payload, indent=2) + "\n")
+    return harness.state_path
+
+
+@pytest.mark.parametrize(
+    "missing",
+    ["version", "active", "ce_revision", "managed_links", "pi_ask_user_added"],
+)
+def test_state_requires_every_schema_key(harness, missing):
+    payload = valid_state()
+    del payload[missing]
+    path = write_state(harness, payload)
+
+    with pytest.raises(methodology.ConfigError) as error:
+        methodology.load_state(path)
+
+    assert missing in str(error.value)
+    assert str(path) in str(error.value)
+
+
+def test_state_rejects_an_unknown_active_methodology(harness):
+    path = write_state(harness, valid_state(active="vibe-coding"))
+
+    with pytest.raises(methodology.ConfigError) as error:
+        methodology.load_state(path)
+
+    assert "active" in str(error.value)
+    assert "vibe-coding" in str(error.value)
+
+
+def test_state_requires_a_null_ce_revision_in_superpowers_mode(harness):
+    path = write_state(harness, valid_state(ce_revision="a" * 40))
+
+    with pytest.raises(methodology.ConfigError) as error:
+        methodology.load_state(path)
+
+    assert "ce_revision" in str(error.value)
+    assert "superpowers" in str(error.value)
+
+
+@pytest.mark.parametrize("revision", [None, "26bf5b1", "not-a-sha", 26])
+def test_state_requires_a_full_sha_in_compound_engineering_mode(harness, revision):
+    path = write_state(
+        harness, valid_state(active="compound-engineering", ce_revision=revision)
+    )
+
+    with pytest.raises(methodology.ConfigError) as error:
+        methodology.load_state(path)
+
+    assert "ce_revision" in str(error.value)
+
+
+def test_state_rejects_a_malformed_managed_link_entry(harness):
+    path = write_state(harness, valid_state(managed_links=["/a", 7]))
+
+    with pytest.raises(methodology.ConfigError) as error:
+        methodology.load_state(path)
+
+    assert "managed_links[1]" in str(error.value)
+
+
+def test_state_written_by_activation_reloads_strictly(harness):
+    harness.activate_ce()
+
+    state = methodology.load_state(harness.state_path)
+
+    assert state.active == "compound-engineering"
+    assert state.ce_revision == harness.revision
+
+
+# --------------------------------------------------------------------------
+# activation preflight: pinned revision, clean checkout, destination topology
+# --------------------------------------------------------------------------
+
+
+def test_activation_requires_the_checkout_head_to_match_the_pinned_revision(harness):
+    harness.activate_superpowers()
+    harness.write_pi_settings(["npm:pi-subagents"])
+    harness.controller.prepare("compound-engineering")
+    drifted = commit_ce_revision(harness.upstream, skills=CE_SKILLS)
+    git("fetch", "-q", "origin", drifted, cwd=harness.checkout)
+    git("checkout", "-q", "--detach", drifted, cwd=harness.checkout)
+    before = harness.baseline()
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.activate("compound-engineering")
+
+    assert drifted in str(error.value)
+    assert harness.revision in str(error.value)
+    assert harness.runner.pi_calls == []
+    assert harness.baseline() == before
+
+
+def test_activation_rejects_a_dirty_tracked_checkout(harness):
+    harness.activate_superpowers()
+    harness.write_pi_settings(["npm:pi-subagents"])
+    harness.controller.prepare("compound-engineering")
+    (harness.checkout / "skills" / "ce-plan" / "SKILL.md").write_text("edited\n")
+    before = harness.baseline()
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.activate("compound-engineering")
+
+    assert str(harness.checkout) in str(error.value)
+    assert "skills/ce-plan/SKILL.md" in str(error.value)
+    assert harness.runner.pi_calls == []
+    assert harness.baseline() == before
+
+
+def test_activation_rejects_a_regular_file_skill_destination(harness):
+    harness.activate_superpowers()
+    harness.write_pi_settings(["npm:pi-subagents"])
+    harness.controller.prepare("compound-engineering")
+    shutil.rmtree(harness.dest("vibe"))
+    harness.dest("vibe").write_text("not a directory\n")
+    before = harness.baseline()
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.activate("compound-engineering")
+
+    assert str(harness.dest("vibe")) in str(error.value)
+    assert harness.dest("vibe").read_text() == "not a directory\n"
+    assert harness.runner.pi_calls == []
+    assert harness.baseline() == before
+
+
+def test_activation_rejects_a_skills_ancestor_symlinked_outside_home(harness):
+    harness.activate_superpowers()
+    harness.write_pi_settings(["npm:pi-subagents"])
+    harness.controller.prepare("compound-engineering")
+    outside = harness.tmp_path / "outside-home" / "vibe"
+    (outside / "skills").mkdir(parents=True)
+    shutil.rmtree(harness.home / ".vibe")
+    (harness.home / ".vibe").symlink_to(outside)
+    before = harness.baseline()
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.activate("compound-engineering")
+
+    assert str(harness.home / ".vibe") in str(error.value)
+    assert str(outside) in str(error.value)
+    assert list((outside / "skills").iterdir()) == []
+    assert harness.runner.pi_calls == []
+    assert harness.baseline() == before
+
+
+def test_activation_allows_a_skills_ancestor_symlinked_inside_home(harness):
+    inside = harness.home / "alternate-vibe"
+    (inside / "skills").mkdir(parents=True)
+    (harness.home / ".vibe").symlink_to(inside)
+
+    harness.activate_superpowers()
+
+    assert harness.entries("vibe") == set(SUPERPOWERS_SKILLS)
+
+
+# --------------------------------------------------------------------------
+# pi package recognition and rollback of external command failures
+# --------------------------------------------------------------------------
+
+
+def test_ce_package_recognition_matches_the_checkout_exactly(harness):
+    controller = harness.controller
+    checkout = harness.checkout
+    relative = pi_local_entry(harness.home, checkout)
+    tilde = "~/" + str(checkout.relative_to(harness.home))
+
+    for entry in (str(checkout), relative, tilde, f"{checkout}/"):
+        assert controller._ce_package_entry([entry]) == entry, entry
+    for entry in (
+        f"{checkout}/skills",
+        f"{relative}/skills",
+        str(checkout.parent),
+        f"{checkout}-other",
+        "npm:pi-subagents",
+        "compound-engineering-plugin",
+    ):
+        assert controller._ce_package_entry([entry]) is None, entry
+
+
+def test_ce_package_recognition_reads_object_entries(harness):
+    entry = {"source": pi_local_entry(harness.home, harness.checkout)}
+
+    assert harness.controller._pi_packages() == []
+    harness.write_pi_settings([entry, "npm:pi-subagents"])
+
+    packages = harness.controller._pi_packages()
+    assert packages == [entry["source"], "npm:pi-subagents"]
+    assert harness.controller._ce_package_entry(packages) == entry["source"]
+
+
+def test_ce_package_removal_passes_the_absolute_checkout_path(harness):
+    harness.activate_ce()
+    packages = json.loads(harness.runner.settings_path.read_text())["packages"]
+    assert pi_local_entry(harness.home, harness.checkout) in packages
+
+    harness.controller.activate("superpowers")
+
+    removals = [c for c in harness.runner.pi_calls if c[1] == "remove"]
+    assert ("pi", "remove", str(harness.checkout)) in removals
+    remaining = json.loads(harness.runner.settings_path.read_text())["packages"]
+    assert harness.controller._ce_package_entry(remaining) is None
+
+
+def test_a_descendant_package_entry_is_never_removed(harness):
+    harness.activate_superpowers()
+    descendant = str(harness.checkout / "skills")
+    harness.write_pi_settings(["npm:pi-subagents", descendant])
+    harness.controller.prepare("compound-engineering")
+
+    harness.controller.activate("compound-engineering")
+    activated = json.loads(harness.runner.settings_path.read_text())["packages"]
+    assert pi_local_entry(harness.home, harness.checkout) in activated
+    harness.controller.activate("superpowers")
+
+    packages = json.loads(harness.runner.settings_path.read_text())["packages"]
+    assert descendant in packages
+    assert harness.controller._ce_package_entry(packages) is None
+
+
+def test_a_failed_pi_command_rolls_back_links_packages_and_state(harness):
+    harness.activate_superpowers()
+    harness.write_pi_settings(["npm:pi-subagents"])
+    harness.controller.prepare("compound-engineering")
+    harness.runner.failing_pi_sources = {"npm:pi-ask-user"}
+    before = harness.baseline()
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.activate("compound-engineering")
+
+    assert "npm:pi-ask-user" in str(error.value)
+    assert harness.baseline() == before
+    assert harness.state()["active"] == "superpowers"
+    for name in ("pi", "claude", "vibe"):
+        assert harness.entries(name) == set(SUPERPOWERS_SKILLS)
+    packages = json.loads(harness.runner.settings_path.read_text())["packages"]
+    assert harness.controller._ce_package_entry(packages) is None
+
+
+# --------------------------------------------------------------------------
+# update transactionality
+# --------------------------------------------------------------------------
+
+
+def test_update_rejects_an_abbreviated_revision_before_touching_anything(harness):
+    harness.controller.prepare("compound-engineering")
+    manifest_before = harness.manifest_path.read_bytes()
+    checkout_before = tree_fingerprint(harness.checkout)
+    harness.runner.calls.clear()
+
+    with pytest.raises(methodology.ConfigError) as error:
+        harness.controller.update(harness.revision[:8])
+
+    assert harness.revision[:8] in str(error.value)
+    assert "40" in str(error.value)
+    assert harness.runner.calls == []
+    assert harness.manifest_path.read_bytes() == manifest_before
+    assert tree_fingerprint(harness.checkout) == checkout_before
+    assert git("rev-parse", "HEAD", cwd=harness.checkout) == harness.revision
+
+
+def test_update_refuses_an_ambiguous_manifest_rewrite_before_any_mutation(harness):
+    harness.controller.prepare("compound-engineering")
+    harness.manifest_path.write_text(
+        harness.manifest_path.read_text() + f"# pinned at {harness.revision}\n"
+    )
+    manifest_before = harness.manifest_path.read_bytes()
+    checkout_before = tree_fingerprint(harness.checkout)
+    candidate = commit_ce_revision(harness.upstream, skills=CE_SKILLS)
+    harness.runner.calls.clear()
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.update(candidate)
+
+    assert str(harness.manifest_path) in str(error.value)
+    assert harness.runner.calls == []
+    assert harness.manifest_path.read_bytes() == manifest_before
+    assert tree_fingerprint(harness.checkout) == checkout_before
+    assert git("rev-parse", "HEAD", cwd=harness.checkout) == harness.revision
+
+
+def test_update_rejects_a_candidate_manifest_that_fails_strict_reload(harness):
+    """A rewrite that would produce an unloadable manifest never runs."""
+    harness.controller.prepare("compound-engineering")
+    text = harness.manifest_path.read_text().replace(
+        "    expected_skill_count: 3\n", "    expected_skill_count: many\n"
+    )
+    harness.manifest_path.write_text(text)
+    manifest_before = harness.manifest_path.read_bytes()
+    checkout_before = tree_fingerprint(harness.checkout)
+    candidate = commit_ce_revision(harness.upstream, skills=CE_SKILLS)
+
+    with pytest.raises(methodology.ConfigError):
+        harness.controller.update(candidate)
+
+    assert harness.manifest_path.read_bytes() == manifest_before
+    assert tree_fingerprint(harness.checkout) == checkout_before
+    assert git("rev-parse", "HEAD", cwd=harness.checkout) == harness.revision
+
+
+def test_failed_manifest_replacement_restores_the_previous_checkout(
+    harness, monkeypatch
+):
+    harness.controller.prepare("compound-engineering")
+    manifest_before = harness.manifest_path.read_bytes()
+    checkout_before = tree_fingerprint(harness.checkout)
+    candidate = commit_ce_revision(
+        harness.upstream, skills=("ce-brainstorm", "ce-plan", "ce-ship")
+    )
+    original_write = methodology._write_atomically
+
+    def failing_write(path, content):
+        if Path(path) == harness.manifest_path:
+            raise OSError(30, "Read-only file system")
+        return original_write(path, content)
+
+    monkeypatch.setattr(methodology, "_write_atomically", failing_write)
+
+    with pytest.raises(OSError):
+        harness.controller.update(candidate)
+
+    monkeypatch.undo()
+    assert harness.manifest_path.read_bytes() == manifest_before
+    assert git("rev-parse", "HEAD", cwd=harness.checkout) == harness.revision
+    assert tree_fingerprint(harness.checkout) == checkout_before
+    assert not (harness.checkout / "skills" / "ce-ship").exists()
+    leftovers = [
+        p.name
+        for p in harness.checkout.parent.iterdir()
+        if p.name != harness.checkout.name
+    ]
+    assert leftovers == []
+
+
+def test_failed_manifest_reload_restores_checkout_and_manifest(harness, monkeypatch):
+    harness.controller.prepare("compound-engineering")
+    manifest_before = harness.manifest_path.read_bytes()
+    checkout_before = tree_fingerprint(harness.checkout)
+    candidate = commit_ce_revision(
+        harness.upstream, skills=("ce-brainstorm", "ce-plan", "ce-ship")
+    )
+    original_load = methodology.load_manifest
+
+    def failing_load(path, *, home):
+        if Path(path) == harness.manifest_path:
+            raise methodology.ConfigError(f"{path}: injected reload failure")
+        return original_load(path, home=home)
+
+    monkeypatch.setattr(methodology, "load_manifest", failing_load)
+
+    with pytest.raises(methodology.ConfigError):
+        harness.controller.update(candidate)
+
+    monkeypatch.undo()
+    assert harness.manifest_path.read_bytes() == manifest_before
+    assert git("rev-parse", "HEAD", cwd=harness.checkout) == harness.revision
+    assert tree_fingerprint(harness.checkout) == checkout_before
+
+
+def test_prepare_rejects_an_abbreviated_revision_override(harness):
+    harness.controller.prepare("compound-engineering")
+    harness.runner.calls.clear()
+
+    with pytest.raises(methodology.ConfigError) as error:
+        harness.controller.prepare("compound-engineering", revision="26bf5b1")
+
+    assert "26bf5b1" in str(error.value)
+    assert harness.runner.calls == []

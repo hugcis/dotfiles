@@ -40,6 +40,9 @@ STATE_VERSION = 1
 SUPERPOWERS = "superpowers"
 COMPOUND_ENGINEERING = "compound-engineering"
 REVISION_PATTERN = re.compile(r"[0-9a-f]{40}")
+# Source prefixes pi treats as remote; everything else is a local path
+# (pi's utils/paths.js: isLocalPath).
+PI_REMOTE_PREFIXES = ("npm:", "git:", "github:", "http:", "https:", "ssh:")
 
 
 def _load_render():
@@ -159,9 +162,21 @@ def load_manifest(path: Path, *, home: Path) -> Manifest:
     """Load methodologies.yaml strictly, naming the field path on any error."""
     path = Path(path)
     try:
-        raw = yaml.safe_load(path.read_text())
+        text = path.read_text()
     except FileNotFoundError as error:
         raise ConfigError(f"{path}: methodology manifest is missing.") from error
+    return parse_manifest(text, path=path, home=home)
+
+
+def parse_manifest(text: str, *, path: Path, home: Path) -> Manifest:
+    """Parse manifest text strictly; `path` only names the source in errors.
+
+    Keeping parsing separate from reading lets a transaction validate a
+    candidate manifest before it replaces anything on disk.
+    """
+    path = Path(path)
+    try:
+        raw = yaml.safe_load(text)
     except yaml.YAMLError as error:
         raise ConfigError(f"{path}: manifest is not valid YAML: {error}") from error
     if not isinstance(raw, dict):
@@ -257,18 +272,35 @@ def load_state(path: Path) -> MethodologyState:
             f"{path}: version {version} is not supported by this controller "
             f"(expected {STATE_VERSION})."
         )
+    active = _field(raw, "active", str, path)
+    if active not in METHODOLOGY_FRAGMENTS:
+        raise ConfigError(
+            f"{path}: active must be one of "
+            f"{', '.join(sorted(METHODOLOGY_FRAGMENTS))}; got {active!r}."
+        )
     links = _field(raw, "managed_links", list, path)
     for index, link in enumerate(links):
         if not isinstance(link, str):
             raise ConfigError(
                 f"{path}: managed_links[{index}] must be a string; got {link!r}."
             )
-    revision = raw.get("ce_revision")
-    if revision is not None and not isinstance(revision, str):
-        raise ConfigError(f"{path}: ce_revision must be a string or null.")
+    if "ce_revision" not in raw:
+        raise ConfigError(f"{path}: ce_revision is missing.")
+    revision = raw["ce_revision"]
+    if active == SUPERPOWERS:
+        if revision is not None:
+            raise ConfigError(
+                f"{path}: ce_revision must be null while {SUPERPOWERS} is "
+                f"active; got {revision!r}."
+            )
+    elif not isinstance(revision, str) or not REVISION_PATTERN.fullmatch(revision):
+        raise ConfigError(
+            f"{path}: ce_revision must be a full 40-character commit sha while "
+            f"{active} is active; got {revision!r}."
+        )
     return MethodologyState(
         version=version,
-        active=_field(raw, "active", str, path),
+        active=active,
         ce_revision=revision,
         managed_links=list(links),
         pi_ask_user_added=_field(raw, "pi_ask_user_added", bool, path),
@@ -307,6 +339,15 @@ class Finding:
 
     def __str__(self) -> str:
         return f"[{self.level}] {self.check}: {self.message}"
+
+
+@dataclass
+class LinkJournal:
+    """What an applied link plan changed, so a failure can undo it exactly."""
+
+    removed: list[tuple[Path, str]] = field(default_factory=list)
+    created: list[Path] = field(default_factory=list)
+    created_dirs: list[Path] = field(default_factory=list)
 
 
 @dataclass
@@ -474,10 +515,34 @@ class Controller:
 
     def prepare(self, name: str, *, revision: str | None = None) -> list[str]:
         if name == SUPERPOWERS:
+            if revision is not None:
+                raise ConfigError(f"{SUPERPOWERS} does not take a revision.")
             return self._prepare_superpowers()
         if name == COMPOUND_ENGINEERING:
-            return self._prepare_compound_engineering(revision)
+            messages, retired = self._prepare_compound_engineering(revision)
+            self._discard(retired)
+            return messages
         raise ConfigError(f"unknown methodology {name!r}.")
+
+    @staticmethod
+    def _require_full_revision(revision, label: str) -> str:
+        """Reject anything but a full 40-character sha before any mutation.
+
+        An abbreviated sha checks out fine but cannot be written back to the
+        manifest, which validates full shas, so it must fail up front.
+        """
+        text = revision.strip() if isinstance(revision, str) else revision
+        if not isinstance(text, str) or not REVISION_PATTERN.fullmatch(text):
+            raise ConfigError(
+                f"{label} must be a full 40-character commit sha; got "
+                f"{revision!r}."
+            )
+        return text
+
+    @staticmethod
+    def _discard(path: Path | None) -> None:
+        if path is not None and path.exists():
+            shutil.rmtree(path, ignore_errors=True)
 
     def _prepare_superpowers(self) -> list[str]:
         source = self.superpowers_skills
@@ -495,14 +560,25 @@ class Controller:
             )
         return [f"superpowers source ok: {len(_skill_entries(source))} skills"]
 
-    def _prepare_compound_engineering(self, revision: str | None) -> list[str]:
+    def _prepare_compound_engineering(
+        self, revision: str | None, *, retain_previous: bool = False
+    ) -> tuple[list[str], Path | None]:
+        """Install the pinned checkout; return messages and the retired copy.
+
+        With `retain_previous`, the replaced checkout is kept aside so a caller
+        can restore it byte-identically; the caller then owns discarding it.
+        """
         spec = self.manifest.ce
-        wanted = revision or spec.revision
+        wanted = (
+            spec.revision
+            if revision is None
+            else self._require_full_revision(revision, "revision")
+        )
         checkout = spec.checkout
         if self._head_revision(checkout) == wanted and not self._validate_checkout(
             checkout, spec.expected_skill_count
         ):
-            return [f"compound-engineering checkout already at {wanted}"]
+            return [f"compound-engineering checkout already at {wanted}"], None
 
         checkout.parent.mkdir(parents=True, exist_ok=True)
         candidate = self._temporary_sibling(checkout, "tmp")
@@ -524,11 +600,13 @@ class Controller:
                         [f"candidate checkout {wanted} is invalid:", *problems]
                     )
                 )
-            self._install_checkout(candidate, checkout)
+            retired = self._install_checkout(
+                candidate, checkout, retain_previous=retain_previous
+            )
         finally:
             if candidate.exists():
                 shutil.rmtree(candidate, ignore_errors=True)
-        return [f"compound-engineering checkout installed at {wanted}"]
+        return [f"compound-engineering checkout installed at {wanted}"], retired
 
     def _validate_checkout(self, root: Path, expected_skill_count: int) -> list[str]:
         problems: list[str] = []
@@ -556,7 +634,9 @@ class Controller:
             f".{target.name}.{tag}-{os.getpid()}-{secrets.token_hex(4)}"
         )
 
-    def _install_checkout(self, candidate: Path, target: Path) -> None:
+    def _install_checkout(
+        self, candidate: Path, target: Path, *, retain_previous: bool = False
+    ) -> Path | None:
         retired = None
         if target.exists() or target.is_symlink():
             retired = self._temporary_sibling(target, "previous")
@@ -567,35 +647,87 @@ class Controller:
             if retired is not None:
                 os.rename(retired, target)
             raise
-        if retired is not None:
+        if retired is not None and not retain_previous:
             shutil.rmtree(retired, ignore_errors=True)
+            return None
+        return retired
+
+    def _restore_checkout(self, retired: Path | None) -> None:
+        """Put a retired checkout back, byte-identically, after a failure."""
+        if retired is None or not retired.exists():
+            return
+        target = self.ce_checkout
+        replaced = None
+        if target.exists() or target.is_symlink():
+            replaced = self._temporary_sibling(target, "rollback")
+            os.rename(target, replaced)
+        os.rename(retired, target)
+        self._discard(replaced)
 
     # -- update ------------------------------------------------------------
 
     def update(self, revision: str) -> list[str]:
+        """Move the pin to `revision` as one transaction.
+
+        Everything that can be checked without mutating anything is checked
+        first: the sha shape, the manifest rewrite, and a strict parse of the
+        candidate manifest. Only then is the checkout replaced and the manifest
+        written, and any failure afterwards restores both byte-identically.
+        """
+        revision = self._require_full_revision(revision, "--revision")
+        path = self.manifest.path
         previous = self.manifest.ce.revision
+        original = path.read_text()
+        candidate_text = self._candidate_manifest_text(original, previous, revision)
+        candidate = parse_manifest(candidate_text, path=path, home=self.home)
+        if candidate.ce.revision != revision:
+            raise MethodologyError(
+                f"{path}: the candidate manifest pins "
+                f"{candidate.ce.revision}, not {revision}."
+            )
         messages = [
             f"current pinned revision: {previous}",
             f"candidate revision:      {revision}",
         ]
-        messages += self.prepare(COMPOUND_ENGINEERING, revision=revision)
-        self._rewrite_manifest_revision(previous, revision)
-        self.manifest = load_manifest(self.manifest.path, home=self.home)
+
+        retired = None
+        try:
+            prepared, retired = self._prepare_compound_engineering(
+                revision, retain_previous=True
+            )
+            _write_atomically(path, candidate_text)
+            self.manifest = load_manifest(path, home=self.home)
+        except BaseException:
+            self._restore_manifest(path, original)
+            self._restore_checkout(retired)
+            raise
+        finally:
+            self._discard(retired)
+        messages += prepared
         messages.append(f"manifest revision updated: {previous} -> {revision}")
         return messages
 
-    def _rewrite_manifest_revision(self, previous: str, revision: str) -> None:
-        if previous == revision:
-            return
+    def _candidate_manifest_text(
+        self, text: str, previous: str, revision: str
+    ) -> str:
         path = self.manifest.path
-        text = path.read_text()
+        if previous == revision:
+            return text
         occurrences = text.count(previous)
         if occurrences != 1:
             raise MethodologyError(
                 f"{path}: expected exactly one occurrence of {previous}; "
                 f"found {occurrences}. Update the manifest by hand."
             )
-        _write_atomically(path, text.replace(previous, revision, 1))
+        return text.replace(previous, revision, 1)
+
+    def _restore_manifest(self, path: Path, original: str) -> None:
+        try:
+            if path.read_text() == original:
+                return
+        except OSError:
+            pass
+        _write_atomically(path, original)
 
     # -- snapshots ---------------------------------------------------------
 
@@ -679,16 +811,52 @@ class Controller:
             "vibe": dict(skills),
         }
 
-    def _plan_links(self, name: str) -> LinkPlan:
-        plan = LinkPlan()
-        desired_by_harness = self._desired_links(name)
-        for harness, destination in self.skill_destinations.items():
-            desired = desired_by_harness[harness]
+    def _preflight_destinations(self) -> None:
+        """Reject every unsafe skill-destination topology before planning.
+
+        Each destination must be a real directory (or absent) inside the
+        expected home: a regular file, a symlinked destination, or a symlinked
+        ancestor escaping home would make link creation land somewhere this
+        controller does not own. All destinations are checked before any of
+        them is planned, so no partial work can precede a rejection.
+        """
+        home = Path(os.path.realpath(self.home))
+        for destination in self.skill_destinations.values():
+            try:
+                relative = destination.relative_to(self.home)
+            except ValueError as error:
+                raise MethodologyError(
+                    f"{destination} is not inside {self.home}."
+                ) from error
+            current = self.home
+            for part in relative.parts:
+                current = current / part
+                if not current.is_symlink():
+                    continue
+                resolved = Path(os.path.realpath(current))
+                if resolved != home and home not in resolved.parents:
+                    raise MethodologyError(
+                        f"{current} is a symlink to {resolved}, outside the "
+                        f"expected home {self.home}; replace it with a real "
+                        "directory before switching methodology."
+                    )
             if destination.is_symlink():
                 raise MethodologyError(
                     f"{destination} is a symlink to {_link_target(destination)}; "
                     "replace it with a real directory before switching methodology."
                 )
+            if destination.exists() and not destination.is_dir():
+                raise MethodologyError(
+                    f"{destination} exists but is not a directory; "
+                    "move it aside before switching methodology."
+                )
+
+    def _plan_links(self, name: str) -> LinkPlan:
+        plan = LinkPlan()
+        self._preflight_destinations()
+        desired_by_harness = self._desired_links(name)
+        for harness, destination in self.skill_destinations.items():
+            desired = desired_by_harness[harness]
             existing = (
                 {entry.name: entry for entry in sorted(destination.iterdir())}
                 if destination.is_dir()
@@ -724,12 +892,50 @@ class Controller:
         plan.links.sort()
         return plan
 
-    def _apply_links(self, plan: LinkPlan) -> None:
+    def _apply_links(self, plan: LinkPlan, journal: LinkJournal) -> None:
+        """Apply the plan, recording in `journal` enough to undo it exactly.
+
+        The journal is filled as the work happens, so a partially applied plan
+        is still fully reversible by the caller.
+        """
         for link in plan.removals:
+            journal.removed.append((link, os.readlink(link)))
             link.unlink()
         for link, source in plan.creates:
-            link.parent.mkdir(parents=True, exist_ok=True)
+            parent = link.parent
+            if not parent.exists():
+                missing = [parent]
+                while not missing[-1].parent.exists():
+                    missing.append(missing[-1].parent)
+                parent.mkdir(parents=True)
+                journal.created_dirs.extend(reversed(missing))
             link.symlink_to(source)
+            journal.created.append(link)
+
+    def _undo_links(self, journal: LinkJournal) -> list[str]:
+        failures: list[str] = []
+        for link in reversed(journal.created):
+            try:
+                if link.is_symlink():
+                    link.unlink()
+            except OSError as error:  # pragma: no cover - defensive
+                failures.append(f"could not remove {link}: {error}")
+        for directory in reversed(journal.created_dirs):
+            try:
+                if directory.is_dir() and not any(directory.iterdir()):
+                    directory.rmdir()
+            except OSError as error:  # pragma: no cover - defensive
+                failures.append(f"could not remove {directory}: {error}")
+        for link, target in reversed(journal.removed):
+            try:
+                if not link.is_symlink() and not link.exists():
+                    os.symlink(target, link)
+            except OSError as error:  # pragma: no cover - defensive
+                failures.append(f"could not restore {link} -> {target}: {error}")
+        journal.created.clear()
+        journal.created_dirs.clear()
+        journal.removed.clear()
+        return failures
 
     # -- pi packages -------------------------------------------------------
 
@@ -749,23 +955,52 @@ class Controller:
         return settings
 
     def _pi_packages(self) -> list[str]:
+        """The configured package sources, string and object entries alike.
+
+        pi accepts both ``"npm:foo"`` and ``{"source": "npm:foo", ...}`` in
+        ``settings.packages`` (``getPackageSourceString``), so both forms are
+        read here; only their source strings matter to this controller.
+        """
         packages = self._pi_settings().get("packages", [])
         if not isinstance(packages, list):
             raise MethodologyError(
                 f"{self.pi_settings_path}: packages must be a list."
             )
-        return [entry for entry in packages if isinstance(entry, str)]
+        sources: list[str] = []
+        for entry in packages:
+            if isinstance(entry, str):
+                sources.append(entry)
+            elif isinstance(entry, dict) and isinstance(entry.get("source"), str):
+                sources.append(entry["source"])
+        return sources
+
+    def _package_source_path(self, entry: str) -> Path | None:
+        """Resolve a local package source exactly the way pi resolves it.
+
+        pi treats every source that is not ``npm:``/``git:``/``github:``/
+        ``http(s):``/``ssh:`` as a local path, expands a leading ``~``, and
+        resolves a relative path against the agent directory for user scope
+        (``resolvePathFromBase(path, agentDir)``). Resolution is lexical: pi
+        never calls realpath, so neither does this.
+        """
+        text = entry.strip()
+        if not text or text.startswith(PI_REMOTE_PREFIXES):
+            return None
+        expanded = _expand_home(text, self.home)
+        if not expanded.is_absolute():
+            expanded = self.pi_settings_path.parent / expanded
+        return Path(os.path.normpath(expanded))
 
     def _ce_package_entry(self, packages: list[str]) -> str | None:
         """The pi packages entry registering the managed CE checkout, if any.
 
-        Registry entries such as ``npm:pi-subagents`` are named, not path-like,
-        so only path-shaped entries are compared against the checkout.
+        The match is exact: an entry naming a descendant of the checkout is a
+        different package and must never be treated as ours, or removing CE
+        would remove somebody else's registration.
         """
+        checkout = Path(os.path.normpath(self.ce_checkout))
         for entry in packages:
-            if not entry.startswith(("/", "./", "../", "~/")):
-                continue
-            if _is_beneath(_expand_home(entry, self.home), self.ce_checkout):
+            if self._package_source_path(entry) == checkout:
                 return entry
         return None
 
@@ -789,15 +1024,38 @@ class Controller:
                 ask_user_added = True
         else:
             if registered is not None:
-                operations.append(("remove", registered))
+                # pi resolves a remove argument against the process cwd, so
+                # the absolute checkout path is the only representation that
+                # reliably matches the recorded (agent-dir relative) entry.
+                operations.append(("remove", str(self.ce_checkout)))
             if ask_user_added and "npm:pi-ask-user" in packages:
                 operations.append(("remove", "npm:pi-ask-user"))
             ask_user_added = False
         return operations, ask_user_added
 
-    def _apply_packages(self, operations: list[tuple[str, str]]) -> None:
+    def _apply_packages(
+        self, operations: list[tuple[str, str]], applied: list[tuple[str, str]]
+    ) -> None:
         for operation, source in operations:
-            self.runner(["pi", operation, source])
+            try:
+                self.runner(["pi", operation, source])
+            except subprocess.CalledProcessError as error:
+                detail = (error.stderr or error.stdout or "").strip()
+                raise MethodologyError(
+                    f"pi {operation} {source} failed"
+                    + (f": {detail}" if detail else "")
+                ) from error
+            applied.append((operation, source))
+
+    def _undo_packages(self, applied: list[tuple[str, str]]) -> list[str]:
+        inverse = {"install": "remove", "remove": "install"}
+        failures: list[str] = []
+        for operation, source in reversed(applied):
+            try:
+                self.runner(["pi", inverse[operation], source])
+            except Exception as error:  # pragma: no cover - defensive
+                failures.append(f"pi {inverse[operation]} {source} failed: {error}")
+        return failures
 
     # -- activation --------------------------------------------------------
 
@@ -822,6 +1080,7 @@ class Controller:
                         ]
                     )
                 )
+            self._require_pinned_checkout()
         else:
             self._prepare_superpowers()
 
@@ -841,16 +1100,73 @@ class Controller:
         if plan.empty and not operations and desired == state:
             return [f"{name} already active; no changes"]
 
-        messages = [f"snapshot: {self.snapshot(state.active, name)}"]
-        self._apply_links(plan)
-        self._apply_packages(operations)
-        save_state(self.state_path, desired)
+        snapshot = self.snapshot(state.active, name)
+        messages = [f"snapshot: {snapshot}"]
+        journal = LinkJournal()
+        applied: list[tuple[str, str]] = []
+        try:
+            self._apply_links(plan, journal)
+            self._apply_packages(operations, applied)
+            save_state(self.state_path, desired)
+        except BaseException as error:
+            failures = self._undo_packages(applied)
+            failures += self._undo_links(journal)
+            self._discard_snapshot(snapshot)
+            if failures:
+                raise MethodologyError(
+                    "\n".join([f"{error}", "rollback was incomplete:", *failures])
+                ) from error
+            raise
         messages.append(
             f"activated {name}: {len(plan.creates)} link(s) created, "
             f"{len(plan.removals)} managed link(s) removed, "
             f"{len(operations)} pi package change(s)"
         )
         return messages
+
+    def _require_pinned_checkout(self) -> None:
+        """Fail before any mutation unless the checkout is exactly the pin.
+
+        Activation links every harness at this checkout, so its content has to
+        be the reviewed revision: a drifted HEAD or an edited tracked file
+        would publish something nobody reviewed.
+        """
+        spec = self.manifest.ce
+        head = self._head_revision(spec.checkout)
+        if head is None:
+            raise MethodologyError(
+                f"{spec.checkout} is not a git checkout; run "
+                "`methodology.py prepare` first."
+            )
+        if head != spec.revision:
+            raise MethodologyError(
+                f"{spec.checkout} is at {head}; the manifest pins "
+                f"{spec.revision}. Run `methodology.py prepare` first."
+            )
+        status = self._git(
+            "status",
+            "--porcelain",
+            "--untracked-files=no",
+            cwd=spec.checkout,
+            check=False,
+        )
+        if status.returncode != 0:
+            raise MethodologyError(
+                f"git status failed in {spec.checkout}: "
+                f"{(status.stderr or '').strip()}"
+            )
+        dirty = (status.stdout or "").strip()
+        if dirty:
+            raise MethodologyError(
+                f"{spec.checkout} has uncommitted changes to tracked files, so "
+                f"it no longer matches the pinned revision {spec.revision}:\n"
+                f"{dirty}"
+            )
+
+    def _discard_snapshot(self, snapshot: Path) -> None:
+        """Drop a snapshot taken for an activation that was rolled back."""
+        if snapshot.is_dir() and not snapshot.is_symlink():
+            shutil.rmtree(snapshot, ignore_errors=True)
 
     # -- doctor ------------------------------------------------------------
 
