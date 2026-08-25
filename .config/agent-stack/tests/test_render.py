@@ -632,8 +632,17 @@ def test_compose_agents_md_includes_extra_fragments(tmp_path):
         ("compound-engineering", "10-superpowers.md"),
         ("superpowers", "10-superpowers.md"),
         ("compound-engineering", "10-compound-engineering.md"),
+        ("superpowers", "./10-compound-engineering.md"),
+        ("compound-engineering", "../agents.md.d/10-superpowers.md"),
     ],
-    ids=["opposite-ce", "opposite-sp", "duplicate-sp", "duplicate-ce"],
+    ids=[
+        "opposite-ce",
+        "opposite-sp",
+        "duplicate-sp",
+        "duplicate-ce",
+        "dot-alias",
+        "parent-alias",
+    ],
 )
 def test_compose_agents_md_rejects_methodology_fragment_in_extra(selected, extra):
     profile = render.load_profile(FIXTURE)
@@ -646,6 +655,21 @@ def test_compose_agents_md_rejects_methodology_fragment_in_extra(selected, extra
     msg = str(exc.value)
     assert extra in msg
     assert "methodology" in msg
+
+
+def test_compose_agents_md_rejects_fragment_path_outside_directory():
+    outside = STACK / "_test_outside_fragment.md"
+    outside.write_text("OUTSIDE MARKER\n")
+    try:
+        profile = render.load_profile(FIXTURE)
+        profile["agents_md_extra"] = ["../_test_outside_fragment.md"]
+
+        with pytest.raises(render.ConfigError) as exc:
+            render.compose_agents_md(profile)
+
+        assert "must stay within" in str(exc.value)
+    finally:
+        outside.unlink()
 
 
 def test_compose_agents_md_missing_fragment_raises_config_error():

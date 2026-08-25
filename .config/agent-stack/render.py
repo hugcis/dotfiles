@@ -303,16 +303,30 @@ def backup_agents_md(targets: list[Path], content: str) -> list[str]:
     return [str(backup / _backup_name(t)) for t in doomed]
 
 
-def _read_fragment(name: str) -> str:
-    """Read one agents.md.d fragment, or fail with a ConfigError naming it."""
-    fragments = STACK / "agents.md.d"
-    path = fragments / name
+def _fragment_path(name: str) -> Path:
+    fragments = (STACK / "agents.md.d").resolve()
+    if not isinstance(name, str):
+        raise ConfigError(
+            f"profile.yaml: AGENTS.md fragment name must be a string; got {name!r}"
+        )
+    path = (fragments / name).resolve()
+    try:
+        path.relative_to(fragments)
+    except ValueError:
+        raise ConfigError(
+            f"profile.yaml: AGENTS.md fragment '{name}' must stay within {fragments}."
+        ) from None
     if not path.is_file():
         raise ConfigError(
             f"profile.yaml: AGENTS.md fragment '{name}' not found in {fragments}. "
             f"Fix agents_md_extra or add the fragment."
         )
-    return path.read_text().strip()
+    return path
+
+
+def _read_fragment(name: str) -> str:
+    """Read one agents.md.d fragment, or fail with a ConfigError naming it."""
+    return _fragment_path(name).read_text().strip()
 
 
 def methodology_name(profile: dict) -> str:
@@ -333,17 +347,18 @@ def compose_agents_md(profile: dict) -> str:
         _read_fragment("00-universal.md"),
         _read_fragment(METHODOLOGY_FRAGMENTS[selected]),
     ]
+    methodology_paths = {
+        _fragment_path(name) for name in METHODOLOGY_FRAGMENTS.values()
+    }
     for name in profile.get("agents_md_extra") or []:
-        # agents_md_extra must not name a methodology fragment: the other one
-        # would render two conflicting methodologies, and the selected one would
-        # render twice. The profile's `methodology` key is the only way in.
-        if str(name) in set(METHODOLOGY_FRAGMENTS.values()):
+        path = _fragment_path(name)
+        if path in methodology_paths:
             raise ConfigError(
                 f"profile.yaml: agents_md_extra must not list the methodology "
                 f"fragment '{name}'. Set methodology: <name> instead; "
                 f"this profile selects {selected!r}."
             )
-        parts.append(_read_fragment(name))
+        parts.append(path.read_text().strip())
     return "\n\n".join(parts) + "\n"
 
 
