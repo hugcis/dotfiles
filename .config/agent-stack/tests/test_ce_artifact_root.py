@@ -1,10 +1,24 @@
 import hashlib
+import importlib.util
 import os
 import subprocess
+import threading
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
+
+import pytest
 
 
 RESOLVER = Path(__file__).resolve().parents[1] / "bin" / "ce-artifact-root"
+
+
+def load_resolver_module():
+    loader = SourceFileLoader("ce_artifact_root", str(RESOLVER))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
 
 
 def run(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -122,6 +136,23 @@ def test_origin_url_defines_identity_independent_of_checkout_path(tmp_path):
     assert resolve(first, home) == resolve(second, home) == docs_home / "shared"
 
 
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "https://example.com/acme/shared.git/?ref=main",
+        "https://example.com/acme/shared.git/#readme",
+    ],
+)
+def test_origin_url_query_and_fragment_do_not_change_identity(tmp_path, variant):
+    canonical = init_repo(tmp_path / "canonical-checkout")
+    equivalent = init_repo(tmp_path / "equivalent-checkout")
+    set_origin(canonical, "https://example.com/acme/shared")
+    set_origin(equivalent, variant)
+    home = make_home(tmp_path)
+
+    assert resolve(canonical, home) == resolve(equivalent, home) == home / "docs" / "shared"
+
+
 def test_name_collision_gets_stable_eight_character_hash_suffix(tmp_path):
     repo = init_repo(tmp_path / "checkout")
     set_origin(repo, "https://user:secret@example.com/acme/alpha.git")
@@ -209,3 +240,105 @@ def test_identity_marker_replaced_by_symlink_is_refused_before_writing(tmp_path)
 
     assert result.returncode != 0
     assert planted.read_text() == "original\n"
+
+
+def test_interrupted_marker_publication_leaves_no_marker_or_temporary_file(
+    tmp_path, monkeypatch
+):
+    resolver = load_resolver_module()
+    repo = init_repo(tmp_path / "alpha")
+    docs_home = tmp_path / "docs"
+
+    def interrupt_fsync(descriptor):
+        raise OSError("simulated interruption")
+
+    monkeypatch.setattr(resolver.os, "fsync", interrupt_fsync)
+
+    with pytest.raises(OSError, match="simulated interruption"):
+        resolver.resolve_artifact_root(repo, docs_home, True)
+
+    artifact_root = docs_home / "alpha"
+    assert not (artifact_root / ".ce-repository-identity").exists()
+    assert list(artifact_root.iterdir()) == []
+
+
+def test_concurrent_resolvers_only_observe_complete_marker_publications(
+    tmp_path, monkeypatch
+):
+    resolver = load_resolver_module()
+    first = init_repo(tmp_path / "first-checkout")
+    second = init_repo(tmp_path / "second-checkout")
+    origin = "https://example.com/acme/alpha.git"
+    set_origin(first, origin)
+    set_origin(second, origin)
+    docs_home = tmp_path / "docs"
+    write_started = threading.Event()
+    release_write = threading.Event()
+    real_fdopen = resolver.os.fdopen
+    writer_count = 0
+    count_lock = threading.Lock()
+
+    class DelayedWriter:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            self.stream.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.stream.__exit__(*args)
+
+        def __getattr__(self, name):
+            return getattr(self.stream, name)
+
+        def write(self, content):
+            write_started.set()
+            assert release_write.wait(timeout=5)
+            return self.stream.write(content)
+
+    def delay_first_writer(*args, **kwargs):
+        nonlocal writer_count
+        stream = real_fdopen(*args, **kwargs)
+        if len(args) > 1 and args[1] == "w":
+            with count_lock:
+                writer_count += 1
+                if writer_count == 1:
+                    return DelayedWriter(stream)
+        return stream
+
+    monkeypatch.setattr(resolver.os, "fdopen", delay_first_writer)
+    roots = {}
+    errors = []
+
+    def resolve_repository(label, repo):
+        try:
+            roots[label] = resolver.resolve_artifact_root(repo, docs_home, True)
+        except Exception as error:
+            errors.append(error)
+
+    first_thread = threading.Thread(
+        target=resolve_repository, args=("first", first)
+    )
+    first_thread.start()
+    assert write_started.wait(timeout=5)
+    second_thread = threading.Thread(
+        target=resolve_repository, args=("second", second)
+    )
+    second_thread.start()
+    second_thread.join(timeout=5)
+    second_completed_before_publication = not second_thread.is_alive()
+    release_write.set()
+    first_thread.join(timeout=5)
+    second_thread.join(timeout=5)
+
+    assert second_completed_before_publication
+    assert not first_thread.is_alive()
+    assert errors == []
+    assert roots == {
+        "first": docs_home / "alpha",
+        "second": docs_home / "alpha",
+    }
+    marker = docs_home / "alpha" / ".ce-repository-identity"
+    assert marker.read_text() == "https://example.com/acme/alpha\n"
+    assert [path.name for path in marker.parent.iterdir()] == [marker.name]

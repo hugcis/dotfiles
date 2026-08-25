@@ -5,6 +5,7 @@ import errno
 import hashlib
 import os
 import re
+import secrets
 import subprocess
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit, urlunsplit
@@ -27,10 +28,7 @@ def run_git(cwd: Path, *args: str) -> str | None:
 
 
 def _normalize_remote(remote: str) -> str:
-    value = remote.strip().rstrip("/")
-    if value.endswith(".git"):
-        value = value[:-4]
-
+    value = remote.strip()
     if "://" in value:
         parsed = urlsplit(value)
         hostname = parsed.hostname or ""
@@ -39,8 +37,14 @@ def _normalize_remote(remote: str) -> str:
         netloc = hostname
         if parsed.port is not None:
             netloc = f"{netloc}:{parsed.port}"
-        return urlunsplit((parsed.scheme.lower(), netloc, parsed.path, "", ""))
+        path = parsed.path.rstrip("/")
+        if path.endswith(".git"):
+            path = path[:-4]
+        return urlunsplit((parsed.scheme.lower(), netloc, path, "", ""))
 
+    value = value.rstrip("/")
+    if value.endswith(".git"):
+        value = value[:-4]
     scp_remote = re.fullmatch(r"(?:[^@/]+@)?([^:/]+):(.+)", value)
     if scp_remote:
         return f"{scp_remote.group(1)}:{scp_remote.group(2)}"
@@ -146,21 +150,42 @@ def _claim_directory(docs_home: Path, directory: Path, identity: str) -> bool:
     dir_fd = _open_directory(directory)
     if dir_fd is None:
         raise RuntimeError(f"artifact directory disappeared: {directory}")
+    temporary_name = (
+        f"{MARKER_NAME}.tmp-{os.getpid()}-{secrets.token_hex(8)}"
+    )
+    descriptor = None
     try:
+        descriptor = os.open(
+            temporary_name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o644,
+            dir_fd=dir_fd,
+        )
+        stream = os.fdopen(descriptor, "w")
+        descriptor = None
+        with stream:
+            stream.write(f"{identity}\n")
+            stream.flush()
+            os.fsync(stream.fileno())
         try:
-            descriptor = os.open(
+            os.link(
+                temporary_name,
                 MARKER_NAME,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                0o644,
-                dir_fd=dir_fd,
+                src_dir_fd=dir_fd,
+                dst_dir_fd=dir_fd,
+                follow_symlinks=False,
             )
         except FileExistsError:
             return _read_marker(directory, dir_fd) == f"{identity}\n"
-        with os.fdopen(descriptor, "w") as stream:
-            stream.write(f"{identity}\n")
+        return True
     finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        try:
+            os.unlink(temporary_name, dir_fd=dir_fd)
+        except FileNotFoundError:
+            pass
         os.close(dir_fd)
-    return True
 
 
 def _validated_child(docs_home: Path, name: str) -> Path:
