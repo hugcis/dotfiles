@@ -38,8 +38,13 @@ command -v python3 >/dev/null || {
 	echo "python3 required"
 	exit 1
 }
+# ce-artifact-root evaluates Python 3.10 union annotations at import time.
+python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null || {
+	echo "Python 3.10 or newer is required; select a supported python3 on PATH."
+	exit 1
+}
 python3 -c "import yaml" 2>/dev/null || {
-	echo "pip install pyyaml"
+	echo "PyYAML is required for the selected python3; install it in that interpreter's environment."
 	exit 1
 }
 
@@ -48,7 +53,9 @@ if [[ ! -f "$STACK/profile.yaml" ]]; then
 	exit 1
 fi
 
-# Validate every rendered output before activation, then activate before writes.
+# Check prerequisites before preparation can replace sources, and validate
+# every rendered output before activation.
+python3 "$STACK/methodology.py" preflight --profile "$STACK/profile.yaml"
 python3 "$STACK/methodology.py" prepare --profile "$STACK/profile.yaml"
 python3 "$STACK/render.py" validate --profile "$STACK/profile.yaml"
 python3 "$STACK/methodology.py" activate --profile "$STACK/profile.yaml"

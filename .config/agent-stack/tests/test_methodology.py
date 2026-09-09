@@ -24,8 +24,13 @@ import yaml
 STACK_SOURCE = Path(__file__).resolve().parents[1]
 CONTROLLER = STACK_SOURCE / "methodology.py"
 
+LOCAL_SKILLS = ("local-audit", "local-replies")
 SUPERPOWERS_SKILLS = ("brainstorming", "test-driven-development", "writing-plans")
 CE_SKILLS = ("ce-brainstorm", "ce-plan", "ce-review")
+
+LOCAL_SKILL_SET = set(LOCAL_SKILLS)
+SUPERPOWERS_SKILL_SET = LOCAL_SKILL_SET | set(SUPERPOWERS_SKILLS)
+CE_LINKED_SKILL_SET = LOCAL_SKILL_SET | set(CE_SKILLS)
 
 
 def load_controller_module():
@@ -298,6 +303,8 @@ class Harness:
     # -- construction ------------------------------------------------------
 
     def _build_stack(self, expected_skill_count: int) -> None:
+        for name in LOCAL_SKILLS:
+            write_skill(self.stack / "local-skills", name)
         skills = self.stack / "skills"
         for name in SUPERPOWERS_SKILLS:
             write_skill(skills, name)
@@ -318,6 +325,7 @@ class Harness:
         self.manifest_path = self.stack / "methodologies.yaml"
         self.manifest_path.write_text(
             "version: 1\n"
+            "local_skills_path: local-skills\n"
             "methodologies:\n"
             "  superpowers:\n"
             "    skills_path: skills\n"
@@ -475,7 +483,8 @@ def tree_fingerprint(root: Path) -> list[tuple[str, str]]:
 
 def test_profile_methodology_absent_from_manifest_is_rejected(harness):
     harness.manifest_path.write_text(
-        "version: 1\nmethodologies:\n  superpowers:\n    skills_path: skills\n"
+        "version: 1\nlocal_skills_path: local-skills\nmethodologies:\n"
+        "  superpowers:\n    skills_path: skills\n"
     )
     harness.write_profile("compound-engineering")
     controller = methodology.Controller(
@@ -517,11 +526,34 @@ def test_tracked_manifest_pins_the_reviewed_compound_engineering_source():
     )
 
     spec = manifest.compound_engineering
+    assert manifest.local_skills_path == "local-skills"
     assert spec.revision == "26bf5b1e377212c0e4996824fee1dea1eddd817d"
     assert spec.expected_skill_count == 33
     assert list(spec.pi_companions) == ["npm:pi-subagents", "npm:pi-ask-user"]
     assert spec.checkout == Path(
         "/nonexistent-home/.local/share/agent-stack/compound-engineering-plugin"
+    )
+
+
+def test_tracked_local_source_contains_exactly_locally_owned_provenance():
+    manifest = methodology.load_manifest(
+        STACK_SOURCE / "methodologies.yaml", home=Path("/nonexistent-home")
+    )
+    provenance = yaml.safe_load(
+        (STACK_SOURCE / "skills" / "provenance.yaml").read_text()
+    )
+    locally_owned = {
+        name
+        for name, record in provenance["skills"].items()
+        if record["origin"] in {"local", "local-adapted"}
+    }
+
+    local_skills = methodology._skill_entries(
+        STACK_SOURCE / manifest.local_skills_path
+    )
+    assert set(local_skills) == locally_owned
+    assert {"simplify-code", "thermo-nuclear-code-quality-review"} <= set(
+        methodology._skill_entries(STACK_SOURCE / manifest.superpowers_skills_path)
     )
 
 
@@ -858,7 +890,7 @@ def test_ce_activation_removes_only_managed_superpowers_links(harness):
         assert Path(os.readlink(link)) == unrelated_target
 
 
-def test_ce_activation_links_every_ce_skill_into_claude_and_vibe(harness):
+def test_ce_activation_links_local_and_ce_skills_into_claude_and_vibe(harness):
     harness.activate_ce()
 
     for name in ("claude", "vibe"):
@@ -866,16 +898,39 @@ def test_ce_activation_links_every_ce_skill_into_claude_and_vibe(harness):
             link = harness.dest(name) / skill
             assert link.is_symlink()
             assert link.resolve() == (harness.checkout / "skills" / skill).resolve()
-        assert harness.entries(name) >= set(CE_SKILLS)
+        for skill in LOCAL_SKILLS:
+            link = harness.dest(name) / skill
+            assert link.is_symlink()
+            assert link.resolve() == (harness.stack / "local-skills" / skill).resolve()
+        assert harness.entries(name) == CE_LINKED_SKILL_SET
 
 
-def test_ce_activation_registers_the_pi_package_instead_of_pi_skill_links(harness):
+def test_ce_activation_registers_the_pi_package_and_links_only_local_skills(harness):
     harness.activate_ce()
 
-    assert harness.entries("pi") == set()
+    assert harness.entries("pi") == LOCAL_SKILL_SET
     packages = json.loads(harness.runner.settings_path.read_text())["packages"]
     assert pi_local_entry(harness.home, harness.checkout) in packages
     assert ("pi", "install", str(harness.checkout)) in harness.runner.pi_calls
+
+
+def test_activation_fails_before_mutation_on_a_local_ce_name_collision(harness):
+    harness.write_pi_settings(["npm:pi-subagents"])
+    harness.controller.prepare("compound-engineering")
+    write_skill(harness.stack / "local-skills", "ce-plan")
+    before = harness.baseline()
+
+    with pytest.raises(methodology.MethodologyError) as error:
+        harness.controller.activate("compound-engineering")
+
+    assert "skill name collision" in str(error.value)
+    assert "ce-plan" in str(error.value)
+    assert str(harness.stack / "local-skills") in str(error.value)
+    assert harness.baseline() == before
+    findings = harness.controller.doctor(
+        "compound-engineering", cwd=harness.tmp_path
+    )
+    assert "skill-collision" in failures(findings)
 
 
 def test_activation_stops_before_replacing_a_real_directory_collision(harness):
@@ -933,7 +988,7 @@ def test_activation_migrates_a_legacy_alias_between_skill_destinations(harness):
     assert alias.is_dir()
     assert alias.resolve() != vibe.resolve()
     for name in ("pi", "vibe"):
-        assert harness.entries(name) == set(SUPERPOWERS_SKILLS)
+        assert harness.entries(name) == SUPERPOWERS_SKILL_SET
         for skill in SUPERPOWERS_SKILLS:
             link = harness.dest(name) / skill
             assert link.is_symlink()
@@ -979,7 +1034,7 @@ def test_ce_activation_requires_pi_subagents_before_touching_anything(harness):
         harness.controller.activate("compound-engineering")
 
     assert "npm:pi-subagents" in str(error.value)
-    assert harness.entries("claude") == set(SUPERPOWERS_SKILLS)
+    assert harness.entries("claude") == SUPERPOWERS_SKILL_SET
     assert harness.runner.pi_calls == []
     assert harness.state_path.read_bytes() == state_before
     assert harness.migration_dirs() == snapshots_before
@@ -1010,7 +1065,7 @@ def test_snapshot_captures_settings_instructions_and_link_inventory(harness):
     ]
     inventory = json.loads((snapshot / "skill-links.json").read_text())
     claude = inventory[str(harness.dest("claude"))]
-    assert sorted(claude) == sorted(SUPERPOWERS_SKILLS)
+    assert set(claude) == SUPERPOWERS_SKILL_SET
     assert claude["brainstorming"]["type"] == "symlink"
     assert claude["brainstorming"]["target"] == str(
         harness.stack / "skills" / "brainstorming"
@@ -1024,11 +1079,15 @@ def test_returning_to_superpowers_restores_links_and_preserves_ce_checkout(harne
     harness.controller.activate("superpowers")
 
     for name in ("pi", "claude", "vibe"):
-        assert harness.entries(name) == set(SUPERPOWERS_SKILLS)
+        assert harness.entries(name) == SUPERPOWERS_SKILL_SET
         for skill in SUPERPOWERS_SKILLS:
             link = harness.dest(name) / skill
             assert link.is_symlink()
             assert link.resolve() == (harness.stack / "skills" / skill).resolve()
+        for skill in LOCAL_SKILLS:
+            link = harness.dest(name) / skill
+            assert link.is_symlink()
+            assert link.resolve() == (harness.stack / "local-skills" / skill).resolve()
     packages = json.loads(harness.runner.settings_path.read_text())["packages"]
     assert pi_local_entry(harness.home, harness.checkout) not in packages
     assert str(harness.checkout) not in packages
@@ -1210,6 +1269,48 @@ def test_doctor_detects_pi_companion_package_drift(harness):
     findings = harness.controller.doctor("compound-engineering", cwd=harness.tmp_path)
 
     assert "pi-companions" in failures(findings)
+
+
+def test_doctor_detects_inactive_methodology_plugins_in_ce_mode(harness):
+    harness.activate_ce()
+    harness.write_instructions("compound-engineering")
+    claude = harness.home / ".claude/settings.json"
+    claude.write_text(
+        json.dumps(
+            {"enabledPlugins": {"superpowers@claude-plugins-official": True}}
+        )
+    )
+    opencode = harness.home / ".config/opencode/opencode.jsonc"
+    opencode.parent.mkdir(parents=True, exist_ok=True)
+    opencode.write_text(
+        '{\n  "plugin": ["superpowers@git+https://example.invalid/superpowers.git"]\n}\n'
+    )
+
+    findings = harness.controller.doctor("compound-engineering", cwd=harness.tmp_path)
+
+    conflicts = [f for f in findings if f.check == "methodology-plugin"]
+    assert len(conflicts) == 2
+    assert all(f.level == "error" for f in conflicts)
+    assert any(str(claude) in f.message for f in conflicts)
+    assert any(str(opencode) in f.message for f in conflicts)
+
+
+def test_doctor_accepts_disabled_or_absent_superpowers_plugins(harness):
+    harness.activate_ce()
+    harness.write_instructions("compound-engineering")
+    claude = harness.home / ".claude/settings.json"
+    claude.write_text(
+        json.dumps(
+            {"enabledPlugins": {"superpowers@claude-plugins-official": False}}
+        )
+    )
+    opencode = harness.home / ".config/opencode/opencode.jsonc"
+    opencode.parent.mkdir(parents=True, exist_ok=True)
+    opencode.write_text('{\n  "plugin": []\n}\n')
+
+    findings = harness.controller.doctor("compound-engineering", cwd=harness.tmp_path)
+
+    assert "methodology-plugin" not in failures(findings)
 
 
 def test_doctor_names_an_external_skill_shadowing_an_active_ce_skill(harness):
@@ -1527,7 +1628,7 @@ def test_activation_allows_a_skills_ancestor_symlinked_inside_home(harness):
 
     harness.activate_superpowers()
 
-    assert harness.entries("vibe") == set(SUPERPOWERS_SKILLS)
+    assert harness.entries("vibe") == SUPERPOWERS_SKILL_SET
 
 
 # --------------------------------------------------------------------------
@@ -1608,7 +1709,7 @@ def test_a_failed_pi_command_rolls_back_links_packages_and_state(harness):
     assert harness.baseline() == before
     assert harness.state()["active"] == "superpowers"
     for name in ("pi", "claude", "vibe"):
-        assert harness.entries(name) == set(SUPERPOWERS_SKILLS)
+        assert harness.entries(name) == SUPERPOWERS_SKILL_SET
     packages = json.loads(harness.runner.settings_path.read_text())["packages"]
     assert harness.controller._ce_package_entry(packages) is None
 
@@ -1785,6 +1886,43 @@ def test_a_pinned_pre_existing_companion_is_never_rewritten_or_removed(harness):
     assert [c for c in harness.runner.pi_calls if "pi-ask-user" in c[2]] == []
 
 
+def test_a_local_checkout_can_satisfy_an_npm_companion(harness):
+    ask_user = harness.home / ".local/src/pi-ask-user"
+    ask_user.mkdir(parents=True)
+    (ask_user / "package.json").write_text(
+        json.dumps({"name": "pi-ask-user", "version": "0.15.0"})
+    )
+    configured = "../../.local/src/pi-ask-user"
+
+    harness.activate_ce(packages=["npm:pi-subagents", configured])
+
+    packages = json.loads(harness.runner.settings_path.read_text())["packages"]
+    assert packages[:2] == ["npm:pi-subagents", configured]
+    assert harness.controller._ce_package_entry(packages) is not None
+    assert harness.state()["pi_ask_user_added"] is False
+    assert [c for c in harness.runner.pi_calls if "pi-ask-user" in c[2]] == []
+    harness.write_instructions("compound-engineering")
+    assert failures(
+        harness.controller.doctor("compound-engineering", cwd=harness.tmp_path)
+    ) == []
+
+
+def test_a_local_checkout_with_another_name_does_not_satisfy_a_companion(harness):
+    ask_user = harness.home / ".local/src/pi-ask-user"
+    ask_user.mkdir(parents=True)
+    (ask_user / "package.json").write_text(
+        json.dumps({"name": "another-package", "version": "0.15.0"})
+    )
+
+    harness.activate_ce(
+        packages=["npm:pi-subagents", "../../.local/src/pi-ask-user"]
+    )
+
+    packages = json.loads(harness.runner.settings_path.read_text())["packages"]
+    assert "npm:pi-ask-user" in packages
+    assert harness.state()["pi_ask_user_added"] is True
+
+
 def rewrite_companions(harness, companions: str) -> "methodology.Controller":
     """Replace the manifest companion list and return a fresh controller."""
     text = harness.manifest_path.read_text()
@@ -1853,7 +1991,8 @@ def test_ce_package_recognition_accepts_a_file_url_entry(harness):
 
 def test_superpowers_activates_when_the_manifest_declares_no_ce(harness):
     harness.manifest_path.write_text(
-        "version: 1\nmethodologies:\n  superpowers:\n    skills_path: skills\n"
+        "version: 1\nlocal_skills_path: local-skills\nmethodologies:\n"
+        "  superpowers:\n    skills_path: skills\n"
     )
     harness.write_pi_settings(["npm:pi-subagents"])
     controller = methodology.Controller(
@@ -1863,7 +2002,7 @@ def test_superpowers_activates_when_the_manifest_declares_no_ce(harness):
     controller.activate("superpowers")
 
     for name in ("pi", "claude", "vibe"):
-        assert harness.entries(name) == set(SUPERPOWERS_SKILLS)
+        assert harness.entries(name) == SUPERPOWERS_SKILL_SET
     assert harness.state()["active"] == "superpowers"
     assert harness.runner.pi_calls == []
     harness.write_instructions("superpowers")
@@ -1934,18 +2073,22 @@ def test_update_relinks_and_records_the_new_revision_while_ce_is_active(harness)
     harness.controller.update(candidate)
 
     for name in ("claude", "vibe"):
-        assert harness.entries(name) == set(NEW_CE_SKILLS)
+        assert harness.entries(name) == LOCAL_SKILL_SET | set(NEW_CE_SKILLS)
         for skill in NEW_CE_SKILLS:
             link = harness.dest(name) / skill
             assert link.is_symlink()
             assert link.resolve() == (harness.checkout / "skills" / skill).resolve()
     state = harness.state()
     assert state["ce_revision"] == candidate
-    assert sorted(state["managed_links"]) == sorted(
+    assert set(state["managed_links"]) == {
         str(harness.dest(name) / skill)
-        for name in ("claude", "vibe")
-        for skill in NEW_CE_SKILLS
-    )
+        for name, skills in (
+            ("pi", LOCAL_SKILLS),
+            ("claude", LOCAL_SKILLS + NEW_CE_SKILLS),
+            ("vibe", LOCAL_SKILLS + NEW_CE_SKILLS),
+        )
+        for skill in skills
+    }
     findings = harness.controller.doctor(
         "compound-engineering", cwd=harness.tmp_path
     )
@@ -2027,6 +2170,24 @@ def test_doctor_detects_a_missing_managed_ce_skill_in_each_harness(harness, targ
     assert "ce-plan" in missing[0].message
 
 
+@pytest.mark.parametrize("target", ["pi", "claude", "vibe"])
+def test_doctor_detects_a_missing_local_skill_in_each_harness(harness, target):
+    harness.activate_ce()
+    harness.write_instructions("compound-engineering")
+    (harness.dest(target) / LOCAL_SKILLS[0]).unlink()
+
+    findings = harness.controller.doctor(
+        "compound-engineering", cwd=harness.tmp_path
+    )
+
+    missing = [
+        f for f in findings if f.check == "skill-coverage" and f.level == "error"
+    ]
+    assert len(missing) == 1
+    assert str(harness.dest(target)) in missing[0].message
+    assert LOCAL_SKILLS[0] in missing[0].message
+
+
 def test_doctor_reports_a_missing_instruction_fragment_as_a_finding(harness):
     harness.activate_ce()
     harness.write_instructions("compound-engineering")
@@ -2104,6 +2265,7 @@ def test_installer_runs_the_methodology_lifecycle_without_linking_skills(tmp_pat
 
     profile = stack / "profile.yaml"
     assert call_log.read_text().splitlines() == [
+        f"methodology.py preflight --profile {profile}",
         f"methodology.py prepare --profile {profile}",
         f"render.py validate --profile {profile}",
         f"methodology.py activate --profile {profile}",
@@ -2117,3 +2279,150 @@ def test_installer_runs_the_methodology_lifecycle_without_linking_skills(tmp_pat
         home / ".vibe/skills",
     ):
         assert not os.path.lexists(destination)
+
+
+@pytest.mark.parametrize(
+    "fault, diagnostic",
+    [
+        ("old-python", "3.10"),
+        ("missing-yaml", "PyYAML"),
+        ("missing-python", "python3"),
+        ("preflight", "prerequisites unavailable"),
+    ],
+)
+def test_installer_stops_before_preparation_when_prerequisites_fail(
+    tmp_path, fault, diagnostic
+):
+    home = tmp_path / "home"
+    stack = home / ".config/agent-stack"
+    stack.mkdir(parents=True)
+    install = stack / "install.sh"
+    shutil.copy2(STACK_SOURCE / "install.sh", install)
+    (stack / "profile.yaml").write_text("methodology: superpowers\n")
+    subprocess.run(
+        ["git", "init", "--bare", "-q", str(home / ".cfg")], check=True
+    )
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    for name in ("git", "grep", "mkdir", "dirname", "cat"):
+        (fake_bin / name).symlink_to(shutil.which(name))
+    calls = tmp_path / "calls"
+    if fault != "missing-python":
+        python = fake_bin / "python3"
+        python.write_text(
+            f"#!{sys.executable}\n"
+            "import builtins, os, sys\n"
+            "from pathlib import Path\n"
+            "fault = os.environ['RUNTIME_FAULT']\n"
+            "if sys.argv[1] == '-c':\n"
+            "    if fault == 'old-python': sys.version_info = (3, 9, 0)\n"
+            "    original_import = builtins.__import__\n"
+            "    def import_module(name, *args, **kwargs):\n"
+            "        if name == 'yaml':\n"
+            "            if fault == 'missing-yaml': raise ImportError('missing yaml')\n"
+            "            return None\n"
+            "        return original_import(name, *args, **kwargs)\n"
+            "    builtins.__import__ = import_module\n"
+            "    exec(sys.argv[2])\n"
+            "    sys.exit(0)\n"
+            "with Path(os.environ['CALL_LOG']).open('a') as stream:\n"
+            "    stream.write(' '.join(sys.argv[1:]) + '\\n')\n"
+            "if fault == 'preflight' and sys.argv[2:3] == ['preflight']:\n"
+            "    sys.exit('prerequisites unavailable')\n"
+        )
+        python.chmod(0o755)
+    environment = {
+        key: value for key, value in os.environ.items()
+        if not key.startswith("GIT_") and key != "BASH_ENV"
+    }
+    environment.update(
+        HOME=str(home), PATH=str(fake_bin), RUNTIME_FAULT=fault, CALL_LOG=str(calls)
+    )
+
+    result = subprocess.run(
+        [shutil.which("bash"), str(install)],
+        cwd=tmp_path, env=environment, text=True, capture_output=True, timeout=10,
+    )
+
+    assert result.returncode != 0
+    assert diagnostic in result.stdout + result.stderr
+    assert "*" in (home / ".cfg/info/exclude").read_text().splitlines()
+    logged = calls.read_text() if calls.exists() else ""
+    assert " prepare " not in logged
+    assert " activate " not in logged
+    assert "render.py" not in logged
+
+
+@pytest.mark.parametrize(
+    "name, packages, pi_available, expected_error",
+    [
+        ("compound-engineering", [], True, "pi-subagents"),
+        ("compound-engineering", ["npm:pi-subagents"], False, "pi CLI"),
+        ("compound-engineering", ["npm:pi-subagents"], True, None),
+        (
+            "compound-engineering",
+            ["ce-checkout", "npm:pi-subagents", "npm:pi-ask-user"],
+            False,
+            "pi CLI",
+        ),
+        ("superpowers", [], False, None),
+        ("superpowers", ["ce-checkout"], False, "pi CLI"),
+        ("unknown", [], False, "unknown methodology"),
+    ],
+)
+def test_preflight_checks_prerequisites_without_mutating_home(
+    tmp_path, monkeypatch, name, packages, pi_available, expected_error
+):
+    home = tmp_path / "home"
+    home.mkdir()
+
+    def no_commands(*args, **kwargs):
+        pytest.fail("preflight must not run external commands")
+
+    controller = methodology.Controller(
+        home=home, stack=STACK_SOURCE, runner=no_commands
+    )
+    packages = [
+        str(controller.ce_checkout) if source == "ce-checkout" else source
+        for source in packages
+    ]
+    settings = home / ".pi/agent/settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({"packages": packages}))
+    monkeypatch.setattr(
+        methodology.shutil, "which", lambda name: "/test/pi" if pi_available else None
+    )
+    before = {
+        path.relative_to(home): path.read_bytes() if path.is_file() else None
+        for path in home.rglob("*")
+    }
+
+    if expected_error:
+        error_type = (
+            methodology.ConfigError if name == "unknown" else methodology.MethodologyError
+        )
+        with pytest.raises(error_type, match=expected_error):
+            controller.preflight(name)
+    else:
+        controller.preflight(name)
+
+    after = {
+        path.relative_to(home): path.read_bytes() if path.is_file() else None
+        for path in home.rglob("*")
+    }
+    assert after == before
+
+
+def test_preflight_command_succeeds_without_preparing_a_checkout(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    profile = tmp_path / "profile.yaml"
+    profile.write_text("methodology: superpowers\n")
+
+    result = methodology.main(
+        ["preflight", "--home", str(home), "--stack", str(STACK_SOURCE),
+         "--profile", str(profile)]
+    )
+
+    assert result == 0
+    assert not list(home.iterdir())

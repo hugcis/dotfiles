@@ -138,13 +138,18 @@ def emit_pi(agent: Agent, profile: dict) -> tuple[str, str]:
     model = model_ref(agent, profile, "pi")
     if agent.thinking:
         model = f"{model}:{agent.thinking}"
+    turn_budget = (
+        'turnBudget: {"maxTurns":12,"graceTurns":2}\n'
+        if agent.role == "reviewer"
+        else ""
+    )
     content = f"""---
 name: {agent.name}
 description: {agent.role.capitalize()} agent on the {agent.slot} model slot.
 model: {model}
 tools: {tools}
 acceptanceRole: {agent.acceptance}
-systemPromptMode: replace
+{turn_budget}systemPromptMode: replace
 inheritProjectContext: true
 ---
 
@@ -177,6 +182,7 @@ model: {model_ref(agent, profile, "opencode")}
 def emit_vibe(agent: Agent) -> tuple[str, str]:
     perm = "never" if agent.write == "deny" else "always"
     safety = "safe" if agent.write == "deny" else "destructive"
+    prompt_ids = {"coder": "opencode-coder", "reviewer": "opencode-reviewer"}
     title = agent.name.replace("-", " ").title()
     lines = [
         f'display_name = "{title}"',
@@ -190,7 +196,7 @@ def emit_vibe(agent: Agent) -> tuple[str, str]:
         # level by naming an alias that carries it, via the optional profile key
         # `vibe_model`; without it we fall back to the bare model id.
         f'active_model = "{agent.vibe_model or agent.model}"',
-        f'system_prompt_id = "{agent.role}"',
+        f'system_prompt_id = "{prompt_ids[agent.role]}"',
         "",
         "[tools.bash]",
         f'permission = "{agent.bash}"',
@@ -429,16 +435,13 @@ def _load_methodology():
 
 
 def active_skill_names(*, stack: Path, profile: Path, home: Path) -> set[str]:
-    """Skill names the methodology selected in `profile` publishes.
-
-    Collision checks have to follow the active methodology: in
-    compound-engineering mode the canonical names are the CE skill names, so a
-    third-party ``ce-*`` skill on an external surface is a collision and a
-    superpowers name is not.
-    """
+    """Names published by the always-on local and selected methodology layers."""
     methodology = _load_methodology()
     controller = methodology.Controller(home=home, stack=stack, profile=profile)
-    return skill_names(controller.active_source(controller.selected_methodology()))
+    try:
+        return set(controller.active_skills(controller.selected_methodology()))
+    except methodology.MethodologyError as error:
+        raise ConfigError(str(error)) from error
 
 
 def external_skill_collisions(
@@ -469,7 +472,9 @@ def doctor(
     if external_skill_dirs is None:
         external_skill_dirs = DEFAULT_EXTERNAL_SKILL_DIRS
     if canonical_skill_names is None:
-        canonical_skill_names = skill_names(stack / "skills")
+        canonical_skill_names = skill_names(stack / "skills") | skill_names(
+            stack / "local-skills"
+        )
     collisions = external_skill_collisions(canonical_skill_names, external_skill_dirs)
     if collisions:
         lines = [

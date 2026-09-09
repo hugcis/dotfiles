@@ -33,22 +33,23 @@ PR, issue, or spec. Continue without a spec and explicitly omit the Spec reviewe
 
 Review the complete target when coherent. Shard by package or subsystem at roughly 2,000
 changed lines, 25 files, or earlier for clearly independent areas. Include relevant
-cross-shard interfaces. Run at most ten subagents concurrently, using waves when needed.
+cross-shard interfaces. Run at most five subagents concurrently, using waves when needed.
 
 ## 3. Dispatch Dedicated Reviewers
 
 Read [REVIEWERS.md](REVIEWERS.md). Give every reviewer the exact scope, commits, intent,
 standards sources, and common output contract. Require findings to follow
-`../full-review-and-fix/review-finding-schema.md`. Launch in one parallel dispatch per
-wave:
+`../full-review-and-fix/review-finding-schema.md`. Start with one parallel dispatch:
 
-1. `reviewer-alt`: documented standards and local conventions.
-2. `reviewer-alt`: spec compliance and scope, only when a spec exists.
-3. `reviewer-alt-xhigh`: soundness, contracts, errors, security, concurrency.
-4. `reviewer-fast`: tests, edge cases, performance, operational risks.
-5. `reviewer-alt`: architecture and thermo-nuclear maintainability.
-6. `reviewer-primary`: independent architecture and thermo-nuclear review.
+1. `reviewer-alt`: soundness, contracts, documented standards, and spec compliance when a
+   spec exists.
+2. `reviewer-fast`: tests, edge cases, performance, and operational risks.
+3. `reviewer-alt-low`: architecture, reuse, and maintainability.
 
+Add `reviewer-alt-xhigh` only for a concrete security, concurrency, or distributed-systems
+risk. Add `reviewer-primary` only when an independent architecture judgment could change
+the recommendation. Do not launch a second reviewer merely to cover a clean axis again.
+Give read-only reviewers a bounded turn budget unless the caller already supplied one.
 Architecture reviewers must work independently and must not see each other's findings. If
 the named agents are unavailable, stop and ask the user to restart your agent harness; do not
 silently substitute models.
@@ -79,5 +80,7 @@ and recommendation. Mark disagreements and distinguish provable bugs from plausi
 State `No findings` for clean axes and `No spec available` when applicable.
 
 End with the reviewed scope and commands, finding counts by severity and axis, the worst
-confirmed issue, and residual risks or testing gaps. Do not modify code even when a fix is
-obvious; offer `full-review-and-fix` as a separate follow-up when useful.
+confirmed issue, and residual risks or testing gaps. Include review-yield counts: reviewer
+launches, findings raised, and findings accepted after adjudication. A failed or timed-out
+reviewer counts as a launch and is reported. Do not modify code even when a fix is obvious;
+offer `full-review-and-fix` as a separate follow-up when useful.

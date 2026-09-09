@@ -45,13 +45,25 @@ the target cannot be reviewed coherently as one unit.
 
 Review the whole target when coherent. Shard by package or subsystem at roughly 2,000
 changed lines, 25 files, or earlier when independent subsystems are obvious. Keep each
-shard self-contained and include cross-shard interfaces where relevant. Run at most ten
+shard self-contained and include cross-shard interfaces where relevant. Run at most six
 subagents concurrently, using waves when needed. For `wide` mode, create a shard map
 before dispatching reviewers.
 
 ## 4. Dispatch Read-Only Reviewers
 
-Read [REVIEWERS.md](REVIEWERS.md). In one parallel dispatch per wave, launch:
+Read [REVIEWERS.md](REVIEWERS.md). Use the smallest lane set allowed by the selected
+mode:
+
+- `quick`: one `reviewer-alt-low` covering blockers, regressions, and obvious test gaps.
+- `standard`: `reviewer-alt` for correctness and contracts, `reviewer-fast` for tests and
+  operations, and `reviewer-alt-low` for simplification and standards.
+- `deep`: the complete six-lane set below, because the user explicitly requested a full,
+  deep, or thorough pass.
+- `wide`: at most three risk-matched lanes per shard; do not repeat all six on every shard.
+- `postfix`: correctness plus only the roles that owned accepted finding IDs, at most two
+  lanes.
+
+The deep set is:
 
 1. `reviewer-alt-xhigh`: correctness, contracts, errors, security, concurrency.
 2. `reviewer-alt`: simplification, reuse, standards, legibility.
@@ -62,7 +74,8 @@ Read [REVIEWERS.md](REVIEWERS.md). In one parallel dispatch per wave, launch:
 
 Give every reviewer the exact scope, selected mode, shard map when present,
 spec/context, applicable standards, and common contract from `REVIEWERS.md`. Require
-findings to follow `review-finding-schema.md`. The final-test audit reviewer must receive
+findings to follow `review-finding-schema.md`. Give read-only reviewers a bounded turn
+budget unless the caller already supplied one. The final-test audit reviewer must receive
 the full canonical `auditing-final-tests` skill content, and must not restate or summarize
 its rubric. Architecture reviewers must work independently. If these agents are
 unavailable, stop and ask the user to restart your agent harness; do not silently
@@ -116,3 +129,7 @@ add or alter tests.
 Lead with findings ordered by severity. For each, retain confidence, exact citations,
 and mark `fixed`, `remaining`, `disputed`, or `verification failed`. Then summarize the
 edits, checks and results, scope reviewed, and any residual risks or missing spec.
+
+End with review-yield counts: reviewer launches, findings raised, findings accepted, and
+accepted findings that changed the final code. A timed-out or failed reviewer counts as a
+launch and is reported rather than silently replaced.

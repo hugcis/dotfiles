@@ -10,11 +10,12 @@ import render
 
 STACK = Path(__file__).resolve().parents[1]
 SKILLS = STACK / "skills"
-GATE_SKILL = SKILLS / "auditing-final-tests"
+LOCAL_SKILLS = STACK / "local-skills"
+GATE_SKILL = LOCAL_SKILLS / "auditing-final-tests"
 
 
 def _skill(name: str) -> str:
-    return (SKILLS / name / "SKILL.md").read_text()
+    return (LOCAL_SKILLS / name / "SKILL.md").read_text()
 
 
 def _markdown_h2_section(text: str, heading: str) -> str:
@@ -69,6 +70,21 @@ def test_auditing_final_tests_requires_one_record_per_changed_test():
         assert status in record_section, (
             f"the Action column must fix the status vocabulary: {status!r}"
         )
+
+
+def test_keep_records_are_compact_without_losing_per_test_identity():
+    section = _normalized_section("auditing-final-tests", "Compact Keep records")
+
+    assert "one row per definition" in section
+    assert "Reason: durable contract named in Protects" in section
+    assert "Action: Keep: no action pending" in section
+    assert "Use the full five fields for every Rework or Delete decision" in section
+    assert "Never compress away the reason an action is needed." in section
+
+    report = _normalized_section("auditing-final-tests", "Report")
+    assert "one linked durable artifact" in report
+    assert "show detailed rows only for Rework, Delete" in report
+    assert "Do not repeat unchanged command transcripts" in report
 
 
 def test_gate_outcomes_define_the_read_only_all_keep_case():
@@ -191,7 +207,8 @@ def test_only_locally_owned_skills_carry_the_final_test_gate_hook():
     }
     gated = {
         path.parent.name
-        for path in SKILLS.glob("*/SKILL.md")
+        for root in (SKILLS, LOCAL_SKILLS)
+        for path in root.glob("*/SKILL.md")
         if "**Final-test gate:**" in path.read_text()
     }
 
@@ -213,7 +230,7 @@ def test_full_review_and_fix_defers_to_the_canonical_gate_skill():
         "rubric." in dispatch
     )
 
-    reviewers = (SKILLS / "full-review-and-fix" / "REVIEWERS.md").read_text()
+    reviewers = (LOCAL_SKILLS / "full-review-and-fix" / "REVIEWERS.md").read_text()
     section = " ".join(_markdown_h2_section(reviewers, "Final-Test Audit").split())
     assert "Use `auditing-final-tests` as the canonical procedure" in section
     assert "does not restate its rubric" in section
@@ -261,10 +278,12 @@ def test_gate_pressure_scenarios_are_scored_and_ship_with_the_skill(filename: st
     ), f"{filename} must record an expected gate outcome in ## Expected Outcome"
 
 
-def test_composed_agents_md_requires_the_final_test_gate():
-    """Agents read the composed AGENTS.md, not the fragment it is built from."""
+@pytest.mark.parametrize("methodology", sorted(render.METHODOLOGY_FRAGMENTS))
+def test_composed_agents_md_requires_the_final_test_gate(methodology: str):
+    """Every methodology receives the always-on local completion gate."""
     section = _markdown_h2_section(
-        render.compose_agents_md({}), "Final-Test Curation Gate"
+        render.compose_agents_md({"methodology": methodology}),
+        "Final-Test Curation Gate",
     )
     normalized_section = " ".join(section.split())
 

@@ -13,6 +13,9 @@ For every added or changed test, complete:
 
 > This test should still matter in six months because it protects ___ from regressing.
 
+The record may store only the text that fills the blank when its table heading states
+this shared sentence once. Do not repeat the sentence in every Keep row.
+
 Passing tests, increased coverage, an earlier review, or development usefulness do not
 satisfy this gate.
 
@@ -47,6 +50,23 @@ Record this for **every added or changed test**:
 | Action | **Keep**: no action pending. Pending **Rework**/**Delete** in read-only: required — not applied. Applied **Rework**/**Delete** in writable: applied as retained, rewritten, moved, or removed |
 
 Distinct test definitions require distinct records. One parameterized definition is one test.
+
+## Compact Keep records
+
+Use a compact three-column table for ordinary Keep decisions:
+
+| File and test name | Protects | Classification |
+| --- | --- | --- |
+| `path::test_name` | durable behavior or invariant | Keep |
+
+The table heading declares that each `Protects` cell completes the six-month durability
+sentence. A report-level legend supplies `Reason: durable contract named in Protects`
+and `Action: Keep: no action pending` for every row. This is a complete per-test record,
+not a grouped record. Keep one row per definition.
+
+Use the full five fields for every Rework or Delete decision, unresolved identity,
+ambiguous classification, or case where exact strings, paths, fixtures, mocks, or private
+structure may be part of the contract. Never compress away the reason an action is needed.
 
 ## Classification
 
@@ -99,7 +119,14 @@ The parent workflow owns this gate after all delegated mutation waves. Child rep
 
 ## Report
 
-Return the outcome, scope, complete per-test records, tests kept/reworked/deleted, verification commands and results, and residual risks. Never convert `ACTION_REQUIRED` or `BLOCKED` into a success claim because a deadline, green CI, coverage, or prior approval makes curation inconvenient.
+Return the outcome, scope, tests kept/reworked/deleted, verification commands and results,
+and residual risks. Keep complete per-test records in the report or in one linked durable
+artifact. In chat, summarize the counts and show detailed rows only for Rework, Delete,
+unresolved, or ambiguous cases unless the user asks for the full inventory.
+
+Do not repeat unchanged command transcripts, the shared durability sentence, or identical
+Keep reasons. Never convert `ACTION_REQUIRED` or `BLOCKED` into a success claim because a
+deadline, green CI, coverage, or prior approval makes curation inconvenient.
 
 Do not propose or present merge, ship, deploy, or human override as an alternate completion
 path. A bypass decision is outside the gate, so report only the non-passing outcome and

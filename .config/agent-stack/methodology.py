@@ -151,6 +151,7 @@ class CompoundEngineeringSpec:
 class Manifest:
     path: Path
     version: int
+    local_skills_path: str
     superpowers_skills_path: str
     compound_engineering: CompoundEngineeringSpec | None
 
@@ -181,7 +182,11 @@ class Manifest:
                 "expected_skill_count": spec.expected_skill_count,
                 "pi_companions": list(spec.pi_companions),
             }
-        return {"version": self.version, "methodologies": methodologies}
+        return {
+            "version": self.version,
+            "local_skills_path": self.local_skills_path,
+            "methodologies": methodologies,
+        }
 
 
 def _field(mapping: dict, key: str, kind, source: Path, prefix: str = ""):
@@ -244,6 +249,7 @@ def parse_manifest(text: str, *, path: Path, home: Path) -> Manifest:
         raise ConfigError(f"{path}: manifest must be a mapping.")
 
     version = _field(raw, "version", int, path)
+    local_skills_path = _field(raw, "local_skills_path", str, path)
     methodologies = _field(raw, "methodologies", dict, path)
     superpowers = _field(methodologies, SUPERPOWERS, dict, path, "methodologies")
     skills_path = _field(
@@ -259,6 +265,7 @@ def parse_manifest(text: str, *, path: Path, home: Path) -> Manifest:
         return Manifest(
             path=path,
             version=version,
+            local_skills_path=local_skills_path,
             superpowers_skills_path=skills_path,
             compound_engineering=None,
         )
@@ -277,6 +284,7 @@ def parse_manifest(text: str, *, path: Path, home: Path) -> Manifest:
     return Manifest(
         path=path,
         version=version,
+        local_skills_path=local_skills_path,
         superpowers_skills_path=skills_path,
         compound_engineering=CompoundEngineeringSpec(
             repository=_field(ce, "repository", str, path, prefix),
@@ -507,6 +515,10 @@ class Controller:
         return self.home / ".pi/agent/settings.json"
 
     @property
+    def local_skills(self) -> Path:
+        return self.stack / self.manifest.local_skills_path
+
+    @property
     def superpowers_skills(self) -> Path:
         return self.stack / self.manifest.superpowers_skills_path
 
@@ -612,17 +624,32 @@ class Controller:
         )
         return result.returncode == 0
 
+    # -- preflight ---------------------------------------------------------
+
+    def preflight(self, name: str) -> list[str]:
+        """Check prerequisites without writes; CE needs pi even for a no-op install."""
+        if name not in self.manifest.names:
+            raise ConfigError(f"unknown methodology {name!r}.")
+        operations, _ = self._plan_packages(name, load_state(self.state_path))
+        if (name == COMPOUND_ENGINEERING or operations) and shutil.which("pi") is None:
+            raise MethodologyError(
+                "the pi CLI is required for the selected methodology or package transition; "
+                "install it and make it available on PATH before continuing."
+            )
+        return [f"runtime prerequisites available: {name}"]
+
     # -- prepare -----------------------------------------------------------
 
     def prepare(self, name: str, *, revision: str | None = None) -> list[str]:
+        messages = self._prepare_local_skills()
         if name == SUPERPOWERS:
             if revision is not None:
                 raise ConfigError(f"{SUPERPOWERS} does not take a revision.")
-            return self._prepare_superpowers()
+            return messages + self._prepare_superpowers()
         if name == COMPOUND_ENGINEERING:
-            messages, retired = self._prepare_compound_engineering(revision)
+            prepared, retired = self._prepare_compound_engineering(revision)
             self._discard(retired)
-            return messages
+            return messages + prepared
         raise ConfigError(f"unknown methodology {name!r}.")
 
     @staticmethod
@@ -645,10 +672,9 @@ class Controller:
         if path is not None and path.exists():
             shutil.rmtree(path, ignore_errors=True)
 
-    def _prepare_superpowers(self) -> list[str]:
-        source = self.superpowers_skills
+    def _prepare_skill_source(self, label: str, source: Path) -> list[str]:
         if not source.is_dir():
-            raise MethodologyError(f"superpowers source {source} is missing.")
+            raise MethodologyError(f"{label} source {source} is missing.")
         incomplete = [
             entry.name
             for entry in sorted(source.iterdir())
@@ -659,7 +685,13 @@ class Controller:
                 f"{source}: skill directories without SKILL.md: "
                 f"{', '.join(incomplete)}"
             )
-        return [f"superpowers source ok: {len(_skill_entries(source))} skills"]
+        return [f"{label} source ok: {len(_skill_entries(source))} skills"]
+
+    def _prepare_local_skills(self) -> list[str]:
+        return self._prepare_skill_source("local skills", self.local_skills)
+
+    def _prepare_superpowers(self) -> list[str]:
+        return self._prepare_skill_source("superpowers", self.superpowers_skills)
 
     def _prepare_compound_engineering(
         self, revision: str | None, *, retain_previous: bool = False
@@ -1186,27 +1218,45 @@ class Controller:
 
     def _managed_roots(self) -> tuple[Path, ...]:
         if self.manifest.compound_engineering is None:
-            return (self.superpowers_skills,)
-        return (self.superpowers_skills, self.ce_checkout)
+            return (self.local_skills, self.superpowers_skills)
+        return (self.local_skills, self.superpowers_skills, self.ce_checkout)
 
     def _is_managed(self, link: Path) -> bool:
         target = _link_target(link)
         return any(_is_beneath(target, root) for root in self._managed_roots())
 
+    def _methodology_skills(self, name: str) -> tuple[Path, dict[str, Path]]:
+        source = self.superpowers_skills if name == SUPERPOWERS else self.ce_skills
+        return source, _skill_entries(source)
+
+    def _combined_skills(self, name: str) -> dict[str, Path]:
+        local = _skill_entries(self.local_skills)
+        source, methodology_skills = self._methodology_skills(name)
+        collisions = sorted(set(local) & set(methodology_skills))
+        if collisions:
+            raise MethodologyError(
+                f"skill name collision between always-on local source "
+                f"{self.local_skills} and {name} source {source}: "
+                f"{', '.join(collisions)}"
+            )
+        return {**local, **methodology_skills}
+
     def _desired_links(self, name: str) -> dict[str, dict[str, Path]]:
         """Skill links each destination must hold for `name`.
 
-        Pi receives CE through its local package registration, so CE mode plans
-        no Pi skill links at all.
+        Pi receives CE through its local package registration, so CE mode only
+        plans direct Pi links for the always-on local layer.
         """
+        local = _skill_entries(self.local_skills)
+        combined = self._combined_skills(name)
         if name == SUPERPOWERS:
-            skills = _skill_entries(self.superpowers_skills)
-            return {harness: dict(skills) for harness in self.skill_destinations}
-        skills = _skill_entries(self.ce_skills)
+            return {
+                harness: dict(combined) for harness in self.skill_destinations
+            }
         return {
-            "pi": {},
-            "claude": dict(skills),
-            "vibe": dict(skills),
+            "pi": dict(local),
+            "claude": dict(combined),
+            "vibe": dict(combined),
         }
 
     def _preflight_destinations(self) -> list[tuple[Path, str]]:
@@ -1447,16 +1497,40 @@ class Controller:
                 return entry
         return None
 
-    def _package_present(self, source: str, packages: list[str]) -> bool:
-        """Whether `packages` already provides `source`, the way pi decides.
+    def _local_package_identity(self, source: str) -> str | None:
+        """Return an npm-style identity for a configured local Pi package.
 
-        npm sources match by identity, so an entry pinned to a version or a
-        range satisfies a manifest requirement written without one and is left
-        exactly as the user wrote it. Local sources match by resolved path.
+        Pi keys local packages by path, but a local checkout can intentionally
+        provide a manifest-required package. Read only its package manifest and
+        require an exact package name; malformed or missing manifests provide
+        no identity.
+        """
+        path = self._package_source_path(source)
+        if path is None:
+            return None
+        try:
+            package = json.loads((path / "package.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(package, dict) or not isinstance(package.get("name"), str):
+            return None
+        return NPM_PREFIX + package["name"]
+
+    def _package_present(self, source: str, packages: list[str]) -> bool:
+        """Whether `packages` already provides `source`.
+
+        npm sources match by identity, so a pinned entry satisfies an unpinned
+        requirement. A configured local checkout also satisfies an npm
+        requirement when its package.json declares that exact package name.
+        Local-source requirements continue to match by resolved path.
         """
         identity = package_identity(source)
         if identity is not None:
-            return any(package_identity(entry) == identity for entry in packages)
+            return any(
+                package_identity(entry) == identity
+                or self._local_package_identity(entry) == identity
+                for entry in packages
+            )
         wanted = self._package_source_path(source)
         return wanted is not None and any(
             self._package_source_path(entry) == wanted for entry in packages
@@ -1584,6 +1658,7 @@ class Controller:
                 f"{', '.join(self.manifest.names)}."
             )
         state = load_state(self.state_path)
+        self._prepare_local_skills()
         if name == COMPOUND_ENGINEERING:
             problems = self._validate_checkout(
                 self.ce_checkout, self.manifest.ce.expected_skill_count
@@ -1690,12 +1765,21 @@ class Controller:
     def doctor(self, name: str, *, cwd: Path) -> list[Finding]:
         findings: list[Finding] = []
         findings += self._check_instructions(name)
+        findings += self._check_local_source()
         if name == COMPOUND_ENGINEERING:
             findings += self._check_checkout()
             findings += self._check_state_revision()
             findings += self._check_pi_packages()
+            findings += self._check_conflicting_methodology_plugins()
         else:
             findings += self._check_ce_package_absent()
+        try:
+            self._combined_skills(name)
+        except MethodologyError as error:
+            findings.append(Finding("error", "skill-collision", str(error)))
+            findings += self._check_discovery(name)
+            findings += self._check_artifact_root(Path(cwd))
+            return findings
         findings += self._check_managed_links(name)
         findings += self._check_skill_coverage(name)
         findings += self._check_discovery(name)
@@ -1761,6 +1845,93 @@ class Controller:
                         )
                     )
         return findings
+
+    def _check_conflicting_methodology_plugins(self) -> list[Finding]:
+        findings: list[Finding] = []
+        claude_settings = self.home / ".claude/settings.json"
+        if claude_settings.is_file():
+            try:
+                settings = json.loads(claude_settings.read_text())
+            except (OSError, json.JSONDecodeError) as error:
+                findings.append(
+                    Finding(
+                        "error",
+                        "methodology-plugin",
+                        f"cannot inspect {claude_settings}: {error}",
+                    )
+                )
+            else:
+                plugins = settings.get("enabledPlugins", {})
+                if isinstance(plugins, dict):
+                    active = sorted(
+                        name
+                        for name, enabled in plugins.items()
+                        if enabled is True and name.startswith("superpowers@")
+                    )
+                    if active:
+                        findings.append(
+                            Finding(
+                                "error",
+                                "methodology-plugin",
+                                f"{claude_settings} enables inactive methodology "
+                                f"plugin(s): {', '.join(active)}",
+                            )
+                        )
+
+        opencode_settings = self.home / ".config/opencode/opencode.jsonc"
+        if opencode_settings.is_file():
+            try:
+                content = opencode_settings.read_text()
+            except OSError as error:
+                findings.append(
+                    Finding(
+                        "error",
+                        "methodology-plugin",
+                        f"cannot inspect {opencode_settings}: {error}",
+                    )
+                )
+            else:
+                active = re.search(
+                    r'^\s*"plugin"\s*:\s*\[[^\]]*"superpowers@',
+                    content,
+                    flags=re.MULTILINE | re.DOTALL,
+                )
+                if active:
+                    findings.append(
+                        Finding(
+                            "error",
+                            "methodology-plugin",
+                            f"{opencode_settings} enables the inactive "
+                            "Superpowers plugin",
+                        )
+                    )
+        return findings
+
+    def _check_local_source(self) -> list[Finding]:
+        source = self.local_skills
+        if not source.is_dir():
+            return [
+                Finding(
+                    "error",
+                    "local-skills",
+                    f"local skills source {source} is missing",
+                )
+            ]
+        incomplete = sorted(
+            entry.name
+            for entry in source.iterdir()
+            if entry.is_dir() and not (entry / "SKILL.md").is_file()
+        )
+        if not incomplete:
+            return []
+        return [
+            Finding(
+                "error",
+                "local-skills",
+                f"{source} has skill directories without SKILL.md: "
+                f"{', '.join(incomplete)}",
+            )
+        ]
 
     def _check_checkout(self) -> list[Finding]:
         spec = self.manifest.ce
@@ -1884,17 +2055,26 @@ class Controller:
         ]
 
     def active_source(self, name: str) -> Path:
-        """The skill source directory the methodology `name` publishes from."""
+        """The methodology-specific skill source for `name`."""
         return self.superpowers_skills if name == SUPERPOWERS else self.ce_skills
 
     # Kept for readability at the call sites inside doctor.
     _active_source = active_source
 
+    def active_skills(self, name: str) -> dict[str, Path]:
+        """Always-on local skills merged with the selected methodology."""
+        return self._combined_skills(name)
+
     def _check_managed_links(self, name: str) -> list[Finding]:
-        source = self._active_source(name)
+        expected = {
+            str(self.skill_destinations[harness] / skill): source
+            for harness, desired in self._desired_links(name).items()
+            for skill, source in desired.items()
+        }
         findings: list[Finding] = []
         for recorded in load_state(self.state_path).managed_links:
             link = Path(recorded)
+            source = expected.get(recorded)
             if not link.is_symlink():
                 findings.append(
                     Finding("error", "managed-link", f"{link} is no longer a link")
@@ -1907,13 +2087,20 @@ class Controller:
                         f"{link} is broken; it points at {_link_target(link)}",
                     )
                 )
-            elif not _is_beneath(_link_target(link), source):
+            elif source is None:
                 findings.append(
                     Finding(
                         "error",
                         "managed-link",
-                        f"{link} points at {_link_target(link)}, outside the "
-                        f"active {name} source {source}",
+                        f"{link} is not part of the desired {name} skill set",
+                    )
+                )
+            elif _link_target(link) != source:
+                findings.append(
+                    Finding(
+                        "error",
+                        "managed-link",
+                        f"{link} points at {_link_target(link)}; expected {source}",
                     )
                 )
         return findings
@@ -1925,9 +2112,15 @@ class Controller:
             check, inactive_root = "superpowers-discoverable", self.superpowers_skills
         else:
             check, inactive_root = "ce-discoverable", self.ce_checkout
-        inactive_names = set(_skill_entries(self._active_source(
-            SUPERPOWERS if name == COMPOUND_ENGINEERING else COMPOUND_ENGINEERING
-        )))
+        inactive_names = set(
+            _skill_entries(
+                self._active_source(
+                    SUPERPOWERS
+                    if name == COMPOUND_ENGINEERING
+                    else COMPOUND_ENGINEERING
+                )
+            )
+        )
         findings: list[Finding] = []
         for destination in self.skill_destinations.values():
             if not destination.is_dir() or destination.is_symlink():
@@ -1954,15 +2147,13 @@ class Controller:
         return findings
 
     def _check_external_skills(self, name: str) -> list[Finding]:
-        """External skill dirs must not shadow the *active* methodology's names.
+        """External skill dirs must not shadow active stack skill names.
 
-        The check follows the active methodology, so in compound-engineering
-        mode a third-party ``ce-*`` skill in ``~/.agents/skills`` is reported
-        and a superpowers name is not, and the other way round in superpowers
-        mode. Managed links into the active source are the same skill, not a
+        The check includes the always-on local layer and the active methodology.
+        Managed links into either active source are the same skill, not a
         collision.
         """
-        active = set(_skill_entries(self.active_source(name)))
+        active = set(self.active_skills(name))
         findings: list[Finding] = []
         for directory in self.external_skill_dirs:
             if not directory.is_dir():
@@ -1980,7 +2171,7 @@ class Controller:
                         "error",
                         "external-skills",
                         f"{directory} holds {len(shadowing)} skill(s) shadowing "
-                        f"active {name} skill names: {', '.join(shadowing)}",
+                        f"active stack skill names: {', '.join(shadowing)}",
                     )
                 )
         return findings
@@ -2027,7 +2218,7 @@ class Controller:
 
     def _check_vibe(self, name: str) -> list[Finding]:
         destination = self.skill_destinations["vibe"]
-        expected = set(_skill_entries(self._active_source(name)))
+        expected = set(self._desired_links(name)["vibe"])
         present = set()
         if destination.is_dir() and not destination.is_symlink():
             present = {entry.name for entry in destination.iterdir()}
@@ -2036,10 +2227,11 @@ class Controller:
             Finding(
                 "error" if missing else "info",
                 "vibe-discovery",
-                f"{destination} is missing {len(missing)} {name} skill(s): "
-                f"{', '.join(missing)}"
+                f"{destination} is missing {len(missing)} active stack skill(s) "
+                f"from {name} plus local: {', '.join(missing)}"
                 if missing
-                else f"{destination} exposes all {len(expected)} {name} skills",
+                else f"{destination} exposes all {len(expected)} active stack "
+                f"skills ({name} plus local)",
             )
         ]
         if name == COMPOUND_ENGINEERING:
@@ -2071,7 +2263,7 @@ class Controller:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
-        "command", choices=("prepare", "activate", "doctor", "snapshot", "update")
+        "command", choices=("preflight", "prepare", "activate", "doctor", "snapshot", "update")
     )
     parser.add_argument("--profile", type=Path)
     parser.add_argument("--stack", type=Path, default=STACK)
@@ -2101,6 +2293,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(message)
             return 0
         name = controller.selected_methodology(profile)
+        if args.command == "preflight":
+            for message in controller.preflight(name):
+                print(message)
+            return 0
         if args.command == "prepare":
             for message in controller.prepare(name):
                 print(message)
