@@ -33,13 +33,17 @@ Pick the smallest mode that matches the user's request and the diff. Escalate on
 scope or risk justifies the cost.
 
 - `quick`: tiny or mechanical diffs; one reviewer for blockers and obvious regressions.
-- `standard`: ordinary feature or bugfix; correctness, tests, and simplification axes.
-- `deep`: explicit full/deep/thorough request; use the complete reviewer set below.
+- `standard`: a small, low-risk PR, including an explicit full review; two reviewers cover
+  correctness/tests and simplicity/maintainability.
+- `deep`: security, concurrency, distributed behavior, migrations, broad API changes, or an
+  explicit request for the complete reviewer panel.
 - `wide`: large or multi-subsystem target; shard first, then run bounded waves.
 - `postfix`: validate accepted finding IDs after a fix pass; do not rediscover polish.
 
-Use `deep` when the user explicitly asks for full review-and-fix. Use `wide` only when
-the target cannot be reviewed coherently as one unit.
+A PR with at most eight changed files and roughly 400 changed lines defaults to `standard`
+when it has none of the `deep` risk triggers. "Full" means complete coverage of the relevant
+risks, not use of every reviewer. Use `wide` only when the target cannot be reviewed
+coherently as one unit.
 
 ## 3. Size and Shard the Review
 
@@ -55,8 +59,8 @@ Read [REVIEWERS.md](REVIEWERS.md). Use the smallest lane set allowed by the sele
 mode:
 
 - `quick`: one `reviewer-alt-low` covering blockers, regressions, and obvious test gaps.
-- `standard`: `reviewer-alt` for correctness and contracts, `reviewer-fast` for tests and
-  operations, and `reviewer-alt-low` for simplification and standards.
+- `standard`: `reviewer-alt` for correctness, contracts, tests, and edge cases, plus
+  `reviewer-alt-low` for simplification, reuse, standards, and maintainability.
 - `deep`: the complete six-lane set below, because the user explicitly requested a full,
   deep, or thorough pass.
 - `wide`: at most three risk-matched lanes per shard; do not repeat all six on every shard.

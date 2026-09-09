@@ -249,6 +249,9 @@ def test_full_review_and_fix_has_scaling_contract():
     assert "review-finding-schema.md" in reviewers
     normalized_skill = " ".join(skill.split())
     assert "reviewer-alt-low" in skill
+    assert "at most eight changed files and roughly 400 changed lines" in normalized_skill
+    assert '"Full" means complete coverage of the relevant risks' in normalized_skill
+    assert "two reviewers cover" in normalized_skill
     assert "bounded turn budget" in normalized_skill
     assert "review-yield counts" in skill
     assert "accepted findings that changed the final code" in skill
@@ -749,16 +752,19 @@ def test_composed_agents_md_does_not_reference_unavailable_trash_tools():
         extra.unlink()
 
 
-def test_composed_agents_md_requires_signed_commits_and_socket_recovery():
+def test_composed_agents_md_requires_signed_commits_and_format_specific_recovery():
     text = render.compose_agents_md(render.load_profile(FIXTURE))
 
     assert "Always keep git commit signing enabled" in text
-    assert "do not bypass" in text
+    assert "never bypass" in text
     assert "--no-gpg-sign" in text
     assert "commit.gpgsign=false" in text
+    assert "configured `gpg.format`" in text
     assert "SSH_AUTH_SOCK" in text
     assert "/tmp/ssh-*/agent.*" in text
     assert "ssh-add -l" in text
+    assert "OpenPGP signing" in text
+    assert "gpg-agent" in text
 
 
 def test_prune_stale_moves_unknown_files_aside(tmp_path):

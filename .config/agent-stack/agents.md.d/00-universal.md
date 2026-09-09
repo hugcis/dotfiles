@@ -5,7 +5,7 @@ Personal design docs, ADRs, plans, and methodology artifacts belong under
 
 Avoid destructive cleanup commands unless the target is explicitly disposable or the user approved the removal.
 
-Always keep git commit signing enabled. Diagnose failures using the configured `gpg.format`; never bypass signing with `--no-gpg-sign` or `commit.gpgsign=false`. For SSH signing, refresh a stale `SSH_AUTH_SOCK` and confirm with `ssh-add -l`. For OpenPGP signing, confirm the configured secret key and `gpg-agent`, then retry the signed commit.
+Always keep git commit signing enabled. Diagnose failures using the configured `gpg.format`; never bypass signing with `--no-gpg-sign` or `commit.gpgsign=false`. For SSH signing, refresh a stale `SSH_AUTH_SOCK` to a live `/tmp/ssh-*/agent.*` socket and confirm with `ssh-add -l`. For OpenPGP signing, confirm the configured secret key and `gpg-agent`, then retry the signed commit.
 
 Do not leave methodology runtime artifacts inside a repository.
 
