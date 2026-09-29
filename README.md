@@ -117,6 +117,22 @@ harnesses (pi, opencode, vibe, Claude Code) and installs the shared skills. Thre
 pieces of it are deliberately **not** in git — this repo is public — so a fresh
 clone needs them recreated by hand, in this order.
 
+Use Python 3.10 or newer with PyYAML installed in that interpreter's environment.
+Install the clients you intend to use separately. Compound Engineering also needs
+`pi` on PATH and `pi-subagents` registered in Pi's settings before activation.
+The installer checks these prerequisites before preparing sources or publishing
+configuration. Its local ignore-all rule is still bootstrapped first.
+
+Once `profile.yaml` exists, check the selected transition without changing files:
+
+```bash
+python3 ~/.config/agent-stack/methodology.py preflight
+```
+
+This checks CLI availability and configured package prerequisites, not provider
+authentication or whether every generated agent can run. The commit guard uses
+Bash-3.2-compatible constructs and does not require Homebrew Bash.
+
 ```bash
 # 1. Bootstrap the ignore rule, in dry form. install.sh creates ~/.cfg/info/exclude
 #    (git never clones it) and then stops, because there is no profile yet.
