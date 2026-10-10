@@ -12,9 +12,9 @@
       # prompts; add_newline would double it.
       add_newline = false;
       continuation_prompt = "[▸▹ ](dimmed white)";
-      # ⭘ is a constant opener so the prompt keeps its mark on the local
+      # ❯ is a constant opener so the prompt keeps its mark on the local
       # machine; user@host joins it only over SSH (see username/hostname).
-      format = "($fill$git_metrics\n)$cmd_duration[⭘ ](bright-yellow bold italic)$username$hostname$jobs$sudo$character";
+      format = "($fill$git_metrics\n)$cmd_duration[❯ ](bright-yellow bold italic)$username$hostname$jobs$sudo$character";
       right_format = "$directory$git_branch$git_status$docker_context$nodejs$python$rust$package$time";
 
       fill.symbol = " ";
@@ -30,7 +30,7 @@
         style_user = "bright-yellow bold italic";
         style_root = "purple bold italic";
         format = "[$user]($style)";
-        # Local sessions stay bare (⭘ only); SSH and root still show $user.
+        # Local sessions stay bare (❯ only); SSH and root still show $user.
         ssh_only = true;
         disabled = false;
       };
