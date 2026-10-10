@@ -103,12 +103,11 @@
       };
 
       docker_context = {
-        symbol = "◧ ";
-        format = " docker [$symbol$context](italic dimmed cyan)";
+        format = " docker [$context](italic dimmed cyan)";
       };
 
       nodejs = {
-        format = " [node](italic) [◫ ($version)](bold bright-green)";
+        format = " [node](italic) [$version](bold bright-green)";
         version_format = "\${major}.\${minor}";
         detect_files = [ "package-lock.json" "yarn.lock" "package.json" ];
         detect_folders = [ "node_modules" ];
@@ -116,24 +115,18 @@
       };
 
       python = {
-        format = " [py](italic) [\${symbol}\${version}]($style)";
-        symbol = "[⌉](bold bright-blue)⌊ ";
+        format = " [py](italic) [$version](bold bright-yellow)";
         version_format = "\${major}.\${minor}";
-        style = "bold bright-yellow";
       };
 
       rust = {
-        format = " [rs](italic) [$symbol$version]($style)";
-        symbol = "⊃ ";
+        format = " [rs](italic) [$version](bold red)";
         version_format = "\${major}.\${minor}";
-        style = "bold red";
       };
 
       package = {
-        format = " [pkg](italic dimmed) [$symbol$version]($style)";
+        format = " [pkg](italic dimmed) [$version](bold italic dimmed yellow)";
         version_format = "\${major}.\${minor}";
-        symbol = "◨ ";
-        style = "dimmed yellow italic bold";
       };
 
       time = {
