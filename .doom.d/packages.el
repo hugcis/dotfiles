@@ -1,1 +1,0 @@
-/nix/store/a8bxhnci6wdqzwii9xscbj18jj4hjz6q-home-manager-files/.doom.d/packages.el
