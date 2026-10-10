@@ -5,6 +5,11 @@ if [[ -x /opt/homebrew/bin/brew ]]; then
   eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
+# Nix (Determinate Systems installer)
+if [[ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]]; then
+  . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+fi
+
 # Terminal settings for Alacritty/Zellij
 export TERM=xterm-256color
 export COLORTERM=truecolor
@@ -14,6 +19,9 @@ typeset -U path  # Keep unique entries only
 path=(
   # User binaries
   $HOME/.local/bin
+
+  # Home Manager profile (managed packages + home-manager CLI)
+  $HOME/.local/state/nix/profiles/home-manager/home-path/bin(N)
 
   # Python/PyEnv
   $HOME/.pyenv/bin
