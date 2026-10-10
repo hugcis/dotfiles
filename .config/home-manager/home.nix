@@ -11,8 +11,14 @@
   # ~/.local/state/nix/profiles/home-manager (wired into PATH in .zshenv.macos).
   programs.home-manager.enable = true;
 
-  # Migrated from the bare repo (commit d30a806-era starship.toml).
-  # Shell init stays manual in .zshrc; this only owns the config file.
+  # Migrated from the bare repo. The keybind DSL dominates this file and
+  # gains nothing from Nix encoding, so it stays real KDL — symlinked into
+  # ~/.config/zellij. Only the binary is Nix-managed.
+  programs.zellij.enable = true;
+  xdg.configFile."zellij/config.kdl".source = ./configs/zellij.kdl;
+
+  # Migrated from the bare repo (starship.toml). Shell init stays manual in
+  # .zshrc; this only owns the config file.
   programs.starship = {
     enable = true;
     settings = {
