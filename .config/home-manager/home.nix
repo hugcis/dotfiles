@@ -17,6 +17,106 @@
   programs.zellij.enable = true;
   xdg.configFile."zellij/config.kdl".source = ./configs/zellij.kdl;
 
+  # Migrated from the bare repo (alacritty.toml). The old file sent bare
+  # ESC+CR for Shift+Enter, which zellij re-encodes ambiguously; it now sends
+  # the kitty CSI-u sequence, which zellij binds (see configs/zellij.kdl) and
+  # re-emits so CSI-u-aware apps (Claude Code, crossterm/Ink apps) insert a
+  # newline instead of submitting.
+  programs.alacritty = {
+    enable = true;
+    settings = {
+      bell = {
+        animation = "Ease";
+        duration = 0;
+      };
+      cursor.style = {
+        blinking = "On";
+        shape = "Block";
+      };
+      font = {
+        size = 12.0;
+        normal = {
+          family = "MesloLGS Nerd Font Mono";
+          style = "Regular";
+        };
+      };
+      selection.save_to_clipboard = false;
+      terminal.shell.program = "/opt/homebrew/bin/zellij";
+      window = {
+        decorations = "buttonless";
+        startup_mode = "Fullscreen";
+        title = "Alacritty";
+      };
+      keyboard.bindings = [
+        { key = "I"; mode = "Vi|~Search"; action = "ScrollToBottom"; }
+        { key = "I"; mode = "Vi|~Search"; action = "ToggleViMode"; }
+        { key = "G"; mode = "Vi|~Search"; action = "ScrollToTop"; }
+        { key = "G"; mods = "Shift"; mode = "Vi|~Search"; action = "ScrollToBottom"; }
+        { key = "B"; mods = "Control"; mode = "Vi|~Search"; action = "ScrollPageUp"; }
+        { key = "F"; mods = "Control"; mode = "Vi|~Search"; action = "ScrollPageDown"; }
+        { key = "Y"; mode = "Vi|~Search"; action = "Copy"; }
+        { key = "Y"; mode = "Vi|~Search"; action = "ClearSelection"; }
+        { key = "V"; mode = "Vi|~Search"; action = "ToggleNormalSelection"; }
+        { key = "V"; mods = "Shift"; mode = "Vi|~Search"; action = "ToggleLineSelection"; }
+        { key = "V"; mods = "Control"; mode = "Vi|~Search"; action = "ToggleBlockSelection"; }
+        { key = "V"; mods = "Alt"; mode = "Vi|~Search"; action = "ToggleSemanticSelection"; }
+        { key = "K"; mode = "Vi|~Search"; action = "Up"; }
+        { key = "J"; mode = "Vi|~Search"; action = "Down"; }
+        { key = "H"; mode = "Vi|~Search"; action = "Left"; }
+        { key = "L"; mode = "Vi|~Search"; action = "Right"; }
+        { key = "Slash"; mode = "Vi|~Search"; action = "SearchForward"; }
+        { key = "Slash"; mods = "Shift"; mode = "Vi|~Search"; action = "SearchBackward"; }
+        { key = "N"; mode = "Vi|~Search"; action = "SearchNext"; }
+        { key = "N"; mods = "Shift"; mode = "Vi|~Search"; action = "SearchPrevious"; }
+        { key = "Return"; mode = "Search|Vi"; action = "SearchConfirm"; }
+        { key = "Escape"; mode = "Search"; action = "SearchCancel"; }
+        { key = "Return"; mode = "Search|~Vi"; action = "SearchFocusNext"; }
+        { key = "Return"; mods = "Shift"; mode = "Search|~Vi"; action = "SearchFocusPrevious"; }
+        { key = "V"; mods = "Command"; action = "Paste"; }
+        { key = "C"; mods = "Command"; action = "Copy"; }
+        { key = "Return"; mods = "Shift"; chars = "\\u001b[13;2u"; }
+      ];
+    };
+  };
+
+  # Migrated from the bare repo (.gitconfig). The module writes
+  # ~/.config/git/config (git reads it only after ~/.gitconfig is gone).
+  programs.git = {
+    enable = true;
+    userName = "hugcis";
+    userEmail = "hmj.cisneros@gmail.com";
+
+    signing = {
+      key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIISAYNU+ArG43Zp4mHI5pm7Wfa4VQ4cV/dgNexczIfpU hugo@Hcis";
+      format = "ssh";
+      signByDefault = true;
+    };
+
+    # NOTE: renamed to `alias` when home.stateVersion reaches 26.11.
+    aliases = {
+      co = "checkout";
+      ci = "commit";
+      st = "status";
+      br = "branch";
+      hist = ''log --pretty=format:"%h %ad | %s%d [%an]" --graph --date=short'';
+      type = "cat-file -t";
+      dump = "cat-file -p";
+      la = "log --all --graph --oneline --decorate";
+      sync = "!dotfiles-sync";
+    };
+
+    settings = {
+      core.excludesfile = "~/.gitexclude";
+      pull.ff = "only";
+      init.defaultBranch = "main";
+      push.default = "simple";
+      fetch.prune = true;
+      url."github-work:last_genocto/".insteadOf = "git@github.com:last_genocto/";
+      credential."https://github.com".helper = [ "" "!/opt/homebrew/bin/gh auth git-credential" ];
+      credential."https://gist.github.com".helper = [ "" "!/opt/homebrew/bin/gh auth git-credential" ];
+    };
+  };
+
   # Migrated from the bare repo (starship.toml). Shell init stays manual in
   # .zshrc; this only owns the config file.
   programs.starship = {

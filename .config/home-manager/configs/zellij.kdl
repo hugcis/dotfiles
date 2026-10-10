@@ -158,6 +158,10 @@ keybinds {
         bind "Alt -" { Resize "Decrease"; }
         bind "Alt [" { PreviousSwapLayout; }
         bind "Alt ]" { NextSwapLayout; }
+        // Shift+Enter -> insert a newline in the pane app. Alacritty sends the
+        // kitty CSI-u sequence for this key; re-emit it so CSI-u-aware apps
+        // (Claude Code, crossterm/Ink) treat it as newline, not Enter.
+        bind "Shift Enter" { WriteChars "\u{1b}[13;2u"; }
     }
     shared_except "normal" "locked" {
         bind "Enter" "Esc" { SwitchToMode "Normal"; }
