@@ -25,6 +25,7 @@
   imports = [
     ./modules/options.nix
     ./modules/packages.nix
+    ./modules/editors.nix
     ./modules/git.nix
     ./modules/terminal.nix
     ./modules/starship.nix
