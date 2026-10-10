@@ -83,14 +83,16 @@ files under `configs/zsh/` are symlinked into `$HOME`), git, starship, the
 terminal multiplexers, and the cross-platform CLI package list. Hosts live
 in `hosts/` and the registry in `flake.nix`:
 
-| Host | System | Channel |
-|------|--------|---------|
-| `hugo@mac` | aarch64-darwin | nixpkgs-unstable + HM master |
-| `hugo@pi` | aarch64-linux (Arch ARM) | nixos-26.05 + HM release-26.05 |
-| `hugo@remote-mistral` | x86_64-linux (RHEL/Ubuntu-like) | nixos-26.05 + HM release-26.05 |
+| Host | Machine | System | Channel |
+|------|---------|--------|---------|
+| `hugo@mac` | daily driver | aarch64-darwin | nixpkgs-unstable + HM master |
+| `hugcis@archcis` | Arch desktop | x86_64-linux | nixpkgs-unstable + HM master |
+| `raspberry@rpi-5` | Raspberry Pi 5 (Debian, headless) | aarch64-linux | nixos-26.05 + HM release-26.05 |
+| `hugo@remote-mistral` | cluster login nodes (RHEL/Ubuntu-like) | x86_64-linux | nixos-26.05 + HM release-26.05 |
 
-Switch with `hm` (host auto-detected via marker file or uname; `hm <host>`
-to override; any other args pass through to home-manager). New files under
+Switch with `hm` (host auto-detected: explicit argument, marker file, or
+this machine's short hostname; `hm <host>` to override; any other args pass
+through to home-manager). New files under
 this tree need an explicit `config add -f` (the bare repo ignores everything
 by default). CI (`.github/workflows/home-manager.yml`) evaluates every host
 on every system and builds each host's activation package on a matching

@@ -19,8 +19,10 @@ jobs:
         include:
           - os: macos-latest
             host: hugo@mac
+          - os: ubuntu-24.04
+            host: hugcis@archcis
           - os: ubuntu-24.04-arm
-            host: hugo@pi
+            host: raspberry@rpi-5
           - os: ubuntu-24.04
             host: hugo@remote-mistral
     steps:

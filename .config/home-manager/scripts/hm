@@ -2,20 +2,20 @@
 # hm — switch home-manager for this machine.
 #
 # Host resolution order:
-#   1. explicit known host argument:  hm pi
+#   1. explicit known host argument:  hm rpi-5
 #   2. ~/.config/home-manager/host (one-line marker file, not in git —
-#      create it wherever the uname guess is wrong)
-#   3. uname guess: darwin -> mac, aarch64 linux -> pi, x86_64 linux ->
-#      remote-mistral
+#      create it wherever the hostname/uname guess is wrong)
+#   3. hostname match (this box's short hostname equals a registry key)
+#   4. darwin -> mac (macOS hostnames rarely match the registry key)
 #
 # Any other first argument (or none) passes through to home-manager:
 #   hm news            runs `home-manager news`
-#   hm remote-mistral build
+#   hm archcis build
 set -euo pipefail
 
 flake_dir="$HOME/.config/home-manager"
 user="$(id -un)"
-known_hosts="mac pi remote-mistral"
+known_hosts="mac archcis rpi-5 remote-mistral"
 
 host=""
 rest=("$@")
@@ -33,15 +33,15 @@ if [[ -z "$host" && -r "$flake_dir/host" ]]; then
 fi
 
 if [[ -z "$host" ]]; then
-  case "$(uname -sm)" in
-    Darwin*)          host="mac" ;;
-    "Linux aarch64"*) host="pi" ;;
-    "Linux x86_64"*)  host="remote-mistral" ;;
-    *)
-      echo "hm: cannot guess a host for $(uname -sm); pass one of: $known_hosts" >&2
-      exit 1
-      ;;
-  esac
+  hn="$(hostname -s 2>/dev/null || true)"
+  if [[ " $known_hosts " == *" $hn "* ]]; then
+    host="$hn"
+  elif [[ "$(uname -s)" == "Darwin" ]]; then
+    host="mac"
+  else
+    echo "hm: cannot guess a host for '$hn' ($(uname -sm)); pass one of: $known_hosts" >&2
+    exit 1
+  fi
 fi
 
 exec home-manager switch --flake "$flake_dir#$user@$host" ${rest[@]+"${rest[@]}"}

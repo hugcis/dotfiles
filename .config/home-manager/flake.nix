@@ -35,18 +35,24 @@
       # To add a machine: create hosts/<name>.nix, then add an entry here.
       # Switch with:
       #   hm                                      (auto-detects, see scripts/hm)
-      #   home-manager switch --flake ~/.config/home-manager#hugo@<name>
+      #   home-manager switch --flake ~/.config/home-manager#<user>@<name>
       # Bootstrap a new machine straight from GitHub (no clone needed):
-      #   home-manager switch --flake "github:hugcis/dotfiles?dir=.config/home-manager#hugo@<name>"
+      #   home-manager switch --flake "github:hugcis/dotfiles?dir=.config/home-manager#<user>@<name>"
       hosts = {
         mac = {
           user = "hugo";
           system = "aarch64-darwin";
           channel = "unstable";
         };
-        # The Raspberry Pi is the only Arch box (Arch Linux ARM).
-        pi = {
-          user = "hugo";
+        # x86_64 Arch desktop.
+        archcis = {
+          user = "hugcis";
+          system = "x86_64-linux";
+          channel = "unstable";
+        };
+        # Raspberry Pi 5, aarch64 Debian (headless).
+        rpi-5 = {
+          user = "raspberry";
           system = "aarch64-linux";
           channel = "stable";
         };

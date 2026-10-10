@@ -293,3 +293,7 @@ case "$OSTYPE" in
   darwin*)  [[ -f ~/.zshrc.macos ]] && source ~/.zshrc.macos ;;
   linux*)   [[ -f ~/.zshrc.linux ]] && source ~/.zshrc.linux ;;
 esac
+
+# Tool-provided env (uv/fnm-style installers drop this file); guarded so
+# hosts without it are unaffected. Folded in from archcis's local edits.
+[[ -f "$HOME/.local/bin/env" ]] && . "$HOME/.local/bin/env"
