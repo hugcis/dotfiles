@@ -102,12 +102,17 @@
         deleted = "[✕](italic red)";
       };
 
+      # Language segments use real Nerd Font brand logos (devicons E7xx,
+      # linux icons F3xx, octicons F4xx). Requires a Nerd Font in the
+      # terminal: kitty/alacritty run MesloLGS Nerd Font Mono.
       docker_context = {
-        format = " docker [$context](italic dimmed cyan)";
+        symbol = " ";
+        format = " [\${symbol}$context](italic dimmed cyan)";
       };
 
       nodejs = {
-        format = " [node](italic) [$version](bold bright-green)";
+        symbol = " ";
+        format = " [\${symbol}$version](bold bright-green)";
         version_format = "\${major}.\${minor}";
         detect_files = [ "package-lock.json" "yarn.lock" "package.json" ];
         detect_folders = [ "node_modules" ];
@@ -115,17 +120,20 @@
       };
 
       python = {
-        format = " [py](italic) [$version](bold bright-yellow)";
+        symbol = " ";
+        format = " [\${symbol}$version](bold bright-yellow)";
         version_format = "\${major}.\${minor}";
       };
 
       rust = {
-        format = " [rs](italic) [$version](bold red)";
+        symbol = " ";
+        format = " [\${symbol}$version](bold red)";
         version_format = "\${major}.\${minor}";
       };
 
       package = {
-        format = " [pkg](italic dimmed) [$version](bold italic dimmed yellow)";
+        symbol = " ";
+        format = " [\${symbol}$version](bold italic dimmed yellow)";
         version_format = "\${major}.\${minor}";
       };
 
