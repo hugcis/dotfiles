@@ -49,15 +49,21 @@ OS-specific files are sourced conditionally via `case "$OSTYPE"` at the end of
 
 ### Editors
 
-**Vim** (`.vimrc`, `.vim/`): Uses Vim's native `pack/` plugin system. Plugins
-live in `.vim/pack/latex/start/` as git submodules (note: the `latex` directory
-name is historical — it contains general plugins too). Key plugins: vimtex,
-vim-airline, vim-fugitive, UltiSnips.
+Managed by home-manager (`~/.config/home-manager/modules/editors.nix`): the
+config files stay raw text under `.config/home-manager/configs/` and are
+symlinked into `$HOME`.
 
-**Doom Emacs** (`.doom.d/`): Primary editor. `init.el` declares modules,
+**Vim** (`configs/vim/`): Uses Vim's native `pack/` plugin system. Plugins
+live in `~/.vim/pack/latex/start/` as self-contained git clones, managed
+outside this repo (note: the `latex` directory name is historical — it
+contains general plugins too). Key plugins: vimtex, vim-airline,
+vim-fugitive, UltiSnips.
+
+**Doom Emacs** (`configs/doom/`): Primary editor. `init.el` declares modules,
 `config.el` has package configuration, `packages.el` declares extra packages.
 `org-config.el` (tangled from `org-config.org`) contains extensive org-mode,
-org-roam, org-agenda, and bibliography setup.
+org-roam, org-agenda, and bibliography setup. Doom's machine-local state
+(`~/.doom.d/custom.el`, `snippets/`, `bin/`) stays unmanaged.
 
 ### Terminal
 
@@ -74,14 +80,13 @@ Managed by home-manager (`~/.config/home-manager/modules/terminal.nix`):
 
 - `~/.config/home-manager/modules/git.nix` — user identity, aliases (`co`, `ci`, `st`, `br`, `hist`, `la`, `sync`), SSH credential helpers, per-org URL rewrites; writes `~/.config/git/config`
 - `~/.gitexclude` — home-manager symlink to `configs/gitexclude`: global ignore patterns (LaTeX build artifacts, Python bytecode, macOS files)
-- `.gitmodules` — Submodule declarations (`.tmux`)
 
 ## Home manager
 
 `~/.config/home-manager` is a nix flake that owns the shells (the raw zsh
 files under `configs/zsh/` are symlinked into `$HOME`), git, starship, the
-terminal multiplexers, and the cross-platform CLI package list. Hosts live
-in `hosts/` and the registry in `flake.nix`:
+editors, the terminal multiplexers, and the cross-platform CLI package list.
+Hosts live in `hosts/` and the registry in `flake.nix`:
 
 | Host | Machine | System | Channel |
 |------|---------|--------|---------|
