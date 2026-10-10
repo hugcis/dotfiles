@@ -38,3 +38,7 @@
 	helper = !/opt/homebrew/bin/gh auth git-credential
 [fetch]
 	prune = true
+[gpg]
+	format = ssh
+[commit]
+	gpgsign = true
