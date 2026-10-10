@@ -3,9 +3,10 @@
   home.homeDirectory = "/home/hugcis";
 
   # .packages.arch no longer lists the HM-managed tools (the nix profile
-  # provides them and wins PATH); pacman twins already installed on this
-  # box still need a one-time removal on the next visit:
-  #   sudo pacman -R git fzf ripgrep tmux bat starship github-cli ttf-meslo-nerd
+  # provides them and wins PATH). pacman twins removed on 2026-10-10,
+  # except git: yay depends on it, so the pacman copy stays as a system
+  # dependency, shadowed by the nix git on PATH. fzf/github-cli/fonts were
+  # never pacman-installed here.
   home.stateVersion = "26.05";
 
   hq.desktop = true;
