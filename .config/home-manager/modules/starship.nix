@@ -7,9 +7,14 @@
     enable = true;
     settings = {
       "$schema" = "https://starship.rs/config-schema.json";
-      add_newline = true;
+      # The ($fill$git_metrics\n) line above always renders (fill matches
+      # even outside repos), so it already provides the blank line between
+      # prompts; add_newline would double it.
+      add_newline = false;
       continuation_prompt = "[▸▹ ](dimmed white)";
-      format = "($fill$git_metrics\n)$cmd_duration$username$hostname$jobs$sudo$character";
+      # ⭘ is a constant opener so the prompt keeps its mark on the local
+      # machine; user@host joins it only over SSH (see username/hostname).
+      format = "($fill$git_metrics\n)$cmd_duration[⭘ ](bright-yellow bold italic)$username$hostname$jobs$sudo$character";
       right_format = "$directory$git_branch$git_status$docker_context$nodejs$python$rust$package$time";
 
       fill.symbol = " ";
@@ -24,13 +29,14 @@
       username = {
         style_user = "bright-yellow bold italic";
         style_root = "purple bold italic";
-        format = "[⭘ $user]($style)";
-        show_always = true;
+        format = "[$user]($style)";
+        # Local sessions stay bare (⭘ only); SSH and root still show $user.
+        ssh_only = true;
         disabled = false;
       };
 
       hostname = {
-        ssh_only = false;
+        ssh_only = true;
         format = "[@$hostname](italic dimmed bright-cyan) ";
         trim_at = ".";
         disabled = false;
@@ -103,7 +109,7 @@
 
       nodejs = {
         format = " [node](italic) [◫ ($version)](bold bright-green)";
-        version_format = "\${raw}";
+        version_format = "\${major}.\${minor}";
         detect_files = [ "package-lock.json" "yarn.lock" "package.json" ];
         detect_folders = [ "node_modules" ];
         detect_extensions = [ ];
@@ -112,20 +118,20 @@
       python = {
         format = " [py](italic) [\${symbol}\${version}]($style)";
         symbol = "[⌉](bold bright-blue)⌊ ";
-        version_format = "\${raw}";
+        version_format = "\${major}.\${minor}";
         style = "bold bright-yellow";
       };
 
       rust = {
         format = " [rs](italic) [$symbol$version]($style)";
         symbol = "⊃ ";
-        version_format = "\${raw}";
+        version_format = "\${major}.\${minor}";
         style = "bold red";
       };
 
       package = {
         format = " [pkg](italic dimmed) [$symbol$version]($style)";
-        version_format = "\${raw}";
+        version_format = "\${major}.\${minor}";
         symbol = "◨ ";
         style = "dimmed yellow italic bold";
       };
