@@ -1,11 +1,34 @@
 { config, pkgs, ... }:
 
 {
-  home.username = "hugo";
-  home.homeDirectory = "/Users/hugo";
+  # Shared, host-independent configuration. Per-host settings live in
+  # hosts/<host>.nix; switch with:
+  #   home-manager switch --flake ~/.config/home-manager#hugo@<host>
 
   # Do not change after first switch; only set to the release you started with.
   home.stateVersion = "25.05";
+
+  # Daily-driver CLI tools, migrated from the Brewfile. After each addition,
+  # uninstall the brew twin — after the PATH priority fix in .zprofile the
+  # nix copy silently wins, and a stale brew copy only causes confusion.
+  home.packages = with pkgs; [
+    ripgrep
+    fd
+    bat
+    fzf
+    lsd
+    btop
+    htop
+    tree
+    ncdu
+    tmux
+    tig
+    gh
+    wget
+    tokei
+    pv
+    just
+  ];
 
   # Installs the home-manager CLI into the profile at
   # ~/.local/state/nix/profiles/home-manager (wired into PATH in .zshenv.macos).
@@ -41,7 +64,6 @@
         };
       };
       selection.save_to_clipboard = false;
-      terminal.shell.program = "/opt/homebrew/bin/zellij";
       window = {
         decorations = "buttonless";
         startup_mode = "Fullscreen";
@@ -112,8 +134,10 @@
       push.default = "simple";
       fetch.prune = true;
       url."github-work:last_genocto/".insteadOf = "git@github.com:last_genocto/";
-      credential."https://github.com".helper = [ "" "!/opt/homebrew/bin/gh auth git-credential" ];
-      credential."https://gist.github.com".helper = [ "" "!/opt/homebrew/bin/gh auth git-credential" ];
+      # gh comes from home.packages; reference its store path so the helper
+      # tracks the exact binary the flake installs.
+      credential."https://github.com".helper = [ "" "${pkgs.gh}/bin/gh auth git-credential" ];
+      credential."https://gist.github.com".helper = [ "" "${pkgs.gh}/bin/gh auth git-credential" ];
     };
   };
 

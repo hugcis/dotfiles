@@ -11,11 +11,20 @@
   };
 
   outputs = { nixpkgs, home-manager, ... }: {
-    homeConfigurations.hugo = home-manager.lib.homeManagerConfiguration {
-      pkgs = import nixpkgs {
-        system = "aarch64-darwin";
+    homeConfigurations = {
+      "hugo@mac" = home-manager.lib.homeManagerConfiguration {
+        pkgs = import nixpkgs {
+          system = "aarch64-darwin";
+        };
+        modules = [ ./home.nix ./hosts/mac.nix ];
       };
-      modules = [ ./home.nix ];
+
+      "hugo@arch" = home-manager.lib.homeManagerConfiguration {
+        pkgs = import nixpkgs {
+          system = "x86_64-linux";
+        };
+        modules = [ ./home.nix ./hosts/arch.nix ];
+      };
     };
   };
 }

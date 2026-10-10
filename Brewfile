@@ -11,32 +11,19 @@ tap "tw93/tap"
 # ============================================================================
 # Core CLI Tools
 # ============================================================================
-brew "git"
-brew "gh"
+# git, gh, just: now managed by home-manager (~/.config/home-manager/home.nix)
 brew "coreutils"
 brew "findutils"
 brew "make"
 brew "cmake"
 brew "ninja"
-brew "just"
 
 # ============================================================================
 # Shell & Terminal
 # ============================================================================
-brew "fzf"
-brew "ripgrep"
-brew "fd"
-brew "bat"
-brew "lsd"
-brew "btop"
-brew "htop"
-brew "ncdu"
-brew "tree"
+# fzf, ripgrep, fd, bat, lsd, btop, htop, ncdu, tree, pv, tmux, zellij,
+# starship: now managed by home-manager
 brew "watch"
-brew "pv"
-brew "tmux"
-brew "zellij"
-brew "starship"
 
 # ============================================================================
 # Text & Spelling
@@ -48,7 +35,7 @@ brew "hunspell"
 # Git & VCS
 # ============================================================================
 brew "git-lfs"
-brew "tig"
+# tig: now managed by home-manager
 
 # ============================================================================
 # Editors
@@ -70,7 +57,7 @@ brew "zig"
 # Networking & Security
 # ============================================================================
 brew "openssh"
-brew "wget"
+# wget: now managed by home-manager
 brew "nmap"
 brew "iperf3"
 brew "gnupg"
@@ -100,7 +87,7 @@ brew "apache-arrow"
 brew "parallel"
 brew "p7zip"
 brew "socat"
-brew "tokei"
+# tokei: now managed by home-manager
 brew "gnu-units"
 brew "tw93/tap/mole"
 
