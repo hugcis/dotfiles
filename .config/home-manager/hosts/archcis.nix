@@ -2,9 +2,10 @@
   home.username = "hugcis";
   home.homeDirectory = "/home/hugcis";
 
-  # TODO on archcis: prune the HM-managed tools (git, fzf, tmux, starship,
-  # bat, ripgrep, gh, tig, ...) from ~/.packages.arch so pacman twins do
-  # not shadow the nix profile.
+  # .packages.arch no longer lists the HM-managed tools (the nix profile
+  # provides them and wins PATH); pacman twins already installed on this
+  # box still need a one-time removal on the next visit:
+  #   sudo pacman -R git fzf ripgrep tmux bat starship github-cli ttf-meslo-nerd
   home.stateVersion = "26.05";
 
   hq.desktop = true;

@@ -7,7 +7,7 @@
     enable = true;
 
     signing = lib.mkIf config.hq.gitSign {
-      key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIISAYNU+ArG43Zp4mHI5pm7Wfa4VQ4cV/dgNexczIfpU hugo@Hcis";
+      key = config.hq.gitSignKey;
       format = "ssh";
       signByDefault = true;
     };
