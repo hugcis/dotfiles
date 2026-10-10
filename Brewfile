@@ -11,7 +11,7 @@ tap "tw93/tap"
 # ============================================================================
 # Core CLI Tools
 # ============================================================================
-# git, gh, just: now managed by home-manager (~/.config/home-manager/home.nix)
+# git, gh, just: now managed by home-manager (~/.config/home-manager/modules/packages.nix)
 brew "coreutils"
 brew "findutils"
 brew "make"
@@ -94,5 +94,5 @@ brew "tw93/tap/mole"
 # ============================================================================
 # Cask Apps
 # ============================================================================
-cask "alacritty"
+cask "alacritty"  # .app registration for Spotlight; the nix HM binary wins on PATH in shells
 cask "font-meslo-lg-nerd-font"

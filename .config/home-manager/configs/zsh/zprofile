@@ -16,7 +16,7 @@ compctl -K _pip_completion pip
 
 export PYENV_ROOT="$HOME/.pyenv"
 export PATH="$PYENV_ROOT/bin:$PATH"
-eval "$(pyenv init --path)"
+command -v pyenv >/dev/null && eval "$(pyenv init --path)"
 
 # Re-assert user PATH priority. macOS path_helper runs via /etc/zprofile
 # AFTER .zshenv and rebuilds PATH with system dirs first, which demoted

@@ -61,15 +61,40 @@ org-roam, org-agenda, and bibliography setup.
 
 ### Terminal
 
-- `.config/alacritty/alacritty.toml` — Alacritty terminal config (TOML format)
-- `.config/zellij/config.kdl` — Zellij terminal multiplexer
-- `.tmux.conf` / `.tmux.conf.local` — tmux config (uses gpakosz/.tmux framework via submodule at `.tmux/`)
+Managed by home-manager (`~/.config/home-manager/modules/terminal.nix`):
+
+- Alacritty — settings declared in the module; binary from nix (the brew cask
+  only keeps the `.app` registered for Spotlight)
+- Zellij — binary from nix; config stays raw KDL at `.config/home-manager/configs/zellij.kdl`
+- `.tmux.conf` / `.tmux.conf.local` — tmux config (gpakosz/.tmux framework);
+  `.tmux.conf` is a home-manager symlink to `configs/tmux.conf`, local overrides
+  stay in the unmanaged `~/.tmux.conf.local`
 
 ### Git
 
-- `.gitconfig` — User identity, aliases (`co`, `ci`, `st`, `br`, `hist`, `la`, `sync`), SSH credential helpers, per-org URL rewrites
-- `.gitexclude` — Global gitignore patterns (LaTeX build artifacts, Python bytecode, macOS files)
+- `~/.config/home-manager/modules/git.nix` — user identity, aliases (`co`, `ci`, `st`, `br`, `hist`, `la`, `sync`), SSH credential helpers, per-org URL rewrites; writes `~/.config/git/config`
+- `~/.gitexclude` — home-manager symlink to `configs/gitexclude`: global ignore patterns (LaTeX build artifacts, Python bytecode, macOS files)
 - `.gitmodules` — Submodule declarations (`.tmux`)
+
+## Home manager
+
+`~/.config/home-manager` is a nix flake that owns the shells (the raw zsh
+files under `configs/zsh/` are symlinked into `$HOME`), git, starship, the
+terminal multiplexers, and the cross-platform CLI package list. Hosts live
+in `hosts/` and the registry in `flake.nix`:
+
+| Host | System | Channel |
+|------|--------|---------|
+| `hugo@mac` | aarch64-darwin | nixpkgs-unstable + HM master |
+| `hugo@pi` | aarch64-linux (Arch ARM) | nixos-26.05 + HM release-26.05 |
+| `hugo@remote-mistral` | x86_64-linux (RHEL/Ubuntu-like) | nixos-26.05 + HM release-26.05 |
+
+Switch with `hm` (host auto-detected via marker file or uname; `hm <host>`
+to override; any other args pass through to home-manager). New files under
+this tree need an explicit `config add -f` (the bare repo ignores everything
+by default). CI (`.github/workflows/home-manager.yml`) evaluates every host
+on every system and builds each host's activation package on a matching
+runner.
 
 ## Package management
 
