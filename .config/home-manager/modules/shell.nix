@@ -17,4 +17,14 @@
     # Switch helper, on PATH via ~/.local/bin (see .zprofile).
     ".local/bin/hm".source = ../scripts/hm;
   };
+
+  # fzf shell integration, replacing the brew-generated ~/.fzf.zsh (which
+  # hardcoded /opt/homebrew paths and pinned the brew copy of fzf). The
+  # raw .zshrc sources this file; the store paths are baked in per switch
+  # so the nix-installed fzf is always the one providing bindings and
+  # completion.
+  xdg.configFile."zsh/fzf.zsh".text = ''
+    [[ $- == *i* ]] && source "${pkgs.fzf}/share/fzf/completion.zsh" 2> /dev/null
+    source "${pkgs.fzf}/share/fzf/key-bindings.zsh"
+  '';
 }

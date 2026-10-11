@@ -30,6 +30,7 @@
     ./modules/terminal.nix
     ./modules/starship.nix
     ./modules/shell.nix
+    ./modules/claude.nix
   ];
 
   # Set per host in hosts/*.nix (the release each machine started with).

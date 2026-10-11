@@ -277,8 +277,8 @@ fi
 # Integrations
 # ============================================================================
 
-# FZF fuzzy finder
-[[ -f ~/.fzf.zsh ]] && source ~/.fzf.zsh
+# FZF fuzzy finder (HM-generated; store paths to the nix fzf are baked in)
+[[ -f ~/.config/zsh/fzf.zsh ]] && source ~/.config/zsh/fzf.zsh
 
 # ============================================================================
 # OS-Specific Configuration

@@ -10,9 +10,13 @@
   xdg.configFile."zellij/config.kdl".source = ../configs/zellij.kdl;
 
   # Migrated from the bare repo (oh-my-tmux). The config deliberately stays
-  # raw text; local overrides stay in ~/.tmux.conf.local, which home-manager
-  # does not manage.
-  home.file.".tmux.conf".source = ../configs/tmux.conf;
+  # raw text; local overrides live in ~/.tmux.conf.local — also migrated
+  # from the bare repo, so tweaks now go through the repo + `hm` switch
+  # rather than ad-hoc edits (the symlink is read-only).
+  home.file = {
+    ".tmux.conf".source = ../configs/tmux.conf;
+    ".tmux.conf.local".source = ../configs/tmux.conf.local;
+  };
 
   # Alacritty's font. On macOS CoreText does not see nix-installed fonts,
   # so the brew cask font stays the real provider there (see Brewfile);
