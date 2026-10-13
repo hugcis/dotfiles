@@ -94,5 +94,7 @@ brew "tw93/tap/mole"
 # ============================================================================
 # Cask Apps
 # ============================================================================
+cask "1password-cli"
 cask "alacritty"  # .app registration for Spotlight; the nix HM binary wins on PATH in shells
+cask "darktable"
 cask "font-meslo-lg-nerd-font"

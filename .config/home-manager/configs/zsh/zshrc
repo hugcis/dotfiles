@@ -41,8 +41,9 @@ setopt GLOB_DOTS                 # Match dotfiles without explicit dot
 # Oh-My-Zsh Configuration
 # ============================================================================
 
-# Path to your oh-my-zsh installation.
-export ZSH="$HOME/.oh-my-zsh"
+# Path to your oh-my-zsh installation (HM-generated: nixpkgs oh-my-zsh +
+# plugin tree under ~/.config/zsh/omz-custom; see modules/shell.nix).
+[[ -f ~/.config/zsh/oh-my-zsh.zsh ]] && source ~/.config/zsh/oh-my-zsh.zsh
 
 # Set name of the theme to load --- if set to "random", it will
 # load a random theme each time oh-my-zsh is loaded, in which case,

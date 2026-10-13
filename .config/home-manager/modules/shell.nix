@@ -27,4 +27,30 @@
     [[ $- == *i* ]] && source "${pkgs.fzf}/share/fzf/completion.zsh" 2> /dev/null
     source "${pkgs.fzf}/share/fzf/key-bindings.zsh"
   '';
+
+  # Oh-my-zsh, migrated from the ~/.oh-my-zsh git clone — the last piece of
+  # manual shell bootstrap. The framework comes from nixpkgs and is therefore
+  # read-only, which makes omz's self-update machinery inert (updates happen
+  # on the next `hm` switch instead). The raw .zshrc sources this file to get
+  # $ZSH/$ZSH_CUSTOM before its `source $ZSH/oh-my-zsh.sh` line.
+  xdg.configFile."zsh/oh-my-zsh.zsh".text = ''
+    export ZSH="${pkgs.oh-my-zsh}/share/oh-my-zsh"
+    export ZSH_CUSTOM="$HOME/.config/zsh/omz-custom"
+  '';
+
+  # Custom plugin tree that $ZSH_CUSTOM points at. Core plugins used by
+  # .zshrc (git, brew, z, shrink-path) ship with the nixpkgs oh-my-zsh.
+  xdg.configFile = {
+    # Vendored poetry completion (completion-only "plugin", exactly as in
+    # the old clone: no plugin.zsh, OMZ just adds the dir to fpath).
+    "zsh/omz-custom/plugins/poetry/_poetry".source = ../configs/zsh/poetry/_poetry;
+    # nixpkgs layouts are OMZ-compatible; link both files per plugin.
+    "zsh/omz-custom/plugins/zsh-autosuggestions/zsh-autosuggestions.plugin.zsh".source = "${pkgs.zsh-autosuggestions}/share/zsh-autosuggestions/zsh-autosuggestions.plugin.zsh";
+    "zsh/omz-custom/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh".source = "${pkgs.zsh-autosuggestions}/share/zsh-autosuggestions/zsh-autosuggestions.zsh";
+    # zsh-syntax-highlighting ships no OMZ shim, so generate one; the store
+    # file resolves its highlighters relative to its own location.
+    "zsh/omz-custom/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.plugin.zsh".text = ''
+      source "${pkgs.zsh-syntax-highlighting}/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+    '';
+  };
 }
