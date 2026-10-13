@@ -1,18 +1,16 @@
 # .packages.arch — declarative Arch Linux package list
 # Usage: sudo pacman -S --needed - < ~/.packages.arch
+#
+# Only tools home-manager does not provide belong here; HM-managed twins
+# (git, fzf, ripgrep, tmux, bat, starship, gh, nerd fonts) are installed
+# by the nix profile, which also wins PATH priority
+# (see ~/.config/home-manager).
 
-# Core CLI
-git
+# Login shell (system-level, not HM-managed)
 zsh
-fzf
-ripgrep
-tmux
-cmake
-bat
-starship
 
-# GitHub CLI
-github-cli
+# Build tools
+cmake
 
 # Spelling
 aspell
@@ -21,6 +19,3 @@ aspell
 keychain
 xclip
 xsel
-
-# Fonts
-ttf-meslo-nerd

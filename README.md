@@ -49,27 +49,59 @@ OS-specific files are sourced conditionally via `case "$OSTYPE"` at the end of
 
 ### Editors
 
-**Vim** (`.vimrc`, `.vim/`): Uses Vim's native `pack/` plugin system. Plugins
-live in `.vim/pack/latex/start/` as git submodules (note: the `latex` directory
-name is historical — it contains general plugins too). Key plugins: vimtex,
-vim-airline, vim-fugitive, UltiSnips.
+Managed by home-manager (`~/.config/home-manager/modules/editors.nix`): the
+config files stay raw text under `.config/home-manager/configs/` and are
+symlinked into `$HOME`.
 
-**Doom Emacs** (`.doom.d/`): Primary editor. `init.el` declares modules,
+**Vim** (`configs/vim/`): Uses Vim's native `pack/` plugin system. Plugins
+live in `~/.vim/pack/latex/start/` as self-contained git clones, managed
+outside this repo (note: the `latex` directory name is historical — it
+contains general plugins too). Key plugins: vimtex, vim-airline,
+vim-fugitive, UltiSnips.
+
+**Doom Emacs** (`configs/doom/`): Primary editor. `init.el` declares modules,
 `config.el` has package configuration, `packages.el` declares extra packages.
 `org-config.el` (tangled from `org-config.org`) contains extensive org-mode,
-org-roam, org-agenda, and bibliography setup.
+org-roam, org-agenda, and bibliography setup. Doom's machine-local state
+(`~/.doom.d/custom.el`, `snippets/`, `bin/`) stays unmanaged.
 
 ### Terminal
 
-- `.config/alacritty/alacritty.toml` — Alacritty terminal config (TOML format)
-- `.config/zellij/config.kdl` — Zellij terminal multiplexer
-- `.tmux.conf` / `.tmux.conf.local` — tmux config (uses gpakosz/.tmux framework via submodule at `.tmux/`)
+Managed by home-manager (`~/.config/home-manager/modules/terminal.nix`):
+
+- Alacritty — settings declared in the module; binary from nix (the brew cask
+  only keeps the `.app` registered for Spotlight)
+- Zellij — binary from nix; config stays raw KDL at `.config/home-manager/configs/zellij.kdl`
+- `.tmux.conf` / `.tmux.conf.local` — tmux config (gpakosz/.tmux framework);
+  `.tmux.conf` is a home-manager symlink to `configs/tmux.conf`, local overrides
+  stay in the unmanaged `~/.tmux.conf.local`
 
 ### Git
 
-- `.gitconfig` — User identity, aliases (`co`, `ci`, `st`, `br`, `hist`, `la`, `sync`), SSH credential helpers, per-org URL rewrites
-- `.gitexclude` — Global gitignore patterns (LaTeX build artifacts, Python bytecode, macOS files)
-- `.gitmodules` — Submodule declarations (`.tmux`)
+- `~/.config/home-manager/modules/git.nix` — user identity, aliases (`co`, `ci`, `st`, `br`, `hist`, `la`, `sync`), SSH credential helpers, per-org URL rewrites; writes `~/.config/git/config`
+- `~/.gitexclude` — home-manager symlink to `configs/gitexclude`: global ignore patterns (LaTeX build artifacts, Python bytecode, macOS files)
+
+## Home manager
+
+`~/.config/home-manager` is a nix flake that owns the shells (the raw zsh
+files under `configs/zsh/` are symlinked into `$HOME`), git, starship, the
+editors, the terminal multiplexers, and the cross-platform CLI package list.
+Hosts live in `hosts/` and the registry in `flake.nix`:
+
+| Host | Machine | System | Channel |
+|------|---------|--------|---------|
+| `hugo@mac` | daily driver | aarch64-darwin | nixpkgs-unstable + HM master |
+| `hugcis@archcis` | Arch desktop | x86_64-linux | nixpkgs-unstable + HM master |
+| `raspberry@rpi-5` | Raspberry Pi 5 (Debian, headless) | aarch64-linux | nixos-26.05 + HM release-26.05 |
+| `hugo@remote-mistral` | cluster login nodes (RHEL/Ubuntu-like) | x86_64-linux | nixos-26.05 + HM release-26.05 |
+
+Switch with `hm` (host auto-detected: explicit argument, marker file, or
+this machine's short hostname; `hm <host>` to override; any other args pass
+through to home-manager). New files under
+this tree need an explicit `config add -f` (the bare repo ignores everything
+by default). CI (`.github/workflows/home-manager.yml`) evaluates every host
+on every system and builds each host's activation package on a matching
+runner.
 
 ## Package management
 

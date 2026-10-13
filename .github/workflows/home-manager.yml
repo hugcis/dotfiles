@@ -1,0 +1,34 @@
+name: home-manager
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.host }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # One runner per host from the registry in
+        # .config/home-manager/flake.nix. ubuntu-24.04-arm covers the
+        # Raspberry Pi's aarch64-linux natively.
+        include:
+          - os: macos-latest
+            host: hugo@mac
+          - os: ubuntu-24.04
+            host: hugcis@archcis
+          - os: ubuntu-24.04-arm
+            host: raspberry@rpi-5
+          - os: ubuntu-24.04
+            host: hugo@remote-mistral
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - name: Evaluate every host on every system
+        run: nix flake check --no-build --all-systems ./.config/home-manager
+      - name: Build activation package
+        run: nix build -L ./.config/home-manager#homeConfigurations."${{ matrix.host }}".activationPackage

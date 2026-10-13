@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# hm — switch home-manager for this machine.
+#
+# Host resolution order:
+#   1. explicit known host argument:  hm rpi-5
+#   2. ~/.config/home-manager/host (one-line marker file, not in git —
+#      create it wherever the hostname/uname guess is wrong)
+#   3. hostname match (this box's short hostname equals a registry key)
+#   4. darwin -> mac (macOS hostnames rarely match the registry key)
+#
+# Any other first argument (or none) passes through to home-manager:
+#   hm news            runs `home-manager news`
+#   hm archcis build
+set -euo pipefail
+
+flake_dir="$HOME/.config/home-manager"
+user="$(id -un)"
+known_hosts="mac archcis rpi-5 remote-mistral"
+
+host=""
+rest=("$@")
+if [[ $# -ge 1 && " $known_hosts " == *" $1 "* ]]; then
+  host="$1"
+  rest=("${@:2}")
+fi
+
+if [[ -z "$host" && -r "$flake_dir/host" ]]; then
+  host="$(head -n1 "$flake_dir/host")"
+  if [[ " $known_hosts " != *" $host "* ]]; then
+    echo "hm: $flake_dir/host contains unknown host '$host' (known: $known_hosts)" >&2
+    exit 1
+  fi
+fi
+
+if [[ -z "$host" ]]; then
+  hn="$(hostname -s 2>/dev/null || true)"
+  if [[ " $known_hosts " == *" $hn "* ]]; then
+    host="$hn"
+  elif [[ "$(uname -s)" == "Darwin" ]]; then
+    host="mac"
+  else
+    echo "hm: cannot guess a host for '$hn' ($(uname -sm)); pass one of: $known_hosts" >&2
+    exit 1
+  fi
+fi
+
+exec home-manager switch --flake "$flake_dir#$user@$host" ${rest[@]+"${rest[@]}"}
