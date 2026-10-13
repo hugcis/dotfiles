@@ -8,4 +8,5 @@ provider_names:
 slots:
   primary: {provider: anthropic, model: model-big, thinking: high}
   fast:    {provider: openai, model: model-small}
+methodology: superpowers
 agents_md_extra: []

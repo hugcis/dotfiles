@@ -34,6 +34,7 @@ skills:
   test-driven-development: { origin: inherited-process }
   thermo-nuclear-code-quality-review: { origin: imported-adapted }
   using-git-worktrees: { origin: inherited-process }
+  unslop: { origin: local }
   using-superpowers: { origin: inherited-process }
   verification-before-completion: { origin: inherited-process }
   write-a-skill: { origin: external-upstream }

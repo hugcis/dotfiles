@@ -203,6 +203,14 @@ plugins {
     }
 }
 
+layout {
+    pane split_direction="vertical" {
+        pane
+    }
+    options {
+        scrollback_limit 10000 // Enable scrolling with a large buffer
+    }
+}
 // Choose what to do when zellij receives SIGTERM, SIGINT, SIGQUIT or SIGHUP
 // eg. when terminal window with an active zellij session is closed
 // Options:

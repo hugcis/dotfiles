@@ -4,6 +4,7 @@
 # Locale settings
 export LC_ALL=en_US.UTF-8
 export LANG=en_US.UTF-8
+export LANGUAGE=en_US.UTF-8
 
 # Default editor
 export VISUAL=vim
@@ -30,6 +31,10 @@ case "$OSTYPE" in
 esac
 
 [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
+
+# Login shells restore this order in .zprofile, after macOS path_helper
+# (/etc/zprofile) has moved the system dirs back to the front.
+typeset -g _zshenv_path="$PATH"
 
 function maclookup() {
     curl "https://api.macvendors.com/$1"

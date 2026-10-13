@@ -4,9 +4,9 @@ endpoints:
   openai: https://REPLACE-ME/openai/v1
 
 provider_names:
-  pi:       {anthropic: REPLACE-ME, openai: REPLACE-ME}
-  opencode: {anthropic: REPLACE-ME, openai: REPLACE-ME}
-  vibe:     {anthropic: REPLACE-ME, openai: REPLACE-ME}
+  pi: { anthropic: REPLACE-ME, openai: REPLACE-ME }
+  opencode: { anthropic: REPLACE-ME, openai: REPLACE-ME }
+  vibe: { anthropic: REPLACE-ME, openai: REPLACE-ME }
 
 # Omit a slot entirely to emit no agent for it on this machine.
 #
@@ -18,12 +18,42 @@ provider_names:
 # only reach a reasoning level by naming an alias that already carries one.
 # Omit it and the bare `model` is used as the alias instead.
 slots:
-  primary:   {provider: anthropic, model: REPLACE-ME, thinking: high,  vibe_model: REPLACE-ME}
-  alt:       {provider: openai,    model: REPLACE-ME, thinking: high,  vibe_model: REPLACE-ME}
-  alt-xhigh: {provider: openai,    model: REPLACE-ME, thinking: xhigh, vibe_model: REPLACE-ME}
-  fast:      {provider: openai,    model: REPLACE-ME}
+  primary:
+    {
+      provider: anthropic,
+      model: REPLACE-ME,
+      thinking: high,
+      vibe_model: REPLACE-ME,
+    }
+  alt-low:
+    {
+      provider: openai,
+      model: REPLACE-ME,
+      thinking: low,
+      vibe_model: REPLACE-ME,
+    }
+  alt:
+    {
+      provider: openai,
+      model: REPLACE-ME,
+      thinking: high,
+      vibe_model: REPLACE-ME,
+    }
+  alt-xhigh:
+    {
+      provider: openai,
+      model: REPLACE-ME,
+      thinking: xhigh,
+      vibe_model: REPLACE-ME,
+    }
+  fast: { provider: openai, model: REPLACE-ME }
 
-# Extra AGENTS.md fragments from agents.md.d/, appended after 00-universal.md.
+# Global software-engineering methodology: superpowers or compound-engineering.
+# Selects the single methodology fragment appended after 00-universal.md.
+methodology: superpowers
+
+# Extra AGENTS.md fragments from agents.md.d/, appended after the methodology
+# fragment.
 agents_md_extra: []
 
 # Extra shell exports emitted into profile.env.

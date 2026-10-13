@@ -33,25 +33,41 @@ Pick the smallest mode that matches the user's request and the diff. Escalate on
 scope or risk justifies the cost.
 
 - `quick`: tiny or mechanical diffs; one reviewer for blockers and obvious regressions.
-- `standard`: ordinary feature or bugfix; correctness, tests, and simplification axes.
-- `deep`: explicit full/deep/thorough request; use the complete reviewer set below.
+- `standard`: a small, low-risk PR, including an explicit full review; two reviewers cover
+  correctness/tests and simplicity/maintainability.
+- `deep`: security, concurrency, distributed behavior, migrations, broad API changes, or an
+  explicit request for the complete reviewer panel.
 - `wide`: large or multi-subsystem target; shard first, then run bounded waves.
 - `postfix`: validate accepted finding IDs after a fix pass; do not rediscover polish.
 
-Use `deep` when the user explicitly asks for full review-and-fix. Use `wide` only when
-the target cannot be reviewed coherently as one unit.
+A PR with at most eight changed files and roughly 400 changed lines defaults to `standard`
+when it has none of the `deep` risk triggers. "Full" means complete coverage of the relevant
+risks, not use of every reviewer. Use `wide` only when the target cannot be reviewed
+coherently as one unit.
 
 ## 3. Size and Shard the Review
 
 Review the whole target when coherent. Shard by package or subsystem at roughly 2,000
 changed lines, 25 files, or earlier when independent subsystems are obvious. Keep each
-shard self-contained and include cross-shard interfaces where relevant. Run at most ten
+shard self-contained and include cross-shard interfaces where relevant. Run at most six
 subagents concurrently, using waves when needed. For `wide` mode, create a shard map
 before dispatching reviewers.
 
 ## 4. Dispatch Read-Only Reviewers
 
-Read [REVIEWERS.md](REVIEWERS.md). In one parallel dispatch per wave, launch:
+Read [REVIEWERS.md](REVIEWERS.md). Use the smallest lane set allowed by the selected
+mode:
+
+- `quick`: one `reviewer-alt-low` covering blockers, regressions, and obvious test gaps.
+- `standard`: `reviewer-alt` for correctness, contracts, tests, and edge cases, plus
+  `reviewer-alt-low` for simplification, reuse, standards, and maintainability.
+- `deep`: the complete six-lane set below, because the user explicitly requested a full,
+  deep, or thorough pass.
+- `wide`: at most three risk-matched lanes per shard; do not repeat all six on every shard.
+- `postfix`: correctness plus only the roles that owned accepted finding IDs, at most two
+  lanes.
+
+The deep set is:
 
 1. `reviewer-alt-xhigh`: correctness, contracts, errors, security, concurrency.
 2. `reviewer-alt`: simplification, reuse, standards, legibility.
@@ -62,9 +78,10 @@ Read [REVIEWERS.md](REVIEWERS.md). In one parallel dispatch per wave, launch:
 
 Give every reviewer the exact scope, selected mode, shard map when present,
 spec/context, applicable standards, and common contract from `REVIEWERS.md`. Require
-findings to follow `review-finding-schema.md`. The final-test audit reviewer must receive
-the full `auditing-final-tests` skill content or an exact summary of its workflow and
-context-fit checks. Architecture reviewers must work independently. If these agents are
+findings to follow `review-finding-schema.md`. Give read-only reviewers a bounded turn
+budget unless the caller already supplied one. The final-test audit reviewer must receive
+the full canonical `auditing-final-tests` skill content, and must not restate or summarize
+its rubric. Architecture reviewers must work independently. If these agents are
 unavailable, stop and ask the user to restart your agent harness; do not silently
 substitute models.
 
@@ -105,8 +122,18 @@ Re-run correctness plus only the reviewer roles whose finding IDs were fixed, ag
 the resulting diff. Apply at most one follow-up batch through the same single fixer: two
 fix cycles maximum. Then stop even if additional opportunities remain.
 
+After the final mutation wave, apply the **Final-test gate:** invoke `auditing-final-tests`
+over the workflow's full change scope. Continue to reporting only
+on `PASS` or `NOT_APPLICABLE`. Resolve `ACTION_REQUIRED`; report `BLOCKED` honestly. The
+earlier read-only final-test reviewer does not replace this gate because later fixes may
+add or alter tests.
+
 ## 8. Report
 
 Lead with findings ordered by severity. For each, retain confidence, exact citations,
 and mark `fixed`, `remaining`, `disputed`, or `verification failed`. Then summarize the
 edits, checks and results, scope reviewed, and any residual risks or missing spec.
+
+End with review-yield counts: reviewer launches, findings raised, findings accepted, and
+accepted findings that changed the final code. A timed-out or failed reviewer counts as a
+launch and is reported rather than silently replaced.

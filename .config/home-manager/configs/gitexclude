@@ -25,3 +25,5 @@ __pycache__/
 .vim/pack/**/tags
 .vim/pack/**/tags-au
 .vim/pack/**/tags-te
+
+**/.claude/settings.local.json

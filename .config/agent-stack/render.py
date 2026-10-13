@@ -7,17 +7,31 @@ native config for each harness. Slots absent from the profile emit no agent.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import re
 import shlex
 import shutil
+import sys
 import tempfile
 from dataclasses import dataclass
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 import yaml
 
 STACK = Path(__file__).resolve().parent
 SHELL_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+# The global software-engineering methodology. Exactly one of these supplies the
+# methodology-specific half of AGENTS.md; the profile picks it, and an absent
+# key keeps pre-migration profiles on superpowers.
+METHODOLOGY_FRAGMENTS = {
+    "superpowers": "10-superpowers.md",
+    "compound-engineering": "10-compound-engineering.md",
+}
+# The mapping above is the only list of legal methodology names; adding a
+# methodology means adding its fragment, so the two can never drift apart.
+METHODOLOGIES = frozenset(METHODOLOGY_FRAGMENTS)
 
 
 class ConfigError(ValueError):
@@ -124,13 +138,18 @@ def emit_pi(agent: Agent, profile: dict) -> tuple[str, str]:
     model = model_ref(agent, profile, "pi")
     if agent.thinking:
         model = f"{model}:{agent.thinking}"
+    turn_budget = (
+        'turnBudget: {"maxTurns":12,"graceTurns":2}\n'
+        if agent.role == "reviewer"
+        else ""
+    )
     content = f"""---
 name: {agent.name}
 description: {agent.role.capitalize()} agent on the {agent.slot} model slot.
 model: {model}
 tools: {tools}
 acceptanceRole: {agent.acceptance}
-systemPromptMode: replace
+{turn_budget}systemPromptMode: replace
 inheritProjectContext: true
 ---
 
@@ -163,6 +182,7 @@ model: {model_ref(agent, profile, "opencode")}
 def emit_vibe(agent: Agent) -> tuple[str, str]:
     perm = "never" if agent.write == "deny" else "always"
     safety = "safe" if agent.write == "deny" else "destructive"
+    prompt_ids = {"coder": "opencode-coder", "reviewer": "opencode-reviewer"}
     title = agent.name.replace("-", " ").title()
     lines = [
         f'display_name = "{title}"',
@@ -176,7 +196,7 @@ def emit_vibe(agent: Agent) -> tuple[str, str]:
         # level by naming an alias that carries it, via the optional profile key
         # `vibe_model`; without it we fall back to the bare model id.
         f'active_model = "{agent.vibe_model or agent.model}"',
-        f'system_prompt_id = "{agent.role}"',
+        f'system_prompt_id = "{prompt_ids[agent.role]}"',
         "",
         "[tools.bash]",
         f'permission = "{agent.bash}"',
@@ -292,22 +312,62 @@ def backup_agents_md(targets: list[Path], content: str) -> list[str]:
     return [str(backup / _backup_name(t)) for t in doomed]
 
 
-def _read_fragment(name: str) -> str:
-    """Read one agents.md.d fragment, or fail with a ConfigError naming it."""
-    fragments = STACK / "agents.md.d"
-    path = fragments / name
+def _fragment_path(name: str) -> Path:
+    fragments = (STACK / "agents.md.d").resolve()
+    if not isinstance(name, str):
+        raise ConfigError(
+            f"profile.yaml: AGENTS.md fragment name must be a string; got {name!r}"
+        )
+    path = (fragments / name).resolve()
+    try:
+        path.relative_to(fragments)
+    except ValueError:
+        raise ConfigError(
+            f"profile.yaml: AGENTS.md fragment '{name}' must stay within {fragments}."
+        ) from None
     if not path.is_file():
         raise ConfigError(
             f"profile.yaml: AGENTS.md fragment '{name}' not found in {fragments}. "
             f"Fix agents_md_extra or add the fragment."
         )
-    return path.read_text().strip()
+    return path
+
+
+def _read_fragment(name: str) -> str:
+    """Read one agents.md.d fragment, or fail with a ConfigError naming it."""
+    return _fragment_path(name).read_text().strip()
+
+
+def methodology_name(profile: dict) -> str:
+    name = profile.get("methodology", "superpowers")
+    # A YAML list or dict is unhashable, so the membership test below would blow
+    # up with a TypeError instead of the profile error a human can act on.
+    if not isinstance(name, str) or name not in METHODOLOGIES:
+        raise ConfigError(
+            "profile.yaml: methodology must be one of "
+            f"{', '.join(sorted(METHODOLOGIES))}; got {name!r}"
+        )
+    return name
 
 
 def compose_agents_md(profile: dict) -> str:
-    parts = [_read_fragment("00-universal.md")]
+    selected = methodology_name(profile)
+    parts = [
+        _read_fragment("00-universal.md"),
+        _read_fragment(METHODOLOGY_FRAGMENTS[selected]),
+    ]
+    methodology_paths = {
+        _fragment_path(name) for name in METHODOLOGY_FRAGMENTS.values()
+    }
     for name in profile.get("agents_md_extra") or []:
-        parts.append(_read_fragment(name))
+        path = _fragment_path(name)
+        if path in methodology_paths:
+            raise ConfigError(
+                f"profile.yaml: agents_md_extra must not list the methodology "
+                f"fragment '{name}'. Set methodology: <name> instead; "
+                f"this profile selects {selected!r}."
+            )
+        parts.append(path.read_text().strip())
     return "\n\n".join(parts) + "\n"
 
 
@@ -353,12 +413,42 @@ def skill_names(directory: Path) -> set[str]:
     return {path.name for path in directory.iterdir() if path.is_dir()}
 
 
+def _load_methodology():
+    """Load methodology.py by path, so the manifest has a single definition.
+
+    Imported lazily and only by doctor: methodology.py loads this module in
+    turn, and nothing here may depend on it at import time.
+    """
+    name = "agent_stack_methodology"
+    if name in sys.modules:
+        return sys.modules[name]
+    loader = SourceFileLoader(name, str(STACK / "methodology.py"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        loader.exec_module(module)
+    except Exception:
+        del sys.modules[name]
+        raise
+    return module
+
+
+def active_skill_names(*, stack: Path, profile: Path, home: Path) -> set[str]:
+    """Names published by the always-on local and selected methodology layers."""
+    methodology = _load_methodology()
+    controller = methodology.Controller(home=home, stack=stack, profile=profile)
+    try:
+        return set(controller.active_skills(controller.selected_methodology()))
+    except methodology.MethodologyError as error:
+        raise ConfigError(str(error)) from error
+
+
 def external_skill_collisions(
-    stack_skills: Path,
+    canonical: set[str],
     external_skill_dirs: list[Path],
 ) -> dict[Path, set[str]]:
     """Find third-party skill names that shadow canonical agent-stack skills."""
-    canonical = skill_names(stack_skills)
     collisions: dict[Path, set[str]] = {}
     for directory in external_skill_dirs:
         overlap = canonical & skill_names(directory)
@@ -371,6 +461,7 @@ def doctor(
     *,
     stack: Path = STACK,
     external_skill_dirs: list[Path] | None = None,
+    canonical_skill_names: set[str] | None = None,
 ) -> list[str]:
     """Run read-only consistency checks for the rendered agent stack.
 
@@ -380,7 +471,11 @@ def doctor(
     """
     if external_skill_dirs is None:
         external_skill_dirs = DEFAULT_EXTERNAL_SKILL_DIRS
-    collisions = external_skill_collisions(stack / "skills", external_skill_dirs)
+    if canonical_skill_names is None:
+        canonical_skill_names = skill_names(stack / "skills") | skill_names(
+            stack / "local-skills"
+        )
+    collisions = external_skill_collisions(canonical_skill_names, external_skill_dirs)
     if collisions:
         lines = [
             "External skill name collision(s) detected.",
@@ -419,19 +514,9 @@ def prune_stale(directory: Path, keep: set[str]) -> list[str]:
     return [p.name for p in stale]
 
 
-def write_all(roster: dict, profile: dict) -> None:
-    """Render every harness in three strict phases.
-
-    1. Resolve and build every output in memory. Any ConfigError surfaces here,
-       before a single byte is written.
-    2. Write the files.
-    3. Prune stale files.
-
-    This is not a transaction, but nothing on disk changes until every input
-    has been validated, so a bad profile can no longer leave a half-updated
-    roster across four live directories.
-    """
-    # Phase 1: build everything in memory.
+def build_all(
+    roster: dict, profile: dict
+) -> tuple[list[Agent], dict[str, dict[str, str]], str, str]:
     agents = resolve_agents(roster, profile)
     planned: dict[str, dict[str, str]] = {h: {} for h in TARGETS}
     for agent in agents:
@@ -441,8 +526,12 @@ def write_all(roster: dict, profile: dict) -> None:
         for harness, emitter in (("claude", emit_claude), ("vibe", emit_vibe)):
             fname, content = emitter(agent)
             planned[harness][fname] = content
-    agents_md = compose_agents_md(profile)
-    profile_env = render_profile_env(profile)
+    return agents, planned, compose_agents_md(profile), render_profile_env(profile)
+
+
+def write_all(roster: dict, profile: dict) -> None:
+    """Render every harness after building and validating every output."""
+    agents, planned, agents_md, profile_env = build_all(roster, profile)
 
     # Phase 2: write.
     for harness, directory in TARGETS.items():
@@ -473,20 +562,37 @@ def write_all(roster: dict, profile: dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", nargs="?", choices=("render", "doctor"),
+    parser.add_argument("command", nargs="?", choices=("render", "validate", "doctor"),
                         default="render")
     parser.add_argument("--profile", type=Path,
                         default=STACK / "profile.yaml")
     parser.add_argument("--external-skill-dir", action="append", type=Path,
                         help="External third-party skill directory to check for name collisions. Repeatable; defaults to ~/.agents/skills.")
+    parser.add_argument("--home", type=Path, default=Path.home(),
+                        help="Home directory used to resolve the active methodology. Defaults to $HOME.")
     args = parser.parse_args()
     try:
         if args.command == "doctor":
-            for message in doctor(stack=STACK, external_skill_dirs=args.external_skill_dir):
+            canonical = active_skill_names(
+                stack=STACK, profile=args.profile, home=args.home
+            )
+            for message in doctor(
+                stack=STACK,
+                external_skill_dirs=(
+                    args.external_skill_dir or [args.home / ".agents/skills"]
+                ),
+                canonical_skill_names=canonical,
+            ):
                 print(message)
             print("agent-stack doctor: ok")
             return
-        write_all(load_roster(STACK / "roster.yaml"), load_profile(args.profile))
+        roster = load_roster(STACK / "roster.yaml")
+        profile = load_profile(args.profile)
+        if args.command == "validate":
+            build_all(roster, profile)
+            print("agent-stack render validation: ok")
+            return
+        write_all(roster, profile)
     except ConfigError as exc:
         # Profile and doctor errors are written for a human on a new machine's
         # first run. SystemExit prints the message and exits 1 with no traceback.

@@ -29,8 +29,11 @@ On each wake:
    - completion claim → use `verification-before-completion`
 4. Fix only validated issues that are in scope.
 5. Run focused verification.
-6. Push only when requested or clearly part of the approved workflow.
-7. Update loop state with what changed, what remains, and when to wake next.
+6. **Final-test gate:** Before this workflow completes, invoke `auditing-final-tests`
+   over the workflow's full change scope. Continue only on `PASS` or `NOT_APPLICABLE`.
+   Resolve `ACTION_REQUIRED`; report `BLOCKED` honestly.
+7. Push only when requested or clearly part of the approved workflow.
+8. Update loop state with what changed, what remains, and when to wake next.
 
 ## Stop Conditions
 

@@ -48,13 +48,19 @@ micro-optimization.
 
 ## Final-Test Audit
 
-Use `auditing-final-tests`. Inspect every added or changed test in its broader context:
-package responsibility, suite purpose, neighboring tests, and any higher-level policy or
-release checks. Flag TDD scaffolding that should be raised, moved, or removed before the
-diff is finalized. Treat many exact filenames, paths, package names, private constants,
-negative assertions against old implementation details, dependency hygiene tests in
-behavior suites, and duplicated near-identical cases as smells, not automatic failures.
-Preserve specific tests when the exact detail is the public contract or the suite's policy.
+Use `auditing-final-tests` as the canonical procedure, exactly as written; this contract
+deliberately does not restate its rubric, classification, or record format.
+
+This review is read-only, so compose only the gate's four-outcome interface:
+
+- Return the complete per-test records the skill requires, one per added or changed test.
+- `ACTION_REQUIRED` when any test still needs rework, a move, or deletion. Those actions
+  are required and not applied; they belong to the owning writer.
+- `BLOCKED` when scope or current test identity cannot be established, or when the required
+  verification evidence is missing.
+- `PASS` only when every changed test is Keep with no pending action and the required
+  verification evidence already exists.
+- `NOT_APPLICABLE` when no test changed in scope.
 
 ## Architecture and Thermo-Nuclear Maintainability
 

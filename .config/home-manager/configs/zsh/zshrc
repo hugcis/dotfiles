@@ -292,3 +292,15 @@ esac
 # Tool-provided env (uv/fnm-style installers drop this file); guarded so
 # hosts without it are unaffected. Folded in from archcis's local edits.
 [[ -f "$HOME/.local/bin/env" ]] && . "$HOME/.local/bin/env"
+
+# pnpm
+export PNPM_HOME="$HOME/.local/share/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME/bin:"*) ;;
+  *) export PATH="$PNPM_HOME/bin:$PATH" ;;
+esac
+# pnpm end
+
+# Treat ~/mistral as a project root so cross-repo and worktree paths
+# don't trip the outside-workdir permission prompt.
+[[ -d "$HOME/mistral" ]] && alias vibe='vibe --add-dir ~/mistral'

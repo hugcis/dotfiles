@@ -9,33 +9,43 @@ set -uo pipefail
 # reads are not. See denylist.example.txt for the format.
 DENYLIST="$HOME/.config/agent-stack/denylist.txt"
 if [ ! -f "$DENYLIST" ]; then
-  echo "pre-commit: no denylist at $DENYLIST — refusing to run unguarded."
-  echo "Copy denylist.example.txt to denylist.txt and fill in this machine's terms."
+  echo "pre-commit: no denylist at $DENYLIST; refusing to run unguarded." >&2
+  echo "Copy denylist.example.txt to denylist.txt and fill in this machine's terms." >&2
   exit 1
 fi
 
-mapfile -t PATTERNS < <(grep -vE '^\s*(#|$)' "$DENYLIST")
-if [ "${#PATTERNS[@]}" -eq 0 ]; then
-  echo "pre-commit: $DENYLIST contains no patterns — refusing to run unguarded."
+if ! pattern_text="$(grep -vE '^[[:space:]]*(#|$)' "$DENYLIST" 2>/dev/null)"; then
+  echo "pre-commit: denylist is empty or unreadable; refusing to run unguarded." >&2
   exit 1
 fi
 
-staged="$(git diff --cached --name-only --diff-filter=ACM)"
-[ -z "$staged" ] && exit 0
+if ! staged="$(git diff --cached --no-ext-diff --no-textconv --no-color -U0 2>/dev/null)"; then
+  echo "pre-commit: cannot read the staged diff; refusing to run unguarded." >&2
+  exit 1
+fi
 
 fail=0
-for pattern in "${PATTERNS[@]}"; do
-  if hits="$(git diff --cached -U0 | grep -nE "^\+.*${pattern}" 2>/dev/null)"; then
-    echo "BLOCKED: staged content matches /${pattern}/"
-    echo "$hits" | head -3
-    fail=1
-  fi
-done
+index=0
+# A pipe would put the loop in a subshell and lose its failure status.
+while IFS= read -r pattern; do
+  index=$((index + 1))
+  status=0
+  grep -E -- "^\+.*${pattern}" <<< "$staged" >/dev/null 2>&1 || status=$?
+  case "$status" in
+    0)
+      echo "BLOCKED: staged content matches denylist rule $index; inspect it locally." >&2
+      fail=1
+      ;;
+    1) ;;
+    *)
+      echo "pre-commit: scan failed for denylist rule $index; refusing to run unguarded." >&2
+      exit 1
+      ;;
+  esac
+done <<< "$pattern_text"
 
 if [ "$fail" -ne 0 ]; then
-  echo
-  echo "This repo is PUBLIC. Move the value into ~/.config/agent-stack/profile.yaml"
-  echo "or profile.env (both untracked). To override: git commit --no-verify"
+  echo "This repo is public. Keep sensitive values in untracked machine configuration." >&2
   exit 1
 fi
 exit 0

@@ -44,6 +44,12 @@
           system = "aarch64-darwin";
           channel = "unstable";
         };
+        # Mistral work laptop.
+        mistral-mac = {
+          user = "hugo.cisneros";
+          system = "aarch64-darwin";
+          channel = "unstable";
+        };
         # x86_64 Arch desktop.
         archcis = {
           user = "hugcis";

@@ -19,6 +19,8 @@ jobs:
         include:
           - os: macos-latest
             host: hugo@mac
+          - os: macos-latest
+            host: hugo.cisneros@mistral-mac
           - os: ubuntu-24.04
             host: hugcis@archcis
           - os: ubuntu-24.04-arm
@@ -31,4 +33,7 @@ jobs:
       - name: Evaluate every host on every system
         run: nix flake check --no-build --all-systems ./.config/home-manager
       - name: Build activation package
-        run: nix build -L ./.config/home-manager#homeConfigurations."${{ matrix.host }}".activationPackage
+        # Single quotes keep the inner double quotes for nix: without them
+        # bash strips the quotes and a dotted user (hugo.cisneros) splits the
+        # attribute path.
+        run: nix build -L './.config/home-manager#homeConfigurations."${{ matrix.host }}".activationPackage'

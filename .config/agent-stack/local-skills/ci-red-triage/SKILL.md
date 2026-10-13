@@ -22,6 +22,9 @@ Find the failing evidence before changing code. A red check name is a symptom, n
 5. If it is a code regression, reproduce or narrow locally before fixing.
 6. If it is external, stale, flaky, or unknown, report evidence and the next action instead of editing blindly.
 7. After any fix, run focused verification and summarize the command output.
+8. **Final-test gate:** Before this workflow completes, invoke `auditing-final-tests`
+   over the workflow's full change scope. Continue only on `PASS` or `NOT_APPLICABLE`.
+   Resolve `ACTION_REQUIRED`; report `BLOCKED` honestly.
 
 ## Output
 
