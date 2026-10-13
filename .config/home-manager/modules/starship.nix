@@ -31,7 +31,9 @@
         style_root = "purple bold italic";
         format = "[$user]($style)";
         # Local sessions stay bare (❯ only); SSH and root still show $user.
-        ssh_only = true;
+        # username has no ssh_only (that is a hostname key); show_always =
+        # false is what limits it to SSH, root, or a switched user.
+        show_always = false;
         disabled = false;
       };
 
