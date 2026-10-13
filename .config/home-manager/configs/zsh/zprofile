@@ -1,3 +1,11 @@
+# Undo macOS path_helper: /etc/zprofile runs after .zshenv and puts /usr/bin
+# and /bin first, which demotes Homebrew (bash 5, GNU coreutils) below the
+# Apple builds. Restore the order .zshenv built; path_helper-only entries stay
+# at the end. A no-op on Linux, where nothing reorders PATH.
+typeset -U path
+path=(${(s.:.)_zshenv_path} $path)
+export PATH
+
 # The following lines were added by Docker Desktop to add commands to your PATH.
 export PATH="$PATH:$HOME/.docker/bin"
 # End of Docker Desktop section.
