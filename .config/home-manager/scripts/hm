@@ -15,7 +15,7 @@ set -euo pipefail
 
 flake_dir="$HOME/.config/home-manager"
 user="$(id -un)"
-known_hosts="mac archcis rpi-5 remote-mistral"
+known_hosts="mac mistral-mac archcis rpi-5 remote-mistral"
 
 host=""
 rest=("$@")

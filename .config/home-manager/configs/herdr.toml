@@ -1,0 +1,11 @@
+onboarding = false
+
+[theme]
+name = "tokyo-night"
+auto_switch = false
+
+[ui.toast]
+delivery = "system"
+
+[ui]
+status_indicators = "symbols"

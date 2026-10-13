@@ -14,6 +14,13 @@
   # does not manage.
   home.file.".tmux.conf".source = ../configs/tmux.conf;
 
+  # Only the config is managed; herdr itself is built from ~/herdr.
+  xdg.configFile."herdr/config.toml".source = ../configs/herdr.toml;
+
+  xdg.configFile."ghostty/config" = lib.mkIf config.hq.desktop {
+    source = ../configs/ghostty;
+  };
+
   # Alacritty's font. On macOS CoreText does not see nix-installed fonts,
   # so the brew cask font stays the real provider there (see Brewfile);
   # on linux fontconfig hosts this package makes the font portable.
@@ -49,6 +56,10 @@
       };
       selection.save_to_clipboard = false;
       window = {
+        # macOS sends Option as a compose key, so Option+Backspace arrives as a
+        # bare DEL and word-wise editing is impossible. Left Option becomes Alt;
+        # right Option stays a compose key for accented characters.
+        option_as_alt = "OnlyLeft";
         decorations = "buttonless";
         startup_mode = "Fullscreen";
         title = "Alacritty";

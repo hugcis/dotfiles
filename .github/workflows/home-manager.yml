@@ -19,6 +19,8 @@ jobs:
         include:
           - os: macos-latest
             host: hugo@mac
+          - os: macos-latest
+            host: hugo.cisneros@mistral-mac
           - os: ubuntu-24.04
             host: hugcis@archcis
           - os: ubuntu-24.04-arm

@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, lib, pkgs, ... }:
 
 {
   # Daily-driver CLI tools, migrated from the Brewfile. After each addition,
@@ -22,5 +22,9 @@
     tokei
     pv
     just
+    glow
+    pipx
+  ] ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+    xcodes
   ];
 }
