@@ -701,6 +701,42 @@ def write_pi_settings(path: Path, settings: dict) -> None:
     staged.replace(path)
 
 
+def link_pi_extensions(names: list[str], directory: Path) -> list[str]:
+    """Symlink each named stack extension into Pi's extensions directory.
+
+    A conflicting entry is moved aside once. Only symlinks into the stack's
+    pi/extensions are pruned, so host-local extensions are left alone.
+    """
+    source = STACK / PI_EXTENSIONS_DIR
+    report: list[str] = []
+    if directory.is_dir():
+        for entry in sorted(directory.iterdir()):
+            if (
+                entry.is_symlink()
+                and entry.name not in names
+                and Path(os.readlink(entry)).parent == source
+            ):
+                entry.unlink()
+                report.append(f"pi: removed extension link {entry.name}")
+    backup: Path | None = None
+    for name in names:
+        link, target = directory / name, source / name
+        if link.is_symlink() and Path(os.readlink(link)) == target:
+            continue
+        if link.exists() or link.is_symlink():
+            if backup is None:
+                BACKUP_ROOT.mkdir(parents=True, exist_ok=True)
+                backup = Path(
+                    tempfile.mkdtemp(prefix="pi-extensions.pre-render-", dir=BACKUP_ROOT)
+                )
+            shutil.move(str(link), str(backup / name))
+            report.append(f"pi: moved existing extension {name} aside to {backup / name}")
+        directory.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(target)
+        report.append(f"pi: linked extension {name}")
+    return report
+
+
 def build_all(
     roster: dict, profile: dict
 ) -> tuple[list[Agent], dict[str, dict[str, str]], str, str]:

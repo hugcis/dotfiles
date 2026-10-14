@@ -1,0 +1,6 @@
+{
+  "toolDescriptionMode": "compact",
+  "maxSubagentSpawnsPerRun": 8,
+  "maxSubagentSpawnsPerSession": 60,
+  "maxActiveAsyncRunsPerSession": 0
+}

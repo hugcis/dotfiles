@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -214,3 +215,38 @@ def test_write_pi_settings_backs_up_the_previous_file(tmp_path, monkeypatch):
     assert json.loads(path.read_text()) == {"theme": "dark"}
     backups = list((tmp_path / "backups").glob("pi-settings.pre-render-*/settings.json"))
     assert [b.read_text() for b in backups] == ['{"theme": "light"}']
+
+
+def test_link_pi_extensions_links_moves_aside_and_prunes(tmp_path, monkeypatch):
+    stack = _stack(
+        tmp_path, monkeypatch, "", extensions=("comment-discipline", "subagent", "retired")
+    )
+    directory = tmp_path / "home/.pi/agent/extensions"
+    (directory / "subagent").mkdir(parents=True)
+    (directory / "subagent/config.json").write_text("{}")
+    (directory / "retired").symlink_to(stack / "pi/extensions/retired")
+    (directory / "host-local").mkdir()
+    foreign = directory / "zellij"
+    foreign.symlink_to(tmp_path)
+
+    report = render.link_pi_extensions(["comment-discipline", "subagent"], directory)
+
+    for name in ("comment-discipline", "subagent"):
+        assert Path(os.readlink(directory / name)) == stack / "pi/extensions" / name
+    assert not (directory / "retired").is_symlink()
+    assert (directory / "host-local").is_dir()
+    assert foreign.is_symlink()
+    moved = list(
+        (tmp_path / "backups").glob("pi-extensions.pre-render-*/subagent/config.json")
+    )
+    assert len(moved) == 1
+    assert any("moved existing extension subagent" in line for line in report)
+
+
+def test_link_pi_extensions_is_quiet_once_linked(tmp_path, monkeypatch):
+    _stack(tmp_path, monkeypatch, "", extensions=("subagent",))
+    directory = tmp_path / "home/.pi/agent/extensions"
+
+    render.link_pi_extensions(["subagent"], directory)
+
+    assert render.link_pi_extensions(["subagent"], directory) == []
