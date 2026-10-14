@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import render
@@ -109,6 +110,28 @@ def test_model_entry_rejects_unknown_keys():
     config = _config({"default": {"slot": "primary", "effort": "high"}})
 
     with pytest.raises(render.ConfigError, match="slot name or"):
+        render.pi_managed_settings(config, PROFILE)
+
+
+def test_quoted_off_overrides_a_slot_bound_thinking():
+    config = _config({"subagents": {"scout": {"slot": "primary", "thinking": "off"}}})
+
+    overrides = render.pi_managed_settings(config, PROFILE)["subagents"]["agentOverrides"]
+    assert overrides["scout"] == {"model": "prov-a/big", "thinking": "off"}
+
+
+def test_bare_yaml_off_is_rejected_with_a_quoting_hint():
+    entry = yaml.safe_load("{slot: primary, thinking: off}")
+    config = _config({"subagents": {"scout": entry}})
+
+    with pytest.raises(render.ConfigError, match=r"models\.subagents\.scout.*quote"):
+        render.pi_managed_settings(config, PROFILE)
+
+
+def test_default_model_rejects_thinking():
+    config = _config({"default": {"slot": "primary", "thinking": "low"}})
+
+    with pytest.raises(render.ConfigError, match="defaultThinkingLevel"):
         render.pi_managed_settings(config, PROFILE)
 
 

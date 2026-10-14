@@ -591,6 +591,11 @@ def pi_model(entry, profile: dict, where: str) -> tuple[str, str, str | None]:
         slot_name, thinking = entry["slot"], entry.get("thinking")
     else:
         raise ConfigError(f"pi.yaml: {where} must be a slot name or {{slot, thinking}}.")
+    if thinking is not None and not isinstance(thinking, str):
+        raise ConfigError(
+            f"pi.yaml: {where}.thinking must be a string; quote values such as "
+            "\"off\" (YAML reads bare off as false)."
+        )
     binding = (profile.get("slots") or {}).get(slot_name)
     if not binding:
         raise ConfigError(
@@ -604,7 +609,7 @@ def pi_model(entry, profile: dict, where: str) -> tuple[str, str, str | None]:
                 f"(needed by pi.yaml {where}). Add it to your machine profile."
             )
     provider = provider_name(profile, "pi", binding["provider"], f"pi.yaml {where}")
-    return provider, binding["model"], thinking or binding.get("thinking")
+    return provider, binding["model"], thinking if thinking is not None else binding.get("thinking")
 
 
 def pi_managed_settings(config: dict, profile: dict) -> dict:
@@ -612,6 +617,11 @@ def pi_managed_settings(config: dict, profile: dict) -> dict:
     managed = dict(config["settings"])
     models = config["models"]
     if "default" in models:
+        if isinstance(models["default"], dict) and "thinking" in models["default"]:
+            raise ConfigError(
+                "pi.yaml: models.default takes no thinking; "
+                "set settings.defaultThinkingLevel instead."
+            )
         provider, model, _ = pi_model(models["default"], profile, "models.default")
         managed["defaultProvider"] = provider
         managed["defaultModel"] = model
