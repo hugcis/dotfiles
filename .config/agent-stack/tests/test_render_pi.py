@@ -316,3 +316,36 @@ def test_install_failure_is_reported_not_raised(tmp_path, monkeypatch):
     report = render.install_pi_packages(["npm:nope"], runner=runner, which=_pi_on_path)
 
     assert report == ["pi: `pi install npm:nope` failed: npm ERR! 404"]
+
+
+def test_install_reports_an_unreadable_manifest_instead_of_raising(tmp_path, monkeypatch):
+    stack = _stack(tmp_path, monkeypatch, "")
+    (stack / "methodologies.yaml").write_text("version: [")
+    runner = Runner()
+
+    report = render.install_pi_packages(["npm:x"], runner=runner, which=_pi_on_path)
+
+    assert len(report) == 1
+    assert report[0].startswith("pi: packages not checked:")
+    assert runner.calls == []
+
+
+def test_install_reports_a_runner_os_error_and_continues(tmp_path, monkeypatch):
+    _stack(tmp_path, monkeypatch, "")
+    calls: list[list[str]] = []
+
+    def runner(args, **kwargs):
+        calls.append(list(args))
+        if args[-1] == "npm:first":
+            raise FileNotFoundError("pi vanished")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    report = render.install_pi_packages(
+        ["npm:first", "npm:second"], runner=runner, which=_pi_on_path
+    )
+
+    assert report == [
+        "pi: `pi install npm:first` failed: pi vanished",
+        "pi: installed npm:second",
+    ]
+    assert calls[-1] == ["pi", "install", "npm:second"]

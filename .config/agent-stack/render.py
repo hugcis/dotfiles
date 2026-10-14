@@ -746,10 +746,11 @@ def install_pi_packages(packages: list[str], *, runner=None, which=None) -> list
     if not packages:
         return []
     methodology = _load_methodology()
-    controller = methodology.Controller(home=PI_HOME, stack=STACK)
     try:
+        controller = methodology.Controller(home=PI_HOME, stack=STACK)
         missing = controller.missing_pi_packages(packages)
-    except methodology.MethodologyError as error:
+    # methodology's ConfigError is its own load of render.py, not this module's.
+    except (methodology.MethodologyError, methodology.ConfigError) as error:
         return [f"pi: packages not checked: {error}"]
     if not missing:
         return []
@@ -762,7 +763,11 @@ def install_pi_packages(packages: list[str], *, runner=None, which=None) -> list
     run = runner or methodology.run_command
     report: list[str] = []
     for package in missing:
-        result = run(["pi", "install", package], check=False)
+        try:
+            result = run(["pi", "install", package], check=False)
+        except OSError as error:
+            report.append(f"pi: `pi install {package}` failed: {error}")
+            continue
         if result.returncode == 0:
             report.append(f"pi: installed {package}")
             continue
