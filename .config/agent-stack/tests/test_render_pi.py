@@ -140,3 +140,77 @@ def test_provider_name_keeps_the_agent_error_wording():
         render.provider_name(
             {"provider_names": {"pi": {}}}, "pi", "mistral", "agent 'x'"
         )
+
+
+PI_YAML = "settings:\n  theme: dark\nmodels:\n  default: primary\n"
+
+
+def _stack(tmp_path, monkeypatch, pi_yaml: str, extensions=()) -> Path:
+    stack = tmp_path / "stack"
+    stack.mkdir()
+    for name in extensions:
+        (stack / "pi" / "extensions" / name).mkdir(parents=True)
+    (stack / "pi.yaml").write_text(pi_yaml)
+    shutil.copy(STACK / "methodologies.yaml", stack / "methodologies.yaml")
+    monkeypatch.setattr(render, "STACK", stack)
+    monkeypatch.setattr(render, "PI_HOME", tmp_path / "home")
+    monkeypatch.setattr(render, "BACKUP_ROOT", tmp_path / "backups")
+    return stack
+
+
+def _settings_file(tmp_path, content) -> Path:
+    path = tmp_path / "home/.pi/agent/settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content if isinstance(content, str) else json.dumps(content))
+    return path
+
+
+def test_build_pi_is_none_without_pi_yaml(tmp_path, monkeypatch):
+    monkeypatch.setattr(render, "STACK", tmp_path)
+    assert render.build_pi(PROFILE) is None
+
+
+def test_build_pi_keeps_keys_render_does_not_own(tmp_path, monkeypatch):
+    _stack(tmp_path, monkeypatch, PI_YAML)
+    _settings_file(
+        tmp_path,
+        {"lastChangelogVersion": "1.1.0", "theme": "light", "packages": ["npm:x"]},
+    )
+
+    plan = render.build_pi(PROFILE)
+
+    assert plan.settings == {
+        "lastChangelogVersion": "1.1.0",
+        "theme": "dark",
+        "packages": ["npm:x"],
+        "defaultProvider": "prov-a",
+        "defaultModel": "big",
+    }
+
+
+def test_build_pi_plans_no_write_when_settings_are_current(tmp_path, monkeypatch):
+    _stack(tmp_path, monkeypatch, PI_YAML)
+    _settings_file(
+        tmp_path, {"theme": "dark", "defaultProvider": "prov-a", "defaultModel": "big"}
+    )
+
+    assert render.build_pi(PROFILE).settings is None
+
+
+def test_build_pi_rejects_unreadable_settings(tmp_path, monkeypatch):
+    _stack(tmp_path, monkeypatch, PI_YAML)
+    _settings_file(tmp_path, "{not json")
+
+    with pytest.raises(render.ConfigError, match="settings.json"):
+        render.build_pi(PROFILE)
+
+
+def test_write_pi_settings_backs_up_the_previous_file(tmp_path, monkeypatch):
+    _stack(tmp_path, monkeypatch, PI_YAML)
+    path = _settings_file(tmp_path, '{"theme": "light"}')
+
+    render.write_pi_settings(path, {"theme": "dark"})
+
+    assert json.loads(path.read_text()) == {"theme": "dark"}
+    backups = list((tmp_path / "backups").glob("pi-settings.pre-render-*/settings.json"))
+    assert [b.read_text() for b in backups] == ['{"theme": "light"}']

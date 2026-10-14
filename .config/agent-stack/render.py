@@ -279,6 +279,7 @@ DEFAULT_EXTERNAL_SKILL_DIRS = [Path.home() / ".agents/skills"]
 # Where pre-render copies of clobbered AGENTS.md files go. Outside every harness
 # directory so no harness ever loads a backup as a live config.
 BACKUP_ROOT = Path.home() / ".local/state/agent-stack"
+PI_HOME = Path.home()
 
 
 def distinct_agents_md_targets(targets: list[Path] | None = None) -> list[Path]:
@@ -648,6 +649,56 @@ def pi_managed_settings(config: dict, profile: dict) -> dict:
         subagents["modelScope"] = {"enforce": True, "allow": [f"{p}/*" for p in providers]}
         managed["subagents"] = subagents
     return managed
+
+
+@dataclass(frozen=True)
+class PiPlan:
+    settings_path: Path
+    settings: dict | None  # merged settings.json, or None when already current
+    packages: list[str]
+    extensions: list[str]
+
+
+def read_pi_settings(path: Path) -> dict:
+    if not path.is_file():
+        return {}
+    try:
+        settings = json.loads(path.read_text())
+    except json.JSONDecodeError as error:
+        raise ConfigError(
+            f"{path}: not valid JSON ({error}); fix or remove it, then re-render."
+        ) from error
+    if not isinstance(settings, dict):
+        raise ConfigError(f"{path}: settings must be a JSON object.")
+    return settings
+
+
+def build_pi(profile: dict) -> PiPlan | None:
+    """Validate pi.yaml and compute this host's Pi changes without writing."""
+    config = load_pi_config(STACK / "pi.yaml")
+    if config is None:
+        return None
+    path = PI_HOME / ".pi/agent/settings.json"
+    current = read_pi_settings(path)
+    merged = {**current, **pi_managed_settings(config, profile)}
+    return PiPlan(
+        settings_path=path,
+        settings=None if merged == current else merged,
+        packages=config["packages"],
+        extensions=config["extensions"],
+    )
+
+
+def write_pi_settings(path: Path, settings: dict) -> None:
+    """Replace settings.json, keeping the previous file under BACKUP_ROOT."""
+    if path.is_file():
+        BACKUP_ROOT.mkdir(parents=True, exist_ok=True)
+        backup = Path(tempfile.mkdtemp(prefix="pi-settings.pre-render-", dir=BACKUP_ROOT))
+        shutil.copy2(path, backup / "settings.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staged = path.with_name(path.name + ".tmp")
+    staged.write_text(json.dumps(settings, indent=2) + "\n")
+    staged.replace(path)
 
 
 def build_all(
