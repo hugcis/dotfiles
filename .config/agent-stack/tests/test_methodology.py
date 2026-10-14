@@ -527,8 +527,8 @@ def test_tracked_manifest_pins_the_reviewed_compound_engineering_source():
 
     spec = manifest.compound_engineering
     assert manifest.local_skills_path == "local-skills"
-    assert spec.revision == "26bf5b1e377212c0e4996824fee1dea1eddd817d"
-    assert spec.expected_skill_count == 33
+    assert spec.revision == "67035e931c5cb26e80f198a7019a4502a9788273"
+    assert spec.expected_skill_count == 36
     assert list(spec.pi_companions) == ["npm:pi-subagents", "npm:pi-ask-user"]
     assert spec.checkout == Path(
         "/nonexistent-home/.local/share/agent-stack/compound-engineering-plugin"
