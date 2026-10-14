@@ -105,5 +105,20 @@
       homeConfigurations = lib.mapAttrs'
         (name: host: lib.nameValuePair "${host.user}@${name}" (mkHome { inherit name; }))
         hosts;
+
+      # Tests for ./scripts, on every system a host uses (CI runs them).
+      checks = lib.genAttrs
+        (lib.unique (lib.mapAttrsToList (_: host: host.system) hosts))
+        (system:
+          let pkgs = nixpkgs.legacyPackages.${system}; in
+          {
+            scripts = pkgs.runCommand "dotfiles-scripts-check"
+              { nativeBuildInputs = [ pkgs.git pkgs.python3 ]; }
+              ''
+                bash ${./tests/agent-stack-render.sh} ${./scripts/agent-stack-render}
+                bash ${./tests/agent-stack-push.sh} ${./scripts/agent-stack-push}
+                touch $out
+              '';
+          });
     };
 }

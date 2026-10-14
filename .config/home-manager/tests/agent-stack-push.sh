@@ -25,8 +25,9 @@ export GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.
   GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
 L=$t/laptop R=$t/host
 mkdir -p "$L/.config/agent-stack" "$R" "$t/bin"
+# Absolute bash path: build sandboxes have no /usr/bin/env.
 cat > "$t/bin/ssh" <<EOF
-#!/usr/bin/env bash
+#!$BASH
 shift
 HOME="$R" exec bash -c "\$*"
 EOF
