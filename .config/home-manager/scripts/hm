@@ -11,6 +11,9 @@
 # Any other first argument (or none) passes through to home-manager:
 #   hm news            runs `home-manager news`
 #   hm archcis build
+#
+# If ~/.config/home-manager/private-flake exists (one-line marker, not in
+# git), it names a private flake to switch from instead. See below.
 set -euo pipefail
 
 flake_dir="$HOME/.config/home-manager"
@@ -42,6 +45,23 @@ if [[ -z "$host" ]]; then
     echo "hm: cannot guess a host for '$hn' ($(uname -sm)); pass one of: $known_hosts" >&2
     exit 1
   fi
+fi
+
+# Optional private flake layered on this one, for machine-specific config
+# that must stay out of this public repo. It takes this flake as its
+# `dotfiles` input and exports the same homeConfigurations name. The input
+# is pointed at this working copy, so uncommitted edits apply and the
+# private lock file is not rewritten on every switch.
+private_marker="$flake_dir/private-flake"
+if [[ -r "$private_marker" ]]; then
+  private_flake="$(head -n1 "$private_marker")"
+  if [[ ! -f "$private_flake/flake.nix" ]]; then
+    echo "hm: $private_marker points at '$private_flake', which has no flake.nix" >&2
+    exit 1
+  fi
+  exec home-manager switch --flake "$private_flake#$user@$host" \
+    --override-input dotfiles "path:$flake_dir" --no-write-lock-file \
+    ${rest[@]+"${rest[@]}"}
 fi
 
 exec home-manager switch --flake "$flake_dir#$user@$host" ${rest[@]+"${rest[@]}"}
