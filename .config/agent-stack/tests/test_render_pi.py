@@ -66,6 +66,60 @@ def test_load_pi_config_accepts_an_extension_with_a_directory(tmp_path, monkeypa
     assert render.load_pi_config(tmp_path / "pi.yaml")["extensions"] == ["subagent"]
 
 
+def test_load_pi_config_reads_compact_at_tokens(tmp_path):
+    (tmp_path / "pi.yaml").write_text("compactAtTokens: 500000\n")
+
+    assert render.load_pi_config(tmp_path / "pi.yaml")["compactAtTokens"] == 500000
+
+
+def test_load_pi_config_leaves_compact_at_tokens_unset_by_default(tmp_path):
+    (tmp_path / "pi.yaml").write_text("settings:\n  theme: dark\n")
+
+    assert render.load_pi_config(tmp_path / "pi.yaml")["compactAtTokens"] is None
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "'500000'", "true", "1.5"])
+def test_load_pi_config_rejects_a_non_positive_int_compact_at_tokens(tmp_path, value):
+    (tmp_path / "pi.yaml").write_text(f"compactAtTokens: {value}\n")
+
+    with pytest.raises(render.ConfigError, match="compactAtTokens must be a positive integer"):
+        render.load_pi_config(tmp_path / "pi.yaml")
+
+
+def _models_json(*providers: tuple[str, list[dict]]) -> dict:
+    return {"providers": {name: {"models": models} for name, models in providers}}
+
+
+def test_compaction_overrides_cover_only_windows_above_the_threshold():
+    models = _models_json(
+        (
+            "gw",
+            [
+                {"id": "above", "contextWindow": 1_000_000},
+                {"id": "at", "contextWindow": 500_000},
+                {"id": "below", "contextWindow": 200_000},
+                {"id": "unknown"},
+            ],
+        )
+    )
+
+    assert render.pi_compaction_overrides(models, 500_000) == {
+        "gw/above": {"reserveTokens": 500_000}
+    }
+
+
+def test_compaction_overrides_key_every_provider_by_provider_and_full_id():
+    models = _models_json(
+        ("gw", [{"id": "vendor/big", "contextWindow": 1_048_576}]),
+        ("other", [{"id": "huge", "contextWindow": 2_000_000}]),
+    )
+
+    assert render.pi_compaction_overrides(models, 500_000) == {
+        "gw/vendor/big": {"reserveTokens": 548_576},
+        "other/huge": {"reserveTokens": 1_500_000},
+    }
+
+
 def test_managed_settings_resolve_slots_on_this_host():
     config = _config(
         {
@@ -208,6 +262,61 @@ def test_build_pi_rejects_unreadable_settings(tmp_path, monkeypatch):
     _settings_file(tmp_path, "{not json")
 
     with pytest.raises(render.ConfigError, match="settings.json"):
+        render.build_pi(PROFILE)
+
+
+COMPACT_PI_YAML = (
+    "compactAtTokens: 500000\n"
+    "settings:\n"
+    "  compaction:\n"
+    "    enabled: true\n"
+    "    modelOverrides:\n"
+    "      gw/big: {reserveTokens: 1}\n"
+    "      gw/kept: {reserveTokens: 2}\n"
+)
+
+
+def _models_file(tmp_path, content) -> Path:
+    path = tmp_path / "home/.pi/agent/models.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content if isinstance(content, str) else json.dumps(content))
+    return path
+
+
+def test_build_pi_compacts_large_models_on_top_of_pi_yaml_compaction(tmp_path, monkeypatch):
+    _stack(tmp_path, monkeypatch, COMPACT_PI_YAML)
+    models = _models_file(
+        tmp_path, _models_json(("gw", [{"id": "big", "contextWindow": 1_000_000}]))
+    )
+    models_before = models.read_text()
+
+    plan = render.build_pi(PROFILE)
+
+    assert plan.settings["compaction"] == {
+        "enabled": True,
+        "modelOverrides": {
+            "gw/big": {"reserveTokens": 500_000},
+            "gw/kept": {"reserveTokens": 2},
+        },
+    }
+    assert models.read_text() == models_before
+
+
+def test_build_pi_adds_no_overrides_without_models_json(tmp_path, monkeypatch):
+    pi_yaml = "compactAtTokens: 500000\nsettings:\n  compaction: {enabled: true}\n"
+    _stack(tmp_path, monkeypatch, pi_yaml)
+
+    assert render.build_pi(PROFILE).settings == {"compaction": {"enabled": True}}
+
+
+@pytest.mark.parametrize(
+    ("content", "message"), [("{not json", "not valid JSON"), ("[]", "JSON object")]
+)
+def test_build_pi_rejects_an_unusable_models_json(tmp_path, monkeypatch, content, message):
+    _stack(tmp_path, monkeypatch, COMPACT_PI_YAML)
+    _models_file(tmp_path, content)
+
+    with pytest.raises(render.ConfigError, match=rf"models\.json: .*{message}"):
         render.build_pi(PROFILE)
 
 

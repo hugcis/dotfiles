@@ -539,7 +539,7 @@ def prune_stale(directory: Path, keep: set[str]) -> list[str]:
 
 # -- pi settings, packages and extensions ------------------------------------
 
-PI_SECTIONS = frozenset({"settings", "models", "packages", "extensions"})
+PI_SECTIONS = frozenset({"settings", "models", "packages", "extensions", "compactAtTokens"})
 # Keys render derives from `models`, plus `packages`, which only `pi install`
 # writes so Pi's own package bookkeeping stays consistent.
 PI_DERIVED_SETTINGS = frozenset({"defaultProvider", "defaultModel", "subagents", "packages"})
@@ -585,11 +585,17 @@ def load_pi_config(path: Path) -> dict | None:
         raise ConfigError("pi.yaml: models takes only 'default' and 'subagents'.")
     if not isinstance(models.get("subagents") or {}, dict):
         raise ConfigError("pi.yaml: models.subagents must be a mapping.")
+    compact_at = config.get("compactAtTokens")
+    if compact_at is not None and (
+        isinstance(compact_at, bool) or not isinstance(compact_at, int) or compact_at <= 0
+    ):
+        raise ConfigError("pi.yaml: compactAtTokens must be a positive integer.")
     return {
         "settings": settings,
         "models": models,
         "packages": config.get("packages") or [],
         "extensions": config.get("extensions") or [],
+        "compactAtTokens": compact_at,
     }
 
 
@@ -660,6 +666,20 @@ def pi_managed_settings(config: dict, profile: dict) -> dict:
     return managed
 
 
+def pi_compaction_overrides(models_json: dict, compact_at: int) -> dict:
+    """Per-model reserveTokens so Pi compacts windows above compact_at near compact_at.
+
+    Pi compacts once context exceeds contextWindow - reserveTokens.
+    """
+    overrides = {}
+    for provider, entry in (models_json.get("providers") or {}).items():
+        for model in entry.get("models") or []:
+            window = model.get("contextWindow")
+            if isinstance(window, int) and window > compact_at:
+                overrides[f"{provider}/{model['id']}"] = {"reserveTokens": window - compact_at}
+    return overrides
+
+
 @dataclass(frozen=True)
 class PiPlan:
     settings_path: Path
@@ -668,18 +688,19 @@ class PiPlan:
     extensions: list[str]
 
 
-def read_pi_settings(path: Path) -> dict:
+def read_pi_json(path: Path) -> dict:
+    """Read one of Pi's JSON object files; {} when absent."""
     if not path.is_file():
         return {}
     try:
-        settings = json.loads(path.read_text())
+        content = json.loads(path.read_text())
     except json.JSONDecodeError as error:
         raise ConfigError(
             f"{path}: not valid JSON ({error}); fix or remove it, then re-render."
         ) from error
-    if not isinstance(settings, dict):
-        raise ConfigError(f"{path}: settings must be a JSON object.")
-    return settings
+    if not isinstance(content, dict):
+        raise ConfigError(f"{path}: must be a JSON object.")
+    return content
 
 
 def build_pi(profile: dict) -> PiPlan | None:
@@ -688,8 +709,16 @@ def build_pi(profile: dict) -> PiPlan | None:
     if config is None:
         return None
     path = PI_HOME / ".pi/agent/settings.json"
-    current = read_pi_settings(path)
-    merged = {**current, **pi_managed_settings(config, profile)}
+    current = read_pi_json(path)
+    managed = pi_managed_settings(config, profile)
+    if config["compactAtTokens"]:
+        models = read_pi_json(PI_HOME / ".pi/agent/models.json")
+        overrides = pi_compaction_overrides(models, config["compactAtTokens"])
+        if overrides:
+            compaction = dict(managed.get("compaction") or {})
+            compaction["modelOverrides"] = {**compaction.get("modelOverrides", {}), **overrides}
+            managed["compaction"] = compaction
+    merged = {**current, **managed}
     return PiPlan(
         settings_path=path,
         settings=None if merged == current else merged,
