@@ -31,6 +31,7 @@
     ./modules/starship.nix
     ./modules/shell.nix
     ./modules/claude.nix
+    ./modules/agent-stack.nix
   ];
 
   # Set per host in hosts/*.nix (the release each machine started with).
