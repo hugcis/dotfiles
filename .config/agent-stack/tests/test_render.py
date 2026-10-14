@@ -601,13 +601,15 @@ def test_emit_vibe_coder_is_destructive_and_writable():
     _assert_vibe_permissions(content, safety="destructive", write_permission="always")
 
 
-def test_emit_vibe_uses_existing_prompt_ids():
+def test_emit_vibe_names_the_role_prompt_file():
     agents, _ = _resolved()
     coder = next(a for a in agents if a.name == "coder-primary")
     reviewer = next(a for a in agents if a.name == "reviewer-primary")
 
-    assert 'system_prompt_id = "opencode-coder"' in render.emit_vibe(coder)[1]
-    assert 'system_prompt_id = "opencode-reviewer"' in render.emit_vibe(reviewer)[1]
+    # Vibe drops an agent whose system_prompt_id names no prompt file, so the
+    # id must be the stem of the role prompt the roster points at.
+    assert 'system_prompt_id = "coder"' in render.emit_vibe(coder)[1]
+    assert 'system_prompt_id = "reviewer"' in render.emit_vibe(reviewer)[1]
 
 
 def test_emit_claude_frontmatter():
@@ -877,7 +879,9 @@ def _sandbox(tmp_path, monkeypatch) -> dict:
     monkeypatch.setattr(render, "TARGETS", targets)
     monkeypatch.setattr(render, "AGENTS_MD_TARGETS", [home / "pi" / "AGENTS.md"])
     monkeypatch.setattr(render, "BACKUP_ROOT", tmp_path / "backups")
-    return {"stack": stack, "home": home, "targets": targets}
+    prompts = home / "vibe" / "prompts"
+    monkeypatch.setattr(render, "VIBE_PROMPTS", prompts)
+    return {"stack": stack, "home": home, "targets": targets, "prompts": prompts}
 
 
 def _tree_contents(root: Path) -> dict[str, bytes | None]:
@@ -940,6 +944,24 @@ def test_write_all_writes_and_prunes(tmp_path, monkeypatch):
     assert (box["stack"] / "profile.env").exists()
     backups = list((box["home"] / "pi").glob("agents.pre-render-*/legacy-coder.md"))
     assert [p.read_text() for p in backups] == ["hand written"]
+
+
+def test_write_all_installs_every_prompt_a_vibe_agent_names(tmp_path, monkeypatch):
+    box = _sandbox(tmp_path, monkeypatch)
+    own = box["prompts"] / "mine.md"
+    own.parent.mkdir(parents=True)
+    own.write_text("user prompt")
+    roster = render.load_roster(STACK / "roster.yaml")
+
+    render.write_all(roster, render.load_profile(FIXTURE))
+
+    vibe_agents = sorted(box["targets"]["vibe"].glob("*.toml"))
+    assert vibe_agents
+    for agent in vibe_agents:
+        prompt_id = re.search(r'system_prompt_id = "([^"]+)"', agent.read_text()).group(1)
+        expected = (STACK / "prompts" / f"{prompt_id}.md").read_text().strip()
+        assert (box["prompts"] / f"{prompt_id}.md").read_text() == expected
+    assert own.read_text() == "user prompt"
 
 
 def test_write_all_writes_nothing_when_an_agents_md_fragment_is_missing(

@@ -50,6 +50,10 @@ class Agent:
     bash: str
     acceptance: str
     prompt: str
+    # The role prompt's filename stem. Vibe references a prompt by id rather
+    # than inlining it, and resolves that id against ~/.vibe/prompts/<id>.md,
+    # so the id has to be the stem of the very file `prompt` was read from.
+    prompt_id: str
     # Optional: the vibe [[models]] alias to select for this slot. Vibe stores
     # `thinking` on the model alias, not on the agent, so an agent can only pick
     # a reasoning level by naming an alias that already carries it. Falls back to
@@ -76,7 +80,8 @@ def resolve_agents(roster: dict, profile: dict) -> list[Agent]:
     agents: list[Agent] = []
     for role_name, slot_names in roster["emit"].items():
         role = roster["roles"][role_name]
-        prompt = (STACK / role["prompt"]).read_text().strip()
+        prompt_path = STACK / role["prompt"]
+        prompt = prompt_path.read_text().strip()
         for slot_name in slot_names:
             if slot_name not in slots:
                 continue  # slot unbound on this machine: emit nothing
@@ -99,6 +104,7 @@ def resolve_agents(roster: dict, profile: dict) -> list[Agent]:
                     bash=role["bash"],
                     acceptance=role["acceptance"],
                     prompt=prompt,
+                    prompt_id=prompt_path.stem,
                     vibe_model=binding.get("vibe_model"),
                 )
             )
@@ -182,7 +188,6 @@ model: {model_ref(agent, profile, "opencode")}
 def emit_vibe(agent: Agent) -> tuple[str, str]:
     perm = "never" if agent.write == "deny" else "always"
     safety = "safe" if agent.write == "deny" else "destructive"
-    prompt_ids = {"coder": "opencode-coder", "reviewer": "opencode-reviewer"}
     title = agent.name.replace("-", " ").title()
     lines = [
         f'display_name = "{title}"',
@@ -196,7 +201,9 @@ def emit_vibe(agent: Agent) -> tuple[str, str]:
         # level by naming an alias that carries it, via the optional profile key
         # `vibe_model`; without it we fall back to the bare model id.
         f'active_model = "{agent.vibe_model or agent.model}"',
-        f'system_prompt_id = "{prompt_ids[agent.role]}"',
+        # Vibe validates this id at load time and drops the whole agent when it
+        # resolves nowhere, so it must name a real ~/.vibe/prompts/<id>.md.
+        f'system_prompt_id = "{agent.prompt_id}"',
         "",
         "[tools.bash]",
         f'permission = "{agent.bash}"',
@@ -242,6 +249,11 @@ TARGETS = {
     "vibe": Path.home() / ".vibe/agents",
     "claude": Path.home() / ".claude/agents",
 }
+
+# Vibe resolves an agent's system_prompt_id against this directory and silently
+# drops any agent whose id does not resolve, so the renderer installs the role
+# prompts here rather than trusting them to have been copied by hand.
+VIBE_PROMPTS = Path.home() / ".vibe/prompts"
 
 AGENTS_MD_TARGETS = [
     # ~/.pi/agent/AGENTS.md is a SYMLINK to ~/.vibe/AGENTS.md, so these four
@@ -538,6 +550,12 @@ def write_all(roster: dict, profile: dict) -> None:
         directory.mkdir(parents=True, exist_ok=True)
         for fname, content in planned[harness].items():
             (directory / fname).write_text(content)
+    # Keyed by prompt id, so exactly the prompts the emitted agents name get
+    # installed. Not pruned: this directory also holds the user's own prompts.
+    prompts = {agent.prompt_id: agent.prompt for agent in agents}
+    VIBE_PROMPTS.mkdir(parents=True, exist_ok=True)
+    for prompt_id, text in sorted(prompts.items()):
+        (VIBE_PROMPTS / f"{prompt_id}.md").write_text(text)
     agents_md_targets = distinct_agents_md_targets()
     saved = backup_agents_md(agents_md_targets, agents_md)
     for path in saved:
@@ -554,6 +572,7 @@ def write_all(roster: dict, profile: dict) -> None:
             print(f"{harness}: moved {len(moved)} stale file(s) aside: {', '.join(sorted(moved))}")
 
     print(f"rendered {len(agents)} agents to {len(TARGETS)} harnesses")
+    print(f"installed {len(prompts)} prompt(s) to {VIBE_PROMPTS}")
     print(
         f"wrote AGENTS.md to {len(agents_md_targets)} distinct file(s) "
         f"from {len(AGENTS_MD_TARGETS)} configured path(s)"
