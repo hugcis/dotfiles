@@ -153,6 +153,8 @@ def _stack(tmp_path, monkeypatch, pi_yaml: str, extensions=()) -> Path:
         (stack / "pi" / "extensions" / name).mkdir(parents=True)
     (stack / "pi.yaml").write_text(pi_yaml)
     shutil.copy(STACK / "methodologies.yaml", stack / "methodologies.yaml")
+    # render loads methodology.py from STACK, which the sandbox lacks: cache the real one.
+    render._load_methodology()
     monkeypatch.setattr(render, "STACK", stack)
     monkeypatch.setattr(render, "PI_HOME", tmp_path / "home")
     monkeypatch.setattr(render, "BACKUP_ROOT", tmp_path / "backups")
@@ -250,3 +252,67 @@ def test_link_pi_extensions_is_quiet_once_linked(tmp_path, monkeypatch):
     render.link_pi_extensions(["subagent"], directory)
 
     assert render.link_pi_extensions(["subagent"], directory) == []
+
+
+class Runner:
+    def __init__(self, returncode: int = 0, stderr: str = ""):
+        self.calls: list[list[str]] = []
+        self.returncode = returncode
+        self.stderr = stderr
+
+    def __call__(self, args, **kwargs):
+        self.calls.append(list(args))
+        return subprocess.CompletedProcess(args, self.returncode, "", self.stderr)
+
+
+def _pi_on_path(_name):
+    return "/bin/pi"
+
+
+def test_install_skips_packages_pi_already_has(tmp_path, monkeypatch):
+    _stack(tmp_path, monkeypatch, "")
+    checkout = tmp_path / "ask-user-worktree"
+    checkout.mkdir()
+    (checkout / "package.json").write_text(json.dumps({"name": "pi-ask-user"}))
+    _settings_file(tmp_path, {"packages": ["npm:pi-blackhole@0.5.11", str(checkout)]})
+    runner = Runner()
+
+    report = render.install_pi_packages(
+        ["npm:pi-blackhole", "npm:pi-ask-user"], runner=runner, which=_pi_on_path
+    )
+
+    assert report == []
+    assert runner.calls == []
+
+
+def test_install_runs_pi_install_for_missing_packages(tmp_path, monkeypatch):
+    _stack(tmp_path, monkeypatch, "")
+    _settings_file(tmp_path, {"packages": []})
+    runner = Runner()
+
+    report = render.install_pi_packages(["npm:pi-zentui"], runner=runner, which=_pi_on_path)
+
+    assert runner.calls == [["pi", "install", "npm:pi-zentui"]]
+    assert report == ["pi: installed npm:pi-zentui"]
+
+
+def test_install_without_pi_on_path_prints_the_commands(tmp_path, monkeypatch):
+    _stack(tmp_path, monkeypatch, "")
+    runner = Runner()
+
+    report = render.install_pi_packages(
+        ["npm:pi-zentui"], runner=runner, which=lambda _name: None
+    )
+
+    assert "not on PATH" in report[0]
+    assert report[-1] == "  pi install npm:pi-zentui"
+    assert runner.calls == []
+
+
+def test_install_failure_is_reported_not_raised(tmp_path, monkeypatch):
+    _stack(tmp_path, monkeypatch, "")
+    runner = Runner(returncode=1, stderr="npm ERR! 404\n")
+
+    report = render.install_pi_packages(["npm:nope"], runner=runner, which=_pi_on_path)
+
+    assert report == ["pi: `pi install npm:nope` failed: npm ERR! 404"]

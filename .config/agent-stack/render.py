@@ -436,8 +436,8 @@ def skill_names(directory: Path) -> set[str]:
 def _load_methodology():
     """Load methodology.py by path, so the manifest has a single definition.
 
-    Imported lazily and only by doctor: methodology.py loads this module in
-    turn, and nothing here may depend on it at import time.
+    Imported lazily, by doctor and the Pi package step: methodology.py loads
+    this module in turn, and nothing here may depend on it at import time.
     """
     name = "agent_stack_methodology"
     if name in sys.modules:
@@ -734,6 +734,41 @@ def link_pi_extensions(names: list[str], directory: Path) -> list[str]:
         directory.mkdir(parents=True, exist_ok=True)
         link.symlink_to(target)
         report.append(f"pi: linked extension {name}")
+    return report
+
+
+def install_pi_packages(packages: list[str], *, runner=None, which=None) -> list[str]:
+    """`pi install` every listed package Pi does not have yet; never remove any.
+
+    Presence uses methodology.py's identity rules, so a pinned version or a
+    local checkout with the same package.json name counts as installed.
+    """
+    if not packages:
+        return []
+    methodology = _load_methodology()
+    controller = methodology.Controller(home=PI_HOME, stack=STACK)
+    try:
+        missing = controller.missing_pi_packages(packages)
+    except methodology.MethodologyError as error:
+        return [f"pi: packages not checked: {error}"]
+    if not missing:
+        return []
+    if (which or shutil.which)("pi") is None:
+        return [
+            "pi: not on PATH, so these packages are not installed yet; "
+            "run in a shell where pi works:",
+            *(f"  pi install {p}" for p in missing),
+        ]
+    run = runner or methodology.run_command
+    report: list[str] = []
+    for package in missing:
+        result = run(["pi", "install", package], check=False)
+        if result.returncode == 0:
+            report.append(f"pi: installed {package}")
+            continue
+        lines = (result.stderr or result.stdout or "").strip().splitlines()
+        reason = lines[-1] if lines else f"exit {result.returncode}"
+        report.append(f"pi: `pi install {package}` failed: {reason}")
     return report
 
 

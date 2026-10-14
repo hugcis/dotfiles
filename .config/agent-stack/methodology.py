@@ -1536,6 +1536,11 @@ class Controller:
             self._package_source_path(entry) == wanted for entry in packages
         )
 
+    def missing_pi_packages(self, sources: list[str]) -> list[str]:
+        """The `sources` Pi does not provide yet, by pi's package identity."""
+        registered = self._pi_packages()
+        return [s for s in sources if not self._package_present(s, registered)]
+
     def _plan_packages(
         self, name: str, state: MethodologyState
     ) -> tuple[list[tuple[str, str]], bool]:
