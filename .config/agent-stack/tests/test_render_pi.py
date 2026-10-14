@@ -371,6 +371,18 @@ def test_write_all_applies_pi_yaml(tmp_path, monkeypatch, capsys):
     assert "pi: updated" in capsys.readouterr().out
 
 
+def test_write_all_writes_nothing_when_pi_yaml_is_broken(tmp_path, monkeypatch):
+    box = _sandbox(tmp_path, monkeypatch)
+    monkeypatch.setattr(render, "PI_HOME", tmp_path / "home")
+    (box["stack"] / "pi.yaml").write_text("models:\n  default: research\n")
+    before = _tree_contents(tmp_path)
+
+    with pytest.raises(render.ConfigError, match="research"):
+        render.write_all(render.load_roster(STACK / "roster.yaml"), render.load_profile(FIXTURE))
+
+    assert _tree_contents(tmp_path) == before
+
+
 def test_validate_rejects_a_bad_pi_yaml_without_writing(tmp_path, monkeypatch):
     box = _sandbox(tmp_path, monkeypatch)
     shutil.copy(STACK / "roster.yaml", box["stack"] / "roster.yaml")
