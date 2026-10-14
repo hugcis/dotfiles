@@ -138,7 +138,7 @@ def test_default_model_rejects_thinking():
         render.pi_managed_settings(config, PROFILE)
 
 
-def test_provider_name_keeps_the_agent_error_wording():
+def test_provider_name_error_names_the_missing_key_and_its_consumer():
     with pytest.raises(render.ConfigError, match=r"provider_names\.pi\.mistral is missing \(needed by agent 'x'\)"):
         render.provider_name(
             {"provider_names": {"pi": {}}}, "pi", "mistral", "agent 'x'"
@@ -373,7 +373,7 @@ def test_write_all_applies_pi_yaml(tmp_path, monkeypatch, capsys):
     assert f"pi: updated {path}" in capsys.readouterr().out.splitlines()
 
 
-def test_write_all_on_an_rno_shaped_host(tmp_path, monkeypatch, capsys):
+def test_write_all_adopts_a_host_with_an_existing_pi_setup(tmp_path, monkeypatch, capsys):
     box = _sandbox(tmp_path, monkeypatch)
     stack, home = box["stack"], box["home"]
     shutil.copy(STACK / "methodologies.yaml", stack / "methodologies.yaml")
