@@ -84,8 +84,9 @@ on_host "printf '%s\n' $new > ~/$path/.pushed-rev"
 echo "agent-stack-push: $host now at ${new:0:7} (was ${base:0:7})"
 
 if ! cfg diff --quiet "$base" "$new" -- "$path/methodologies.yaml"; then
-  echo "methodologies.yaml changed; check it on $host with:"
-  echo "  ssh $host 'cd ~/$path && python3 methodology.py preflight'"
+  # Interactive shell: on hosts where pi comes from nvm, it is only on PATH there.
+  echo "methodologies.yaml changed; check it in an interactive shell on $host:"
+  echo "  cd ~/$path && python3 methodology.py preflight"
 fi
 
 if ! on_host "cd ~/$path && if [ -f profile.yaml ]; then
