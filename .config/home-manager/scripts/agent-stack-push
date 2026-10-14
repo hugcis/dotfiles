@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# agent-stack-push HOST [--force] — ship the committed agent-stack to HOST.
+#
+# Sends HEAD:.config/agent-stack from the dotfiles repo (~/.cfg) to the same
+# path on HOST and renders it there with the host's python3. Only tracked
+# files are written or deleted; machine-local files (profile.yaml,
+# profile.env, extra agents.md.d fragments, ...) are left alone. The host
+# needs ssh, tar, git and python3 with PyYAML, not Nix.
+#
+# The host's copy is first compared with the version last pushed there
+# (.config/agent-stack/.pushed-rev on the host, or the host repo's own HEAD
+# on a first push). A file changed on the host that matches neither that
+# version nor the one being pushed stops the push; --force overwrites it.
+set -euo pipefail
+
+if [[ $# -lt 1 || $# -gt 2 || ( $# -eq 2 && "$2" != --force ) ]]; then
+  echo "usage: agent-stack-push HOST [--force]" >&2
+  exit 2
+fi
+host=$1
+force=0
+[[ ${2:-} == --force ]] && force=1
+path=.config/agent-stack
+cfg() { git --git-dir="$HOME/.cfg" --work-tree="$HOME" "$@"; }
+on_host() { ssh "$host" "$@"; }
+
+if [[ -n "$(cfg status --porcelain -uno -- "$path")" ]]; then
+  echo "agent-stack-push: uncommitted changes under ~/$path; commit them first:" >&2
+  cfg status --short -uno -- "$path" >&2
+  exit 1
+fi
+new=$(cfg rev-parse HEAD)
+
+base=$(on_host "cat ~/$path/.pushed-rev 2>/dev/null || git --git-dir=\$HOME/.cfg rev-parse HEAD")
+if ! cfg cat-file -e "$base^{commit}" 2>/dev/null; then
+  echo "agent-stack-push: $host was last at '$base', which this repo does not have" >&2
+  exit 1
+fi
+
+# "<blob> <path>" for every file tracked under $path at a revision.
+blobs() { cfg ls-tree -r "$1" -- "$path" | sed -E 's/^[0-9]+ blob ([0-9a-f]+)\t/\1 /'; }
+base_blobs=$(blobs "$base")
+new_blobs=$(blobs "$new")
+
+# The host's "<blob> <path>" (or "missing <path>") for every file either
+# revision tracks.
+host_blobs=$(printf '%s\n%s\n' "$base_blobs" "$new_blobs" | cut -d' ' -f2- | sort -u |
+  on_host 'while IFS= read -r f; do
+    if [ -f ~/"$f" ]; then echo "$(git hash-object ~/"$f") $f"; else echo "missing $f"; fi
+  done')
+
+drift=$(awk '
+  FNR == 1 { n++ }
+  { k = substr($0, index($0, " ") + 1); v = substr($0, 1, index($0, " ") - 1) }
+  n == 1 { base[k] = v; next }
+  n == 2 { want[k] = v; next }
+  (k in want) && v == want[k] { next }
+  (k in base) && v != base[k] && !(v == "missing" && !(k in want)) {
+    print (v == "missing" ? "deleted on host: " : "edited on host: ") k; next
+  }
+  !(k in base) && v != "missing" { print "untracked on host: " k }
+' <(printf '%s\n' "$base_blobs") <(printf '%s\n' "$new_blobs") <(printf '%s\n' "$host_blobs"))
+
+if [[ -n "$drift" ]]; then
+  echo "agent-stack-push: $host changed since it was last pushed (${base:0:7}):"
+  printf '  %s\n' "$drift"
+  while IFS= read -r line; do
+    [[ "$line" == "edited on host: "* ]] || continue
+    f=${line#edited on host: }
+    diff -u --label "$f (${base:0:7})" --label "$f ($host)" \
+      <(cfg show "$base:$f") <(on_host "cat ~/'$f'") || true
+  done <<<"$drift"
+  if [[ $force == 0 ]]; then
+    echo "Commit those changes here first, or re-run with --force to overwrite them." >&2
+    exit 1
+  fi
+  echo "--force: overwriting them."
+fi
+
+cfg archive --format=tar "$new" -- "$path" | on_host 'tar -xf - -C ~'
+cfg diff --name-only --no-renames --diff-filter=D "$base" "$new" -- "$path" |
+  on_host 'while IFS= read -r f; do rm -f ~/"$f"; done'
+on_host "printf '%s\n' $new > ~/$path/.pushed-rev"
+echo "agent-stack-push: $host now at ${new:0:7} (was ${base:0:7})"
+
+if ! cfg diff --quiet "$base" "$new" -- "$path/methodologies.yaml"; then
+  echo "methodologies.yaml changed; check it on $host with:"
+  echo "  ssh $host 'cd ~/$path && python3 methodology.py preflight'"
+fi
+
+if ! on_host "cd ~/$path && if [ -f profile.yaml ]; then
+      python3 render.py validate --profile profile.yaml && python3 render.py
+    else echo 'no profile.yaml on $host; not rendered'; fi"; then
+  echo "agent-stack-push: render failed on $host (files were pushed)" >&2
+  exit 1
+fi

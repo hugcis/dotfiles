@@ -13,8 +13,10 @@ in
 {
   # agent-stack owns agent content (skills, roster, AGENTS.md) on every
   # machine, including clusters without Nix. On Nix machines, `hm` also
-  # re-renders it so one command applies both.
+  # re-renders it so one command applies both; `agent-stack-push HOST`
+  # ships the committed version to a machine without Nix.
   home.packages = [ render ];
+  home.file.".local/bin/agent-stack-push".source = ../scripts/agent-stack-push;
   home.activation.agentStackRender = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     run ${lib.getExe render} ${lib.escapeShellArg "${config.xdg.configHome}/agent-stack"}
   '';
