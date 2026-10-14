@@ -24,6 +24,12 @@ export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
 
+# Home Manager session variables (home.sessionVariables). This shell config
+# is raw zsh, so Home Manager cannot hook them in itself.
+hm_session_vars="$HOME/.local/state/nix/profiles/home-manager/home-path/etc/profile.d/hm-session-vars.sh"
+[[ -r "$hm_session_vars" ]] && . "$hm_session_vars"
+unset hm_session_vars
+
 # Load OS-specific environment
 case "$OSTYPE" in
   darwin*)  [[ -f ~/.zshenv.macos ]] && source ~/.zshenv.macos ;;
