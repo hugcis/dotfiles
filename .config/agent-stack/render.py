@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
+import os
 import re
 import shlex
 import shutil
@@ -111,24 +113,29 @@ def resolve_agents(roster: dict, profile: dict) -> list[Agent]:
     return agents
 
 
-def model_ref(agent: Agent, profile: dict, harness: str) -> str:
+def provider_name(profile: dict, harness: str, provider: str, needed_by: str) -> str:
+    """The profile's spelling of `provider` for `harness`."""
     if "provider_names" not in profile:
         raise ConfigError(
             f"profile.yaml: provider_names is missing "
-            f"(needed by harness '{harness}' and agent '{agent.name}'). "
+            f"(needed by harness '{harness}' and {needed_by}). "
             f"Add it to your machine profile."
         )
     if harness not in profile["provider_names"]:
         raise ConfigError(
             f"profile.yaml: provider_names.{harness} is missing "
-            f"(needed by agent '{agent.name}'). Add it to your machine profile."
+            f"(needed by {needed_by}). Add it to your machine profile."
         )
-    if agent.provider not in profile["provider_names"][harness]:
+    if provider not in profile["provider_names"][harness]:
         raise ConfigError(
-            f"profile.yaml: provider_names.{harness}.{agent.provider} is missing "
-            f"(needed by agent '{agent.name}'). Add it to your machine profile."
+            f"profile.yaml: provider_names.{harness}.{provider} is missing "
+            f"(needed by {needed_by}). Add it to your machine profile."
         )
-    provider = profile["provider_names"][harness][agent.provider]
+    return profile["provider_names"][harness][provider]
+
+
+def model_ref(agent: Agent, profile: dict, harness: str) -> str:
+    provider = provider_name(profile, harness, agent.provider, f"agent '{agent.name}'")
     return f"{provider}/{agent.model}"
 
 
@@ -524,6 +531,113 @@ def prune_stale(directory: Path, keep: set[str]) -> list[str]:
             )
         p.rename(destination)
     return [p.name for p in stale]
+
+
+# -- pi settings, packages and extensions ------------------------------------
+
+PI_SECTIONS = frozenset({"settings", "models", "packages", "extensions"})
+# Keys render derives from `models`, plus `packages`, which only `pi install`
+# writes so Pi's own package bookkeeping stays consistent.
+PI_DERIVED_SETTINGS = frozenset({"defaultProvider", "defaultModel", "subagents", "packages"})
+PI_EXTENSIONS_DIR = "pi/extensions"
+EXTENSION_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def load_pi_config(path: Path) -> dict | None:
+    """Read pi.yaml, the Pi setup shared by every host; None when absent."""
+    if not path.exists():
+        return None
+    config = yaml.safe_load(path.read_text()) or {}
+    if not isinstance(config, dict):
+        raise ConfigError("pi.yaml: must be a mapping.")
+    unknown = set(config) - PI_SECTIONS
+    if unknown:
+        raise ConfigError(f"pi.yaml: unknown section(s): {sorted(unknown)}")
+    settings = config.get("settings") or {}
+    if not isinstance(settings, dict):
+        raise ConfigError("pi.yaml: settings must be a mapping.")
+    clash = set(settings) & PI_DERIVED_SETTINGS
+    if clash:
+        raise ConfigError(
+            f"pi.yaml: settings must not set {sorted(clash)}; render derives them."
+        )
+    for section in ("packages", "extensions"):
+        value = config.get(section) or []
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise ConfigError(f"pi.yaml: {section} must be a list of strings.")
+    for name in config.get("extensions") or []:
+        if not EXTENSION_NAME.fullmatch(name) or not (STACK / PI_EXTENSIONS_DIR / name).is_dir():
+            raise ConfigError(
+                f"pi.yaml: extension '{name}' has no directory under {PI_EXTENSIONS_DIR}/."
+            )
+    models = config.get("models") or {}
+    if not isinstance(models, dict) or set(models) - {"default", "subagents"}:
+        raise ConfigError("pi.yaml: models takes only 'default' and 'subagents'.")
+    if not isinstance(models.get("subagents") or {}, dict):
+        raise ConfigError("pi.yaml: models.subagents must be a mapping.")
+    return {
+        "settings": settings,
+        "models": models,
+        "packages": config.get("packages") or [],
+        "extensions": config.get("extensions") or [],
+    }
+
+
+def pi_model(entry, profile: dict, where: str) -> tuple[str, str, str | None]:
+    """Resolve a slot name or {slot, thinking} to (provider, model, thinking)."""
+    if isinstance(entry, str):
+        slot_name, thinking = entry, None
+    elif isinstance(entry, dict) and "slot" in entry and set(entry) <= {"slot", "thinking"}:
+        slot_name, thinking = entry["slot"], entry.get("thinking")
+    else:
+        raise ConfigError(f"pi.yaml: {where} must be a slot name or {{slot, thinking}}.")
+    binding = (profile.get("slots") or {}).get(slot_name)
+    if not binding:
+        raise ConfigError(
+            f"profile.yaml: slot '{slot_name}' is not bound "
+            f"(needed by pi.yaml {where}). Add it to your machine profile."
+        )
+    for key in ("provider", "model"):
+        if key not in binding:
+            raise ConfigError(
+                f"profile.yaml: slots.{slot_name}.{key} is missing "
+                f"(needed by pi.yaml {where}). Add it to your machine profile."
+            )
+    provider = provider_name(profile, "pi", binding["provider"], f"pi.yaml {where}")
+    return provider, binding["model"], thinking or binding.get("thinking")
+
+
+def pi_managed_settings(config: dict, profile: dict) -> dict:
+    """Every settings.json key render owns, resolved for this host."""
+    managed = dict(config["settings"])
+    models = config["models"]
+    if "default" in models:
+        provider, model, _ = pi_model(models["default"], profile, "models.default")
+        managed["defaultProvider"] = provider
+        managed["defaultModel"] = model
+    entries = models.get("subagents") or {}
+    if entries:
+        subagents: dict = {}
+        overrides: dict = {}
+        for name, entry in entries.items():
+            provider, model, thinking = pi_model(entry, profile, f"models.subagents.{name}")
+            choice = {"model": f"{provider}/{model}"}
+            if thinking:
+                choice["thinking"] = thinking
+            if name == "default":
+                subagents["defaultModel"] = choice["model"]
+                if thinking:
+                    subagents["defaultThinking"] = thinking
+            elif name == "watchdog":
+                subagents["watchdog"] = {"main": dict(choice), "children": dict(choice)}
+            else:
+                overrides[name] = choice
+        if overrides:
+            subagents["agentOverrides"] = overrides
+        providers = sorted(set(profile["provider_names"]["pi"].values()))
+        subagents["modelScope"] = {"enforce": True, "allow": [f"{p}/*" for p in providers]}
+        managed["subagents"] = subagents
+    return managed
 
 
 def build_all(
