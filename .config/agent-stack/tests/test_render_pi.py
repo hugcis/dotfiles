@@ -47,6 +47,7 @@ def test_load_pi_config_is_none_without_a_file(tmp_path):
         ("extensions: [nowhere]\n", "nowhere"),
         ("models:\n  fallback: primary\n", "models takes only"),
         ("packages: npm:x\n", "list of strings"),
+        ("packages: [npm:x, ./pi-ask-user]\n", r"package '\./pi-ask-user'.*npm:"),
     ],
 )
 def test_load_pi_config_rejects_bad_shapes(tmp_path, monkeypatch, text, message):
@@ -154,8 +155,6 @@ def _stack(tmp_path, monkeypatch, pi_yaml: str, extensions=()) -> Path:
         (stack / "pi" / "extensions" / name).mkdir(parents=True)
     (stack / "pi.yaml").write_text(pi_yaml)
     shutil.copy(STACK / "methodologies.yaml", stack / "methodologies.yaml")
-    # render loads methodology.py from STACK, which the sandbox lacks: cache the real one.
-    render._load_methodology()
     monkeypatch.setattr(render, "STACK", stack)
     monkeypatch.setattr(render, "PI_HOME", tmp_path / "home")
     monkeypatch.setattr(render, "BACKUP_ROOT", tmp_path / "backups")
@@ -213,11 +212,12 @@ def test_write_pi_settings_backs_up_the_previous_file(tmp_path, monkeypatch):
     _stack(tmp_path, monkeypatch, PI_YAML)
     path = _settings_file(tmp_path, '{"theme": "light"}')
 
-    render.write_pi_settings(path, {"theme": "dark"})
+    backup = render.write_pi_settings(path, {"theme": "dark"})
 
     assert json.loads(path.read_text()) == {"theme": "dark"}
     backups = list((tmp_path / "backups").glob("pi-settings.pre-render-*/settings.json"))
-    assert [b.read_text() for b in backups] == ['{"theme": "light"}']
+    assert backups == [backup]
+    assert backup.read_text() == '{"theme": "light"}'
 
 
 def test_link_pi_extensions_links_moves_aside_and_prunes(tmp_path, monkeypatch):
@@ -244,6 +244,9 @@ def test_link_pi_extensions_links_moves_aside_and_prunes(tmp_path, monkeypatch):
     )
     assert len(moved) == 1
     assert any("moved existing extension subagent" in line for line in report)
+    assert "pi: linked extension comment-discipline" in report
+    assert "pi: linked extension subagent" in report
+    assert "pi: removed extension link retired" in report
 
 
 def test_link_pi_extensions_is_quiet_once_linked(tmp_path, monkeypatch):
@@ -352,28 +355,80 @@ def test_install_reports_a_runner_os_error_and_continues(tmp_path, monkeypatch):
     assert calls[-1] == ["pi", "install", "npm:second"]
 
 
-ALL_SLOTS = ("primary", "alt-low", "alt", "alt-xhigh", "fast", "research")
-
-
 def test_write_all_applies_pi_yaml(tmp_path, monkeypatch, capsys):
     box = _sandbox(tmp_path, monkeypatch)
     (box["stack"] / "pi.yaml").write_text(PI_YAML)
-    monkeypatch.setattr(render, "PI_HOME", tmp_path / "home")
 
     render.write_all(render.load_roster(STACK / "roster.yaml"), render.load_profile(FIXTURE))
 
-    settings = json.loads((tmp_path / "home/.pi/agent/settings.json").read_text())
-    assert settings == {
+    path = tmp_path / "home/.pi/agent/settings.json"
+    assert json.loads(path.read_text()) == {
         "theme": "dark",
         "defaultProvider": "prov-anthropic",
         "defaultModel": "model-big",
     }
-    assert "pi: updated" in capsys.readouterr().out
+    assert f"pi: updated {path}" in capsys.readouterr().out.splitlines()
+
+
+def test_write_all_on_an_rno_shaped_host(tmp_path, monkeypatch, capsys):
+    box = _sandbox(tmp_path, monkeypatch)
+    stack, home = box["stack"], box["home"]
+    shutil.copy(STACK / "methodologies.yaml", stack / "methodologies.yaml")
+    (stack / "pi/extensions/subagent").mkdir(parents=True)
+    (stack / "pi.yaml").write_text(
+        PI_YAML + "packages: [npm:pi-zentui, npm:pi-ask-user]\nextensions: [subagent]\n"
+    )
+    checkout = tmp_path / "ask-user-worktree"
+    checkout.mkdir()
+    (checkout / "package.json").write_text(json.dumps({"name": "pi-ask-user"}))
+    settings_path = home / ".pi/agent/settings.json"
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps({"lastChangelogVersion": "1.1.0", "packages": [str(checkout)]})
+    )
+    (home / ".pi/agent/extensions/subagent").mkdir(parents=True)
+    (home / ".pi/agent/extensions/subagent/config.json").write_text("{}")
+    calls: list[list[str]] = []
+
+    def runner(args, **kwargs):
+        # Stand in for `pi install`, which records the package in settings.json.
+        calls.append(list(args))
+        current = json.loads(settings_path.read_text())
+        current["packages"].append(args[-1])
+        settings_path.write_text(json.dumps(current))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    roster, profile = render.load_roster(STACK / "roster.yaml"), render.load_profile(FIXTURE)
+
+    render.write_all(roster, profile, runner=runner, which=_pi_on_path)
+
+    assert json.loads(settings_path.read_text()) == {
+        "lastChangelogVersion": "1.1.0",
+        "packages": [str(checkout), "npm:pi-zentui"],
+        "theme": "dark",
+        "defaultProvider": "prov-anthropic",
+        "defaultModel": "model-big",
+    }
+    link = home / ".pi/agent/extensions/subagent"
+    assert Path(os.readlink(link)) == stack / "pi/extensions/subagent"
+    moved = list(
+        (tmp_path / "backups").glob("pi-extensions.pre-render-*/subagent/config.json")
+    )
+    assert len(moved) == 1
+    assert calls == [["pi", "install", "npm:pi-zentui"]]
+    backup = next((tmp_path / "backups").glob("pi-settings.pre-render-*/settings.json"))
+    out = capsys.readouterr().out.splitlines()
+    assert f"pi: updated {settings_path} (previous copy: {backup})" in out
+
+    render.write_all(roster, profile, runner=runner, which=_pi_on_path)
+
+    out = capsys.readouterr().out
+    assert [line for line in out.splitlines() if line.startswith("pi:")] == []
+    assert len(calls) == 1
 
 
 def test_write_all_writes_nothing_when_pi_yaml_is_broken(tmp_path, monkeypatch):
     box = _sandbox(tmp_path, monkeypatch)
-    monkeypatch.setattr(render, "PI_HOME", tmp_path / "home")
     (box["stack"] / "pi.yaml").write_text("models:\n  default: research\n")
     before = _tree_contents(tmp_path)
 
@@ -389,7 +444,6 @@ def test_validate_rejects_a_bad_pi_yaml_without_writing(tmp_path, monkeypatch):
     profile = box["stack"] / "profile.yaml"
     shutil.copy(FIXTURE, profile)
     (box["stack"] / "pi.yaml").write_text("models:\n  default: research\n")
-    monkeypatch.setattr(render, "PI_HOME", tmp_path / "home")
     before = _tree_contents(tmp_path)
     monkeypatch.setattr(sys, "argv", ["render.py", "validate", "--profile", str(profile)])
 
@@ -399,12 +453,21 @@ def test_validate_rejects_a_bad_pi_yaml_without_writing(tmp_path, monkeypatch):
     assert _tree_contents(tmp_path) == before
 
 
-def test_public_pi_yaml_names_slots_not_models():
-    config = render.load_pi_config(STACK / "pi.yaml")
+def _example_slots() -> list[str]:
+    return list(render.load_profile(STACK / "profile.example.yaml")["slots"])
+
+
+def _pi_yaml_slots(config: dict) -> list[str]:
     models = config["models"]
     entries = [models["default"], *models["subagents"].values()]
+    return [e if isinstance(e, str) else e["slot"] for e in entries]
 
-    assert all("/" not in (e if isinstance(e, str) else e["slot"]) for e in entries)
+
+def test_public_pi_yaml_names_slots_not_models():
+    config = render.load_pi_config(STACK / "pi.yaml")
+    slots = _example_slots()
+
+    assert all(slot in slots for slot in _pi_yaml_slots(config))
     assert all(p.startswith("npm:") for p in config["packages"])
     assert "/" not in json.dumps(config["settings"])
 
@@ -412,7 +475,7 @@ def test_public_pi_yaml_names_slots_not_models():
 def test_public_pi_yaml_resolves_on_a_host_with_every_slot():
     profile = {
         "provider_names": {"pi": {"anthropic": "a", "openai": "o", "mistral": "m"}},
-        "slots": {s: {"provider": "openai", "model": "x"} for s in ALL_SLOTS},
+        "slots": {s: {"provider": "openai", "model": "x"} for s in _example_slots()},
     }
 
     managed = render.pi_managed_settings(render.load_pi_config(STACK / "pi.yaml"), profile)

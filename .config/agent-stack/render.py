@@ -2,7 +2,8 @@
 """Render agent definitions for pi, opencode, vibe, and Claude Code.
 
 Reads a public roster.yaml plus an untracked per-machine profile.yaml and emits
-native config for each harness. Slots absent from the profile emit no agent.
+native config for each harness. Roster slots absent from the profile emit no
+agent, but every slot pi.yaml names must be bound or render stops.
 """
 from __future__ import annotations
 
@@ -438,11 +439,13 @@ def _load_methodology():
 
     Imported lazily, by doctor and the Pi package step: methodology.py loads
     this module in turn, and nothing here may depend on it at import time.
+    The code sits beside this file; STACK only locates the data it reads.
     """
     name = "agent_stack_methodology"
     if name in sys.modules:
         return sys.modules[name]
-    loader = SourceFileLoader(name, str(STACK / "methodology.py"))
+    source = Path(__file__).resolve().parent / "methodology.py"
+    loader = SourceFileLoader(name, str(source))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
@@ -566,6 +569,12 @@ def load_pi_config(path: Path) -> dict | None:
         value = config.get(section) or []
         if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
             raise ConfigError(f"pi.yaml: {section} must be a list of strings.")
+    for package in config.get("packages") or []:
+        if not package.startswith("npm:"):
+            raise ConfigError(
+                f"pi.yaml: package '{package}' must be an npm: source; "
+                "other sources are never seen as installed."
+            )
     for name in config.get("extensions") or []:
         if not EXTENSION_NAME.fullmatch(name) or not (STACK / PI_EXTENSIONS_DIR / name).is_dir():
             raise ConfigError(
@@ -689,16 +698,19 @@ def build_pi(profile: dict) -> PiPlan | None:
     )
 
 
-def write_pi_settings(path: Path, settings: dict) -> None:
-    """Replace settings.json, keeping the previous file under BACKUP_ROOT."""
+def write_pi_settings(path: Path, settings: dict) -> Path | None:
+    """Replace settings.json; return the previous file's copy under BACKUP_ROOT, or None."""
+    backup = None
     if path.is_file():
         BACKUP_ROOT.mkdir(parents=True, exist_ok=True)
-        backup = Path(tempfile.mkdtemp(prefix="pi-settings.pre-render-", dir=BACKUP_ROOT))
-        shutil.copy2(path, backup / "settings.json")
+        directory = Path(tempfile.mkdtemp(prefix="pi-settings.pre-render-", dir=BACKUP_ROOT))
+        backup = directory / "settings.json"
+        shutil.copy2(path, backup)
     path.parent.mkdir(parents=True, exist_ok=True)
     staged = path.with_name(path.name + ".tmp")
     staged.write_text(json.dumps(settings, indent=2) + "\n")
     staged.replace(path)
+    return backup
 
 
 def link_pi_extensions(names: list[str], directory: Path) -> list[str]:
@@ -781,8 +793,9 @@ def apply_pi(plan: PiPlan, *, runner=None, which=None) -> list[str]:
     """Write the planned Pi changes and return one report line per action."""
     report: list[str] = []
     if plan.settings is not None:
-        write_pi_settings(plan.settings_path, plan.settings)
-        report.append(f"pi: updated {plan.settings_path}")
+        backup = write_pi_settings(plan.settings_path, plan.settings)
+        line = f"pi: updated {plan.settings_path}"
+        report.append(f"{line} (previous copy: {backup})" if backup else line)
     report += link_pi_extensions(plan.extensions, plan.settings_path.parent / "extensions")
     report += install_pi_packages(plan.packages, runner=runner, which=which)
     return report
@@ -803,7 +816,7 @@ def build_all(
     return agents, planned, compose_agents_md(profile), render_profile_env(profile)
 
 
-def write_all(roster: dict, profile: dict) -> None:
+def write_all(roster: dict, profile: dict, *, runner=None, which=None) -> None:
     """Render every harness after building and validating every output."""
     agents, planned, agents_md, profile_env = build_all(roster, profile)
     pi_plan = build_pi(profile)
@@ -835,7 +848,7 @@ def write_all(roster: dict, profile: dict) -> None:
             print(f"{harness}: moved {len(moved)} stale file(s) aside: {', '.join(sorted(moved))}")
 
     if pi_plan is not None:
-        for line in apply_pi(pi_plan):
+        for line in apply_pi(pi_plan, runner=runner, which=which):
             print(line)
 
     print(f"rendered {len(agents)} agents to {len(TARGETS)} harnesses")

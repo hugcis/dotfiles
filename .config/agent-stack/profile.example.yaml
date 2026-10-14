@@ -8,7 +8,9 @@ provider_names:
   opencode: { anthropic: REPLACE-ME, openai: REPLACE-ME }
   vibe: { anthropic: REPLACE-ME, openai: REPLACE-ME }
 
-# Omit a slot entirely to emit no agent for it on this machine.
+# Bind every slot pi.yaml names (primary, alt-low, fast, research) on every
+# machine: render stops if one is missing. Omit any other slot to emit no
+# agent for it on this machine.
 #
 # thinking (optional) is the reasoning level. pi gets it as a `:level` suffix on
 # the model ref, opencode as `variant:`, Claude Code as `effort:`.

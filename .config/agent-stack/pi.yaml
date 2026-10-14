@@ -2,6 +2,9 @@
 # slot-resolved `models` into Pi's settings.json, links `extensions` from
 # the stack's pi/extensions directory, and runs `pi install` for missing
 # `packages`. Model entries name profile.yaml slots, never concrete models.
+# Every render replaces settings.extensions as a whole.
+# Every render resets defaultModel, defaultProvider and defaultThinkingLevel, so
+# model or thinking changes made in Pi's UI last only until the next render.
 settings:
   defaultThinkingLevel: high
   theme: dark
