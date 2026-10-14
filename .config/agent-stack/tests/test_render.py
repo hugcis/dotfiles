@@ -880,6 +880,9 @@ def _sandbox(tmp_path, monkeypatch) -> dict:
     monkeypatch.setattr(render, "AGENTS_MD_TARGETS", [home / "pi" / "AGENTS.md"])
     monkeypatch.setattr(render, "BACKUP_ROOT", tmp_path / "backups")
     monkeypatch.setattr(render, "PI_HOME", home)
+    # A real `pi` follows these, not PI_HOME; keep any stray call inside tmp_path.
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(home / ".pi/agent"))
     prompts = home / "vibe" / "prompts"
     monkeypatch.setattr(render, "VIBE_PROMPTS", prompts)
     return {"stack": stack, "home": home, "targets": targets, "prompts": prompts}

@@ -158,6 +158,9 @@ def _stack(tmp_path, monkeypatch, pi_yaml: str, extensions=()) -> Path:
     monkeypatch.setattr(render, "STACK", stack)
     monkeypatch.setattr(render, "PI_HOME", tmp_path / "home")
     monkeypatch.setattr(render, "BACKUP_ROOT", tmp_path / "backups")
+    # A real `pi` follows these, not PI_HOME; keep any stray call inside tmp_path.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path / "home/.pi/agent"))
     return stack
 
 
