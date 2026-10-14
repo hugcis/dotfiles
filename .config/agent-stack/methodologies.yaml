@@ -5,9 +5,9 @@ methodologies:
     skills_path: skills
   compound-engineering:
     repository: https://github.com/EveryInc/compound-engineering-plugin.git
-    revision: 26bf5b1e377212c0e4996824fee1dea1eddd817d
+    revision: 67035e931c5cb26e80f198a7019a4502a9788273
     checkout: ~/.local/share/agent-stack/compound-engineering-plugin
-    expected_skill_count: 33
+    expected_skill_count: 36
     pi_companions:
       - npm:pi-subagents
       - npm:pi-ask-user
