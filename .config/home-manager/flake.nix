@@ -80,16 +80,30 @@
           home-manager = home-manager-stable;
         };
       };
+
+      # Build the home configuration of a registry host. Exported so a
+      # private flake can layer extra modules onto a host without this
+      # repo knowing about them.
+      mkHome =
+        { name
+        , extraModules ? [ ]
+        , extraSpecialArgs ? { }
+        }:
+        let
+          host = hosts.${name};
+          channel = channels.${host.channel};
+        in
+        channel.home-manager.lib.homeManagerConfiguration {
+          pkgs = import channel.nixpkgs { system = host.system; };
+          modules = [ ./home.nix ./hosts/${name}.nix ] ++ extraModules;
+          inherit extraSpecialArgs;
+        };
     in
     {
+      lib = { inherit mkHome; };
+
       homeConfigurations = lib.mapAttrs'
-        (name: host:
-          let channel = channels.${host.channel}; in
-          lib.nameValuePair "${host.user}@${name}"
-            (channel.home-manager.lib.homeManagerConfiguration {
-              pkgs = import channel.nixpkgs { system = host.system; };
-              modules = [ ./home.nix ./hosts/${name}.nix ];
-            }))
+        (name: host: lib.nameValuePair "${host.user}@${name}" (mkHome { inherit name; }))
         hosts;
     };
 }
