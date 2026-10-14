@@ -120,6 +120,25 @@ def test_compaction_overrides_key_every_provider_by_provider_and_full_id():
     }
 
 
+def test_compaction_overrides_never_shrink_the_ordinary_reserve():
+    models = _models_json(("gw", [{"id": "barely", "contextWindow": 510_000}]))
+
+    assert render.pi_compaction_overrides(models, 500_000, min_reserve=32_768) == {
+        "gw/barely": {"reserveTokens": 32_768}
+    }
+
+
+def test_compaction_overrides_skip_malformed_entries():
+    models = {
+        "providers": {
+            "broken": "not a provider",
+            "gw": {"models": ["not a model", {"contextWindow": 1_000_000}, {"id": "ok", "contextWindow": 1_000_000}]},
+        }
+    }
+
+    assert render.pi_compaction_overrides(models, 500_000) == {"gw/ok": {"reserveTokens": 500_000}}
+
+
 def test_managed_settings_resolve_slots_on_this_host():
     config = _config(
         {

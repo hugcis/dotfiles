@@ -545,6 +545,8 @@ PI_SECTIONS = frozenset({"settings", "models", "packages", "extensions", "compac
 PI_DERIVED_SETTINGS = frozenset({"defaultProvider", "defaultModel", "subagents", "packages"})
 PI_EXTENSIONS_DIR = "pi/extensions"
 EXTENSION_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# Pi's built-in compaction.reserveTokens, used when pi.yaml does not set one.
+PI_DEFAULT_RESERVE_TOKENS = 16384
 
 
 def load_pi_config(path: Path) -> dict | None:
@@ -666,17 +668,24 @@ def pi_managed_settings(config: dict, profile: dict) -> dict:
     return managed
 
 
-def pi_compaction_overrides(models_json: dict, compact_at: int) -> dict:
+def pi_compaction_overrides(models_json: dict, compact_at: int, min_reserve: int = 0) -> dict:
     """Per-model reserveTokens so Pi compacts windows above compact_at near compact_at.
 
-    Pi compacts once context exceeds contextWindow - reserveTokens.
+    Pi compacts once context exceeds contextWindow - reserveTokens. The reserve
+    never drops below min_reserve, so a window just above compact_at keeps the
+    ordinary room for the response. Malformed entries are skipped.
     """
+    providers = models_json.get("providers")
     overrides = {}
-    for provider, entry in (models_json.get("providers") or {}).items():
-        for model in entry.get("models") or []:
+    for provider, entry in (providers.items() if isinstance(providers, dict) else []):
+        models = entry.get("models") if isinstance(entry, dict) else None
+        for model in models if isinstance(models, list) else []:
+            if not isinstance(model, dict) or not isinstance(model.get("id"), str):
+                continue
             window = model.get("contextWindow")
-            if isinstance(window, int) and window > compact_at:
-                overrides[f"{provider}/{model['id']}"] = {"reserveTokens": window - compact_at}
+            if isinstance(window, int) and not isinstance(window, bool) and window > compact_at:
+                reserve = max(window - compact_at, min_reserve)
+                overrides[f"{provider}/{model['id']}"] = {"reserveTokens": reserve}
     return overrides
 
 
@@ -713,9 +722,12 @@ def build_pi(profile: dict) -> PiPlan | None:
     managed = pi_managed_settings(config, profile)
     if config["compactAtTokens"]:
         models = read_pi_json(PI_HOME / ".pi/agent/models.json")
-        overrides = pi_compaction_overrides(models, config["compactAtTokens"])
+        compaction = dict(managed.get("compaction") or {})
+        overrides = pi_compaction_overrides(
+            models, config["compactAtTokens"],
+            min_reserve=compaction.get("reserveTokens", PI_DEFAULT_RESERVE_TOKENS),
+        )
         if overrides:
-            compaction = dict(managed.get("compaction") or {})
             compaction["modelOverrides"] = {**compaction.get("modelOverrides", {}), **overrides}
             managed["compaction"] = compaction
     merged = {**current, **managed}
