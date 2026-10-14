@@ -1,0 +1,34 @@
+# Pi setup shared by every host. render.py merges `settings` and the
+# slot-resolved `models` into Pi's settings.json, links `extensions` from
+# the stack's pi/extensions directory, and runs `pi install` for missing
+# `packages`. Model entries name profile.yaml slots, never concrete models.
+settings:
+  defaultThinkingLevel: high
+  theme: dark
+  showCacheMissNotices: true
+  compaction: { enabled: true, reserveTokens: 32768, keepRecentTokens: 20000 }
+  retry: { enabled: true, maxRetries: 100 }
+  extensions: ["-builtin:mcp"]
+models:
+  default: alt-low
+  subagents:
+    default: { slot: alt-low, thinking: medium }
+    worker: fast
+    delegate: { slot: alt-low, thinking: medium }
+    reviewer: { slot: alt-low, thinking: medium }
+    scout: { slot: alt-low, thinking: low }
+    researcher: research
+    oracle: primary
+    watchdog: primary
+packages:
+  - npm:pi-subagents
+  - npm:pi-ask-user
+  - npm:pi-mcp-adapter
+  - npm:pi-agent-goal
+  - npm:@trevonistrevon/pi-loop
+  - npm:pi-zentui
+  - npm:@dietrichgebert/ponytail
+  - npm:pi-blackhole@0.5.11
+extensions:
+  - comment-discipline
+  - subagent

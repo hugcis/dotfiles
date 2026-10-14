@@ -47,6 +47,7 @@ slots:
       vibe_model: REPLACE-ME,
     }
   fast: { provider: openai, model: REPLACE-ME }
+  research: { provider: openai, model: REPLACE-ME, thinking: medium }
 
 # Global software-engineering methodology: superpowers or compound-engineering.
 # Selects the single methodology fragment appended after 00-universal.md.

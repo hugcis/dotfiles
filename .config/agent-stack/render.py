@@ -777,6 +777,17 @@ def install_pi_packages(packages: list[str], *, runner=None, which=None) -> list
     return report
 
 
+def apply_pi(plan: PiPlan, *, runner=None, which=None) -> list[str]:
+    """Write the planned Pi changes and return one report line per action."""
+    report: list[str] = []
+    if plan.settings is not None:
+        write_pi_settings(plan.settings_path, plan.settings)
+        report.append(f"pi: updated {plan.settings_path}")
+    report += link_pi_extensions(plan.extensions, plan.settings_path.parent / "extensions")
+    report += install_pi_packages(plan.packages, runner=runner, which=which)
+    return report
+
+
 def build_all(
     roster: dict, profile: dict
 ) -> tuple[list[Agent], dict[str, dict[str, str]], str, str]:
@@ -795,6 +806,7 @@ def build_all(
 def write_all(roster: dict, profile: dict) -> None:
     """Render every harness after building and validating every output."""
     agents, planned, agents_md, profile_env = build_all(roster, profile)
+    pi_plan = build_pi(profile)
 
     # Phase 2: write.
     for harness, directory in TARGETS.items():
@@ -821,6 +833,10 @@ def write_all(roster: dict, profile: dict) -> None:
         moved = prune_stale(directory, set(planned[harness]))
         if moved:
             print(f"{harness}: moved {len(moved)} stale file(s) aside: {', '.join(sorted(moved))}")
+
+    if pi_plan is not None:
+        for line in apply_pi(pi_plan):
+            print(line)
 
     print(f"rendered {len(agents)} agents to {len(TARGETS)} harnesses")
     print(f"installed {len(prompts)} prompt(s) to {VIBE_PROMPTS}")
@@ -860,6 +876,7 @@ def main() -> None:
         profile = load_profile(args.profile)
         if args.command == "validate":
             build_all(roster, profile)
+            build_pi(profile)
             print("agent-stack render validation: ok")
             return
         write_all(roster, profile)

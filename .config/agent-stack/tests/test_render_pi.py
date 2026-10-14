@@ -10,6 +10,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import render
+from test_render import FIXTURE, _sandbox, _tree_contents
 
 STACK = Path(__file__).resolve().parents[1]
 
@@ -349,3 +350,59 @@ def test_install_reports_a_runner_os_error_and_continues(tmp_path, monkeypatch):
         "pi: installed npm:second",
     ]
     assert calls[-1] == ["pi", "install", "npm:second"]
+
+
+ALL_SLOTS = ("primary", "alt-low", "alt", "alt-xhigh", "fast", "research")
+
+
+def test_write_all_applies_pi_yaml(tmp_path, monkeypatch, capsys):
+    box = _sandbox(tmp_path, monkeypatch)
+    (box["stack"] / "pi.yaml").write_text(PI_YAML)
+    monkeypatch.setattr(render, "PI_HOME", tmp_path / "home")
+
+    render.write_all(render.load_roster(STACK / "roster.yaml"), render.load_profile(FIXTURE))
+
+    settings = json.loads((tmp_path / "home/.pi/agent/settings.json").read_text())
+    assert settings == {
+        "theme": "dark",
+        "defaultProvider": "prov-anthropic",
+        "defaultModel": "model-big",
+    }
+    assert "pi: updated" in capsys.readouterr().out
+
+
+def test_validate_rejects_a_bad_pi_yaml_without_writing(tmp_path, monkeypatch):
+    box = _sandbox(tmp_path, monkeypatch)
+    shutil.copy(STACK / "roster.yaml", box["stack"] / "roster.yaml")
+    profile = box["stack"] / "profile.yaml"
+    shutil.copy(FIXTURE, profile)
+    (box["stack"] / "pi.yaml").write_text("models:\n  default: research\n")
+    monkeypatch.setattr(render, "PI_HOME", tmp_path / "home")
+    before = _tree_contents(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["render.py", "validate", "--profile", str(profile)])
+
+    with pytest.raises(SystemExit, match="research"):
+        render.main()
+
+    assert _tree_contents(tmp_path) == before
+
+
+def test_public_pi_yaml_names_slots_not_models():
+    config = render.load_pi_config(STACK / "pi.yaml")
+    models = config["models"]
+    entries = [models["default"], *models["subagents"].values()]
+
+    assert all("/" not in (e if isinstance(e, str) else e["slot"]) for e in entries)
+    assert all(p.startswith("npm:") for p in config["packages"])
+    assert "/" not in json.dumps(config["settings"])
+
+
+def test_public_pi_yaml_resolves_on_a_host_with_every_slot():
+    profile = {
+        "provider_names": {"pi": {"anthropic": "a", "openai": "o", "mistral": "m"}},
+        "slots": {s: {"provider": "openai", "model": "x"} for s in ALL_SLOTS},
+    }
+
+    managed = render.pi_managed_settings(render.load_pi_config(STACK / "pi.yaml"), profile)
+
+    assert managed["subagents"]["agentOverrides"]["researcher"] == {"model": "o/x"}
