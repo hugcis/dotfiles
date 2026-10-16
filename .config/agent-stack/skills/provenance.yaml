@@ -16,6 +16,7 @@ skills:
   diagnose: { origin: external-upstream }
   dispatching-parallel-agents: { origin: inherited-process }
   drafting-github-replies: { origin: local }
+  encoding-repeated-corrections: { origin: local-adapted }
   evaluate-codebase: { origin: inherited-process }
   executing-plans: { origin: inherited-process }
   finishing-a-development-branch: { origin: inherited-process }
@@ -38,6 +39,7 @@ skills:
   unslop: { origin: local }
   using-superpowers: { origin: inherited-process }
   verification-before-completion: { origin: inherited-process }
+  vetting-measured-results: { origin: local-adapted }
   write-a-skill: { origin: external-upstream }
   writing-plans: { origin: inherited-process }
   writing-skills: { origin: inherited-process }

@@ -19,6 +19,10 @@ Find the failing evidence before changing code. A red check name is a symptom, n
    - infrastructure, checkout, dependency, or network failure
    - stale branch or merge-main needed
    - unknown because evidence is incomplete
+   Before calling a failure flaky, check whether it is in code the diff touches. A failure
+   in untouched code usually means a stale base: check `git merge-base --is-ancestor` against
+   the current base. A flake earns at most one fresh run; an identical second failure is not
+   a flake, so read the logs instead of retrying.
 5. If it is a code regression, reproduce or narrow locally before fixing.
 6. If it is external, stale, flaky, or unknown, report evidence and the next action instead of editing blindly.
 7. After any fix, run focused verification and summarize the command output.

@@ -1433,3 +1433,10 @@ def test_main_turns_a_config_error_into_a_plain_message(tmp_path, monkeypatch, c
     assert isinstance(exc.value.__cause__, render.ConfigError)
     assert f"No profile at {missing}" in str(exc.value)
     assert "Traceback" not in capsys.readouterr().err
+
+
+def test_adapted_upstream_skills_are_always_on():
+    universal = (STACK / "agents.md.d" / "00-universal.md").read_text()
+    for name in ("vetting-measured-results", "encoding-repeated-corrections"):
+        assert (LOCAL_SKILLS / name / "SKILL.md").is_file()
+        assert f"`{name}`" in universal
