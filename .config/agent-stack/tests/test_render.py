@@ -25,7 +25,7 @@ def _resolved(fixture: Path = FIXTURE):
 def test_unbound_slots_are_skipped():
     agents, _ = _resolved()
     names = sorted(a.name for a in agents)
-    assert names == ["coder-primary", "reviewer-fast", "reviewer-primary"]
+    assert names == ["coder-fast", "coder-primary", "reviewer-fast", "reviewer-primary"]
 
 
 def test_agent_carries_role_permissions():
@@ -940,6 +940,7 @@ def test_write_all_writes_and_prunes(tmp_path, monkeypatch):
 
     for directory in box["targets"].values():
         assert sorted(p.stem for p in directory.iterdir() if p.is_file()) == [
+            "coder-fast",
             "coder-primary",
             "reviewer-fast",
             "reviewer-primary",

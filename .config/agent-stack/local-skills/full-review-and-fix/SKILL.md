@@ -58,7 +58,7 @@ before dispatching reviewers.
 Read [REVIEWERS.md](REVIEWERS.md). Use the smallest lane set allowed by the selected
 mode:
 
-- `quick`: one `reviewer-alt-low` covering blockers, regressions, and obvious test gaps.
+- `quick`: one `reviewer-fast` covering blockers, regressions, and obvious test gaps.
 - `standard`: `reviewer-alt` for correctness, contracts, tests, edge cases, and
   simplification. Add `reviewer-alt-low` for reuse and maintainability only when the diff
   adds new modules or abstractions.

@@ -11,5 +11,5 @@ roles:
     acceptance: read-only
 
 emit:
-  coder: [primary, alt-low, alt, alt-xhigh]
+  coder: [primary, alt-low, alt, alt-xhigh, fast]
   reviewer: [primary, alt-low, alt, alt-xhigh, fast]

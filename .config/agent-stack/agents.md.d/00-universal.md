@@ -9,6 +9,10 @@ Always keep git commit signing enabled. Diagnose failures using the configured `
 
 Do not leave methodology runtime artifacts inside a repository.
 
+# Subagent model routing
+
+For delegated work that is not very complex, use the fast slot (`coder-fast`, `reviewer-fast`, or the `worker`, `delegate`, and `scout` agents, which default to it). That covers well-specified coding tasks, codebase exploration, search and information gathering, log or data inspection, and mechanical edits. Use the stronger slots (`alt`, `alt-xhigh`, `primary`) for ambiguous design, root-cause debugging after a first attempt failed, security or concurrency review, and final adjudication. If a fast-slot run fails for model or provider reasons, retry once on `alt-low` and say so.
+
 # Local skill use
 
 Load a matching always-on local skill before acting. These skills are `auditing-final-tests`, `ci-red-triage`, `drafting-github-replies`, `full-review-and-fix`, `pr-feedback-watch-loop`, `pr-ship-loop`, `rationalizing-code-comments`, `review-branch`, and `unslop`.

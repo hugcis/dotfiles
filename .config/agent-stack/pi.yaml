@@ -18,12 +18,14 @@ settings:
   extensions: ["-builtin:mcp"]
 models:
   default: alt-low
+  # Bounded work (well-specified coding, exploration, search) runs on the fast
+  # slot; review and judgment-heavy roles keep stronger models.
   subagents:
-    default: { slot: alt-low, thinking: medium }
+    default: fast
     worker: fast
-    delegate: { slot: alt-low, thinking: medium }
+    delegate: fast
     reviewer: { slot: alt-low, thinking: medium }
-    scout: { slot: alt-low, thinking: low }
+    scout: fast
     researcher: research
     oracle: primary
     watchdog: primary
