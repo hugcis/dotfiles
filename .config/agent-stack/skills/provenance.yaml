@@ -24,6 +24,7 @@ skills:
   grill-with-docs: { origin: external-upstream }
   merging-main-resolving-conflicts: { origin: inherited-process }
   pr-feedback-watch-loop: { origin: local }
+  pr-ship-loop: { origin: local }
   rationalizing-code-comments: { origin: local }
   receiving-code-review: { origin: inherited-process }
   requesting-code-review: { origin: inherited-process }

@@ -251,7 +251,7 @@ def test_full_review_and_fix_has_scaling_contract():
     assert "reviewer-alt-low" in skill
     assert "at most eight changed files and roughly 400 changed lines" in normalized_skill
     assert '"Full" means complete coverage of the relevant risks' in normalized_skill
-    assert "two reviewers cover" in normalized_skill
+    assert "one reviewer covers correctness, tests, and simplicity" in normalized_skill
     assert "bounded turn budget" in normalized_skill
     assert "review-yield counts" in skill
     assert "accepted findings that changed the final code" in skill

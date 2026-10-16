@@ -33,8 +33,8 @@ Pick the smallest mode that matches the user's request and the diff. Escalate on
 scope or risk justifies the cost.
 
 - `quick`: tiny or mechanical diffs; one reviewer for blockers and obvious regressions.
-- `standard`: a small, low-risk PR, including an explicit full review; two reviewers cover
-  correctness/tests and simplicity/maintainability.
+- `standard`: a small, low-risk PR, including an explicit full review; one reviewer covers
+  correctness, tests, and simplicity, with a second only for new modules or abstractions.
 - `deep`: security, concurrency, distributed behavior, migrations, broad API changes, or an
   explicit request for the complete reviewer panel.
 - `wide`: large or multi-subsystem target; shard first, then run bounded waves.
@@ -59,8 +59,9 @@ Read [REVIEWERS.md](REVIEWERS.md). Use the smallest lane set allowed by the sele
 mode:
 
 - `quick`: one `reviewer-alt-low` covering blockers, regressions, and obvious test gaps.
-- `standard`: `reviewer-alt` for correctness, contracts, tests, and edge cases, plus
-  `reviewer-alt-low` for simplification, reuse, standards, and maintainability.
+- `standard`: `reviewer-alt` for correctness, contracts, tests, edge cases, and
+  simplification. Add `reviewer-alt-low` for reuse and maintainability only when the diff
+  adds new modules or abstractions.
 - `deep`: the complete six-lane set below, because the user explicitly requested a full,
   deep, or thorough pass.
 - `wide`: at most three risk-matched lanes per shard; do not repeat all six on every shard.
@@ -81,9 +82,9 @@ spec/context, applicable standards, and common contract from `REVIEWERS.md`. Req
 findings to follow `review-finding-schema.md`. Give read-only reviewers a bounded turn
 budget unless the caller already supplied one. The final-test audit reviewer must receive
 the full canonical `auditing-final-tests` skill content, and must not restate or summarize
-its rubric. Architecture reviewers must work independently. If these agents are
-unavailable, stop and ask the user to restart your agent harness; do not silently
-substitute models.
+its rubric. Architecture reviewers must work independently. If an agent fails because its
+model is unavailable, retry that lane once on another reviewer agent and name the
+substitution in the report; stop only when no reviewer agent works.
 
 ## 5. Adjudicate
 

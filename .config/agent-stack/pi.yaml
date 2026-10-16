@@ -38,4 +38,6 @@ packages:
   - npm:pi-blackhole@0.5.11
 extensions:
   - comment-discipline
+  - goal-guard
   - subagent
+  - worktree-guard

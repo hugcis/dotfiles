@@ -39,7 +39,9 @@ cross-shard interfaces. Run at most five subagents concurrently, using waves whe
 
 Read [REVIEWERS.md](REVIEWERS.md). Give every reviewer the exact scope, commits, intent,
 standards sources, and common output contract. Require findings to follow
-`../full-review-and-fix/review-finding-schema.md`. Start with one parallel dispatch:
+`../full-review-and-fix/review-finding-schema.md`. Size the first dispatch to the diff. For
+at most eight files and roughly 400 changed lines with no security, concurrency, or migration
+risk, use only `reviewer-alt` covering all three axes below. Otherwise dispatch in parallel:
 
 1. `reviewer-alt`: soundness, contracts, documented standards, and spec compliance when a
    spec exists.
@@ -51,8 +53,8 @@ risk. Add `reviewer-primary` only when an independent architecture judgment coul
 the recommendation. Do not launch a second reviewer merely to cover a clean axis again.
 Give read-only reviewers a bounded turn budget unless the caller already supplied one.
 Architecture reviewers must work independently and must not see each other's findings. If
-the named agents are unavailable, stop and ask the user to restart your agent harness; do not
-silently substitute models.
+a named agent fails because its model is unavailable, retry that lane once on another
+reviewer agent and name the substitution in the report; stop only when no reviewer agent works.
 
 ## 4. Adjudicate
 
