@@ -209,16 +209,6 @@ def test_unslop_is_in_the_cross_harness_local_skill_layer():
     assert not (STACK.parents[1] / ".agents/skills/unslop").exists()
 
 
-def test_full_review_and_fix_wires_final_test_audit():
-    skill = (LOCAL_SKILLS / "full-review-and-fix" / "SKILL.md").read_text()
-    reviewers = (LOCAL_SKILLS / "full-review-and-fix" / "REVIEWERS.md").read_text()
-
-    assert "final-test audit using `auditing-final-tests`" in skill
-    assert "final-test audit reviewer" in skill
-    assert "## Final-Test Audit" in reviewers
-    assert "Use `auditing-final-tests`" in reviewers
-
-
 def test_tdd_and_verification_reference_final_test_audit():
     tdd = (STACK / "skills" / "test-driven-development" / "SKILL.md").read_text()
     verification = (
@@ -229,8 +219,8 @@ def test_tdd_and_verification_reference_final_test_audit():
     assert "auditing-final-tests" in verification
 
 
-def test_full_review_and_fix_has_scaling_contract():
-    skill_dir = LOCAL_SKILLS / "full-review-and-fix"
+def test_review_branch_owns_the_shared_review_engine():
+    skill_dir = LOCAL_SKILLS / "review-branch"
     skill = (skill_dir / "SKILL.md").read_text()
     reviewers = (skill_dir / "REVIEWERS.md").read_text()
     schema = skill_dir / "review-finding-schema.md"
@@ -239,38 +229,72 @@ def test_full_review_and_fix_has_scaling_contract():
     schema_text = schema.read_text()
     for field in ("id", "severity", "confidence", "evidence", "fix_eligibility"):
         assert field in schema_text
-    assert "## 2. Choose Review Mode" in skill
-    assert "quick" in skill
-    assert "standard" in skill
-    assert "deep" in skill
-    assert "wide" in skill
-    assert "postfix" in skill
+    assert "eligible: yes | decision | no" in schema_text
     assert "review-finding-schema.md" in skill
     assert "review-finding-schema.md" in reviewers
+
     normalized_skill = " ".join(skill.split())
-    assert "reviewer-alt-low" in skill
+    assert "## 2. Choose the Review Mode" in skill
+    for mode in ("`quick`", "`standard`", "`deep`", "`wide`"):
+        assert mode in skill
     assert "at most eight changed files and roughly 400 changed lines" in normalized_skill
     assert '"Full" means complete coverage of the relevant risks' in normalized_skill
-    assert "one reviewer covers correctness, tests, and simplicity" in normalized_skill
+    for agent in (
+        "reviewer-fast",
+        "reviewer-alt",
+        "reviewer-alt-low",
+        "reviewer-alt-xhigh",
+        "reviewer-primary",
+    ):
+        assert f"`{agent}`" in skill
+    assert "final-test audit using `auditing-final-tests`" in skill
     assert "bounded turn budget" in normalized_skill
+    assert "finding ID" in skill
+    assert "**Decisions needed**" in skill
+    assert "review-yield counts" in skill
+    assert "failed or timed-out" in skill
+    assert "Do not modify code" in skill
+
+
+def test_full_review_and_fix_composes_review_branch_instead_of_copying_it():
+    """A second copy of the reviewer contracts drifts and finds different issues."""
+    skill_dir = LOCAL_SKILLS / "full-review-and-fix"
+    files = sorted(p.name for p in skill_dir.iterdir() if not p.name.startswith("."))
+    skill = (skill_dir / "SKILL.md").read_text()
+    normalized_skill = " ".join(skill.split())
+
+    assert files == ["SKILL.md"]
+    assert "Run `review-branch` steps 1-4" in normalized_skill
+    assert "`postfix`" in skill
+    assert "eight changed files" not in normalized_skill, "sizing lives in review-branch"
+    assert "`decision`" in skill
+    assert "**Decisions needed**" in skill
     assert "review-yield counts" in skill
     assert "accepted findings that changed the final code" in skill
 
 
-def test_review_branch_scales_lanes_and_reports_yield():
-    skill = (LOCAL_SKILLS / "review-branch" / "SKILL.md").read_text()
+def test_architecture_lanes_compose_thermo_nuclear_review():
+    """Architecture reviewers get the canonical skill, never a drifting summary."""
+    thermo = STACK / "skills" / "thermo-nuclear-code-quality-review" / "SKILL.md"
+    skill = " ".join(
+        (LOCAL_SKILLS / "review-branch" / "SKILL.md").read_text().split()
+    )
+    reviewers = (LOCAL_SKILLS / "review-branch" / "REVIEWERS.md").read_text()
+    section = reviewers.split("## Architecture and Thermo-Nuclear Maintainability", 1)[1]
 
-    assert "reviewer-alt-low" in skill
-    assert "Add `reviewer-alt-xhigh` only" in skill
-    assert "Add `reviewer-primary` only" in skill
-    assert "bounded turn budget" in skill
-    assert "review-yield counts" in skill
-    assert "failed or timed-out" in skill
+    assert thermo.is_file()
+    assert (
+        "Every architecture reviewer must receive the full canonical "
+        "`thermo-nuclear-code-quality-review` skill content." in skill
+    )
+    assert "Use `thermo-nuclear-code-quality-review` as the canonical procedure" in section
+    for restated_rule in ("code judo", "spaghetti", "1,000 lines"):
+        assert restated_rule not in section.lower()
 
 
 def test_review_finding_schema_is_public_safe():
     schema = (
-        LOCAL_SKILLS / "full-review-and-fix" / "review-finding-schema.md"
+        LOCAL_SKILLS / "review-branch" / "review-finding-schema.md"
     ).read_text().lower()
     placeholders_for_private_details = {
         "private-marker",
@@ -356,17 +380,6 @@ def test_new_pr_feedback_skills_are_public_safe():
     )
 
 
-def test_review_branch_uses_structured_finding_schema():
-    skill_dir = LOCAL_SKILLS / "review-branch"
-    skill = (skill_dir / "SKILL.md").read_text()
-    reviewers = (skill_dir / "REVIEWERS.md").read_text()
-
-    assert "review-finding-schema.md" in skill
-    assert "review-finding-schema.md" in reviewers
-    assert "finding ID" in skill
-    assert "Do not modify code" in skill
-
-
 def test_rationalizing_code_comments_skill_is_stack_managed():
     skill = LOCAL_SKILLS / "rationalizing-code-comments" / "SKILL.md"
     assert skill.is_file(), "comment rationalization must be a canonical skill"
@@ -381,11 +394,10 @@ def test_rationalizing_code_comments_skill_is_stack_managed():
 
 
 def test_review_contracts_apply_comment_rationalization():
-    for skill_name in ("full-review-and-fix", "review-branch"):
-        reviewers = (LOCAL_SKILLS / skill_name / "REVIEWERS.md").read_text()
-        assert "rationalizing-code-comments" in reviewers
-        assert "why, not how" in reviewers
-        assert "Delete comments" in reviewers
+    reviewers = (LOCAL_SKILLS / "review-branch" / "REVIEWERS.md").read_text()
+    assert "rationalizing-code-comments" in reviewers
+    assert "why, not how" in reviewers
+    assert "Delete comments" in reviewers
 
 
 def test_auditing_final_tests_curates_against_development_artifacts():

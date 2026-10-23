@@ -219,18 +219,16 @@ def test_only_locally_owned_skills_carry_the_final_test_gate_hook():
     )
 
 
-def test_full_review_and_fix_defers_to_the_canonical_gate_skill():
+def test_review_engine_defers_to_the_canonical_gate_skill():
     """A restated rubric drifts from the gate the parent actually runs."""
-    dispatch = _normalized_section(
-        "full-review-and-fix", "4. Dispatch Read-Only Reviewers"
-    )
+    dispatch = _normalized_section("review-branch", "3. Dispatch Read-Only Reviewers")
     assert (
         "The final-test audit reviewer must receive the full canonical "
         "`auditing-final-tests` skill content, and must not restate or summarize its "
         "rubric." in dispatch
     )
 
-    reviewers = (LOCAL_SKILLS / "full-review-and-fix" / "REVIEWERS.md").read_text()
+    reviewers = (LOCAL_SKILLS / "review-branch" / "REVIEWERS.md").read_text()
     section = " ".join(_markdown_h2_section(reviewers, "Final-Test Audit").split())
     assert "Use `auditing-final-tests` as the canonical procedure" in section
     assert "does not restate its rubric" in section
@@ -379,7 +377,7 @@ def test_pr_feedback_watch_loop_gates_before_push_and_loop_state_update():
 
 def test_full_review_and_fix_gates_after_fix_cycles_and_before_reporting():
     text = _skill("full-review-and-fix")
-    section = _markdown_h2_section(text, "7. Verify and Stop")
+    section = _markdown_h2_section(text, "4. Verify and Stop")
     normalized_section, gate_position = _assert_final_test_gate_contract(section)
 
     cycle_limit = normalized_section.find("Apply at most")
@@ -387,7 +385,7 @@ def test_full_review_and_fix_gates_after_fix_cycles_and_before_reporting():
         "the gate runs after the bounded fix cycles, not between them"
     )
 
-    report_heading = text.find("\n## 8. Report")
+    report_heading = text.find("\n## 5. Report")
     gate_in_file = text.find("**Final-test gate:**")
     assert report_heading != -1, "full-review-and-fix must keep its Report step"
     assert -1 < gate_in_file < report_heading, (

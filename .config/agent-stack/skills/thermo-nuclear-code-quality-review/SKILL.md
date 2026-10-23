@@ -68,6 +68,14 @@ Apply the baseline prompt above, plus these explicit review rules:
    - If related updates can leave state half-applied, push for a more atomic structure.
    - Do not over-index on micro-optimizations, but do flag avoidable orchestration complexity that makes the implementation more brittle.
 
+8. **Demand useful, relevant tests, not verbose test volume.**
+   - Every added test should protect a meaningful behavior, invariant, regression risk, or user-visible contract introduced or changed by the PR.
+   - Do not accept tests that merely restate implementation details, constructor fields, framework behavior, mocks of the code under test, or a branch's exact current structure.
+   - Ask whether the test would fail for a realistic faulty implementation and pass for the intended one. If not, it is probably noise.
+   - Prefer a small number of focused tests that exercise a real caller path or semantic contract over broad, repetitive parametrization and elaborate fixtures with little additional signal.
+   - Do not ask for tests solely to increase coverage. Existing coverage is enough when the change does not create a meaningful untested behavior or regression risk.
+   - Flag tests that make the suite slower, harder to read, or more brittle without buying confidence in behavior that matters.
+
 ## Primary Review Questions
 
 For every meaningful change, ask:
@@ -85,6 +93,10 @@ For every meaningful change, ask:
 - Did the diff introduce casts, optionality, or ad-hoc object shapes that obscure the real invariant?
 - Is this logic living in the canonical layer, or did the diff leak details across a boundary?
 - Is this orchestration more sequential or less atomic than it needs to be?
+- Does every added test cover a meaningful behavior, invariant, or realistic regression risk?
+- Would this test fail for a plausible broken implementation, or does it just mirror the implementation it is supposed to validate?
+- Is there an existing caller-level or semantic test that already covers this behavior better?
+- Does the test's fixture, mocking, or parametrization add confidence proportionate to its complexity?
 
 ## What to Flag Aggressively
 
@@ -107,6 +119,10 @@ Escalate findings when you see:
 - Logic added in the wrong layer/package when it should live somewhere more central.
 - Sequential async flow where obviously independent work could stay simpler and clearer with parallel execution.
 - Partial-update logic that leaves state less atomic than necessary.
+- Verbose tests that only assert obvious field storage, mock calls, framework wiring, or private implementation details.
+- Repeated parametrized cases that do not cover a distinct behavior or failure mode.
+- Large test fixtures, helpers, or mocks that obscure the behavior under test.
+- Tests added for coverage optics rather than a concrete regression, invariant, or user-visible contract.
 
 ## Preferred Remedies
 
@@ -128,6 +144,9 @@ When you identify a code-quality problem, prefer suggestions like:
 - Move the logic to the package/module/layer that already owns the concept.
 - Parallelize independent work when that also simplifies the orchestration.
 - Restructure related updates into a more atomic flow when partial state would be harder to reason about.
+- Replace implementation-detail assertions with a smaller caller-level test of the relevant contract.
+- Delete redundant or low-signal tests rather than preserving them for coverage volume.
+- Add one focused regression test that fails for the bug being prevented instead of many near-duplicate happy-path cases.
 
 Do not be satisfied with "maybe rename this" feedback when the real issue is structural.
 Do not be satisfied with a merely cleaner version of the same messy idea if there is a plausible path to a much simpler idea.
@@ -150,6 +169,9 @@ Good phrases:
 - `this looks like a bespoke helper for something we already have elsewhere. can we reuse the canonical one?`
 - `i think there's a code-judo move here that makes this much simpler. can we reframe this so these branches disappear?`
 - `this refactor moves complexity around, but doesn't really delete it. is there a way to make the model itself simpler?`
+- `this test is verbose, but what meaningful regression would it catch? can we replace it with one focused caller-level test?`
+- `this appears to assert the current implementation rather than the contract. would it fail for a realistic broken implementation?`
+- `we already cover this behavior through the caller path. can we avoid adding a redundant test here?`
 
 ## Output Expectations
 
@@ -179,6 +201,7 @@ The bar for approval is:
 - no unnecessary wrapper/cast/optionality churn obscuring the real design
 - no clear architecture-boundary leak or avoidable canonical-helper duplication
 - no missed opportunity for an obvious decomposition that would materially improve maintainability
+- no substantial low-signal test volume that makes the suite slower, more brittle, or harder to maintain without protecting a meaningful behavior
 
 Treat these as presumptive blockers unless the author can justify them clearly:
 
@@ -188,5 +211,6 @@ Treat these as presumptive blockers unless the author can justify them clearly:
 - the PR solves a local problem by scattering feature checks across shared code
 - the PR adds an unnecessary abstraction, wrapper, or cast-heavy contract that makes the design more indirect
 - the PR duplicates an existing helper or puts logic in the wrong layer when there is a clear canonical home
+- the PR adds verbose tests that do not exercise a meaningful contract or realistic regression risk
 
 If those conditions are not met, leave explicit, actionable feedback and push for a cleaner decomposition.
