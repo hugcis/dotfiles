@@ -94,7 +94,9 @@ Two lanes compose a canonical skill instead of a summary:
   skill content, and must not restate or summarize its rubric.
 - Every architecture reviewer must receive the full canonical
   `thermo-nuclear-code-quality-review` skill content. That skill disables model
-  invocation, so read its `SKILL.md` and paste it into the prompt.
+  invocation, so read its `SKILL.md` and paste it into the prompt. When no harness skill
+  directory links it, read
+  `~/.config/agent-stack/skills/thermo-nuclear-code-quality-review/SKILL.md`.
 
 Architecture reviewers must work independently and must not see each other's findings.
 Drop the spec axis when no spec exists. If a named agent fails because its model is
