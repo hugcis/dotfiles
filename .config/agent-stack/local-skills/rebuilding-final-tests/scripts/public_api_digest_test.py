@@ -3,6 +3,7 @@
 Run: uv run --no-project --with pytest pytest scripts/public_api_digest_test.py -q
 """
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -198,6 +199,25 @@ def test_digest_restricts_to_changed_modules_when_asked(package: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "class Card" in result.stdout
     assert "class Cart" not in result.stdout
+
+
+def test_runs_on_python_3_10_without_entry_point_evidence(package: Path) -> None:
+    """The clusters' system python3 is 3.10 (no tomllib): the digest still works and says what it skipped."""
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("uv is required to run Python 3.10")
+    result = subprocess.run(
+        [uv, "run", "--no-project", "--python", "3.10", "python", str(SCRIPT), "src/shop"],
+        cwd=package,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "class Cart" in result.stdout
+    assert "entry points are not used as evidence" in result.stderr
 
 
 def test_missing_package_is_a_usage_error(tmp_path: Path) -> None:

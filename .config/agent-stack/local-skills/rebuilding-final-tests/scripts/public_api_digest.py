@@ -30,8 +30,12 @@ import io
 import re
 import sys
 import tokenize
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10, the system python3 on the clusters
+    tomllib = None
 
 WHOLE_MODULE = "*"
 SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", "mutants", ".tox", "build", "dist"}
@@ -112,6 +116,12 @@ def reexports(package: Path, public: dict[str, set[str]]) -> list[str]:
 def entry_points(package: Path, public: dict[str, set[str]]) -> list[str]:
     pyproject = project_root(package) / "pyproject.toml"
     if not pyproject.exists():
+        return []
+    if tomllib is None:
+        sys.stderr.write(
+            f"public_api_digest: Python {sys.version_info[0]}.{sys.version_info[1]} cannot read {pyproject}; "
+            "entry points are not used as evidence (run with Python 3.11+)\n"
+        )
         return []
     project = tomllib.loads(pyproject.read_text()).get("project", {})
     groups = {**project.get("entry-points", {})}
