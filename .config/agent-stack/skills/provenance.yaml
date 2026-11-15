@@ -27,6 +27,7 @@ skills:
   pr-feedback-watch-loop: { origin: local }
   pr-ship-loop: { origin: local }
   rationalizing-code-comments: { origin: local }
+  rebuilding-final-tests: { origin: local }
   receiving-code-review: { origin: inherited-process }
   requesting-code-review: { origin: inherited-process }
   review-branch: { origin: local-adapted }

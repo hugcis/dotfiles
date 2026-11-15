@@ -17,7 +17,7 @@ For delegated work that is not very complex, use the fast slot (`coder-fast`, `r
 
 # Local skill use
 
-Load a matching always-on local skill before acting. These skills are `auditing-final-tests`, `ci-red-triage`, `drafting-github-replies`, `full-review-and-fix`, `pr-feedback-watch-loop`, `encoding-repeated-corrections`, `pr-ship-loop`, `rationalizing-code-comments`, `review-branch`, `unslop`, and `vetting-measured-results`.
+Load a matching always-on local skill before acting. These skills are `auditing-final-tests`, `ci-red-triage`, `drafting-github-replies`, `full-review-and-fix`, `pr-feedback-watch-loop`, `encoding-repeated-corrections`, `pr-ship-loop`, `rationalizing-code-comments`, `rebuilding-final-tests`, `review-branch`, `unslop`, and `vetting-measured-results`.
 
 The selected methodology owns the outer lifecycle. Prefer a local skill when its exact specialty matches, then return to the methodology workflow for the surrounding phases and handoff. Do not run an overlapping methodology skill as a duplicate pass unless the local skill explicitly composes it. In particular: use `ci-red-triage` for red CI and `ce-debug` for other bugs; use `review-branch` for explicit read-only branch review and `full-review-and-fix` for explicit deep review with fixes; use CE review for ordinary implementation review; use `pr-ship-loop` for end-to-end PR shipping and babysitting (sync with main, review-and-fix, draft PR, watch CI and review threads), the narrower local PR skills for feedback drafting or a single watch loop, and CE PR skills only when explicitly requested; use `rationalizing-code-comments` as a focused pass inside CE simplification. Use `vetting-measured-results` before reporting any measured number, and `encoding-repeated-corrections` when the user repeats a correction.
 
@@ -29,6 +29,11 @@ Any workflow that adds or changes tests MUST use `auditing-final-tests` before c
 including features, bug fixes, refactors, CI repairs, review fixes, and test-only changes.
 `PASS` and `NOT_APPLICABLE` are the only completion-permitting outcomes. Resolve
 `ACTION_REQUIRED`; report `BLOCKED` honestly.
+
+At the end of a development phase that added or changed tests, run `rebuilding-final-tests`
+first, then `auditing-final-tests` on the rebuilt suite. `BLOCKED` from the rebuild stops
+completion just as a non-passing audit does. Smaller fixes that touch tests inside an
+already rebuilt phase (review fixes, CI repairs) go straight to `auditing-final-tests`.
 
 # Written content
 

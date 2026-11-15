@@ -52,8 +52,11 @@ at most one lane covering the other `axis` values of the fixed findings, using t
 Apply at most one follow-up batch through the same single fixer: two fix cycles maximum.
 Then stop even if additional opportunities remain.
 
-After the final mutation wave, apply the **Final-test gate:** invoke `auditing-final-tests`
-over the workflow's full change scope. Continue to reporting only
+After the final mutation wave, apply the **Final-test gate:** when the branch's tests were
+written in the same session as its implementation and have not been rebuilt yet, first run
+`rebuilding-final-tests` over the branch (its blind writer is a separate subagent, not the
+single fixer); a `BLOCKED` rebuild goes under **Decisions needed**. Then invoke
+`auditing-final-tests` over the workflow's full change scope. Continue to reporting only
 on `PASS` or `NOT_APPLICABLE`. Resolve `ACTION_REQUIRED`; report `BLOCKED` honestly. The
 earlier read-only final-test reviewer does not replace this gate because later fixes may
 add or alter tests. Gate Rework and Delete actions go through the same single fixer and

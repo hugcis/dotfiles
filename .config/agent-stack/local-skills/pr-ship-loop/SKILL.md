@@ -23,6 +23,10 @@ Run `full-review-and-fix` sized to the diff: `quick` or `standard` for most PRs.
 current bot and human review threads as inputs. Before finishing this step, report net
 lines split into production, tests, and docs, and run a deletion pass: dev-cycle
 diagnostics, one-off CLIs, duplicated helpers, and speculative compatibility code go.
+If the branch's tests were written in the same session and not yet rebuilt, the
+`full-review-and-fix` final-test gate runs `rebuilding-final-tests` before
+`auditing-final-tests`. Include its before and after test counts in the net-lines report.
+Do this once per branch, not on every watch wake.
 
 ## 3. Publish
 
