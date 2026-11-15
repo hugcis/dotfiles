@@ -630,6 +630,22 @@ def pi_model(entry, profile: dict, where: str) -> tuple[str, str, str | None]:
     return provider, binding["model"], thinking if thinking is not None else binding.get("thinking")
 
 
+def pi_default_override(profile: dict) -> tuple[str, str]:
+    """This host's own Pi default model, from profile.yaml `pi_default_model: {provider, model}`.
+
+    pi.yaml is shared by every host and can only name a slot; a host whose preferred default is
+    not any slot's exact model pins it here instead.
+    """
+    entry = profile["pi_default_model"]
+    if not isinstance(entry, dict) or set(entry) != {"provider", "model"}:
+        raise ConfigError(
+            "profile.yaml: pi_default_model must be {provider, model}, e.g. "
+            "{provider: mistral, model: <model id>}."
+        )
+    provider = provider_name(profile, "pi", entry["provider"], "profile.yaml pi_default_model")
+    return provider, entry["model"]
+
+
 def pi_managed_settings(config: dict, profile: dict) -> dict:
     """Every settings.json key render owns, resolved for this host."""
     managed = dict(config["settings"])
@@ -643,6 +659,8 @@ def pi_managed_settings(config: dict, profile: dict) -> dict:
         provider, model, _ = pi_model(models["default"], profile, "models.default")
         managed["defaultProvider"] = provider
         managed["defaultModel"] = model
+    if "pi_default_model" in profile:
+        managed["defaultProvider"], managed["defaultModel"] = pi_default_override(profile)
     entries = models.get("subagents") or {}
     if entries:
         subagents: dict = {}
@@ -882,9 +900,10 @@ def write_all(roster: dict, profile: dict, *, runner=None, which=None) -> None:
         target.write_text(agents_md)
     (STACK / "profile.env").write_text(profile_env)
 
-    # Phase 3: prune.
+    # Phase 3: prune. Files another tool owns (roster `preserve`) are never moved.
+    preserve = roster.get("preserve") or {}
     for harness, directory in TARGETS.items():
-        moved = prune_stale(directory, set(planned[harness]))
+        moved = prune_stale(directory, set(planned[harness]) | set(preserve.get(harness) or []))
         if moved:
             print(f"{harness}: moved {len(moved)} stale file(s) aside: {', '.join(sorted(moved))}")
 

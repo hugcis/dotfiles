@@ -13,3 +13,7 @@ roles:
 emit:
   coder: [primary, alt-low, alt, alt-xhigh, fast]
   reviewer: [primary, alt-low, alt, alt-xhigh, fast]
+
+# Agent files another tool owns in a render target. Render never moves them aside.
+preserve:
+  vibe: [herd-scout.toml] # the herd skill's scout subagent

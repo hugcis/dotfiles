@@ -165,13 +165,19 @@ def _assert_public_roster_names_slots_not_models(path: Path):
     this file, publishing the very strings it exists to keep out.
     """
     roster = render.load_roster(path)
-    document_keys = {"roles", "emit"}
+    document_keys = {"roles", "emit", "preserve"}
     role_keys = {"prompt", "write", "bash", "acceptance"}
     known_slots = {"primary", "alt-low", "alt", "alt-xhigh", "fast"}
 
-    assert set(roster) == document_keys, (
+    assert set(roster) <= document_keys and {"roles", "emit"} <= set(roster), (
         f"roster.yaml has unsupported top-level key(s): {sorted(set(roster) - document_keys)}"
     )
+
+    for harness, names in (roster.get("preserve") or {}).items():
+        assert harness in render.TARGETS, f"preserve names unknown harness {harness}"
+        assert all(isinstance(n, str) and "/" not in n for n in names), (
+            f"preserve.{harness} must list bare file names: {names}"
+        )
 
     for role, slots in roster["emit"].items():
         unknown = set(slots) - known_slots
@@ -961,6 +967,26 @@ def test_write_all_writes_and_prunes(tmp_path, monkeypatch):
     assert (box["stack"] / "profile.env").exists()
     backups = list((box["home"] / "pi").glob("agents.pre-render-*/legacy-coder.md"))
     assert [p.read_text() for p in backups] == ["hand written"]
+
+
+def test_write_all_keeps_the_files_the_roster_preserves(tmp_path, monkeypatch):
+    """A hand-written agent another tool owns (herd's scout) survives every render."""
+    box = _sandbox(tmp_path, monkeypatch)
+    vibe = box["targets"]["vibe"]
+    vibe.mkdir(parents=True)
+    (vibe / "herd-scout.toml").write_text("owned by herd")
+    (vibe / "legacy-coder.toml").write_text("stale")
+    roster = render.load_roster(STACK / "roster.yaml")
+    roster["preserve"] = {"vibe": ["herd-scout.toml"]}
+
+    render.write_all(roster, render.load_profile(FIXTURE))
+
+    assert (vibe / "herd-scout.toml").read_text() == "owned by herd"
+    assert not (vibe / "legacy-coder.toml").exists()
+
+
+def test_public_roster_preserves_the_herd_scout_vibe_agent():
+    assert "herd-scout.toml" in render.load_roster(STACK / "roster.yaml")["preserve"]["vibe"]
 
 
 def test_write_all_installs_every_prompt_a_vibe_agent_names(tmp_path, monkeypatch):

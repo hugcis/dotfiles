@@ -211,6 +211,30 @@ def test_default_model_rejects_thinking():
         render.pi_managed_settings(config, PROFILE)
 
 
+def test_profile_pi_default_model_overrides_the_shared_default():
+    """A host can pin its own Pi default model, through its own provider names."""
+    profile = {**PROFILE, "pi_default_model": {"provider": "mistral", "model": "pinned"}}
+
+    managed = render.pi_managed_settings(_config({"default": "primary"}), profile)
+
+    assert (managed["defaultProvider"], managed["defaultModel"]) == ("prov-o", "pinned")
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        pytest.param("fast", id="slot-name"),
+        pytest.param({"model": "pinned"}, id="no-provider"),
+        pytest.param({"provider": "mistral", "model": "pinned", "thinking": "low"}, id="extra-key"),
+    ],
+)
+def test_profile_pi_default_model_must_name_a_provider_and_a_model(entry):
+    profile = {**PROFILE, "pi_default_model": entry}
+
+    with pytest.raises(render.ConfigError, match=r"pi_default_model"):
+        render.pi_managed_settings(_config({"default": "primary"}), profile)
+
+
 def test_provider_name_error_names_the_missing_key_and_its_consumer():
     with pytest.raises(render.ConfigError, match=r"provider_names\.pi\.mistral is missing \(needed by agent 'x'\)"):
         render.provider_name(

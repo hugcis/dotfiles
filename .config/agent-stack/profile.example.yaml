@@ -59,5 +59,9 @@ methodology: superpowers
 # fragment.
 agents_md_extra: []
 
+# Optional: this machine's Pi default model, when it is not any slot's exact
+# model. Overrides pi.yaml models.default on this machine only.
+# pi_default_model: { provider: mistral, model: REPLACE-ME }
+
 # Extra shell exports emitted into profile.env.
 env: {}

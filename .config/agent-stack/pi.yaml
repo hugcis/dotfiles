@@ -5,6 +5,7 @@
 # Every render replaces settings.extensions as a whole.
 # Every render resets defaultModel, defaultProvider and defaultThinkingLevel, so
 # model or thinking changes made in Pi's UI last only until the next render.
+# A machine pins its own default model with profile.yaml `pi_default_model`.
 # compactAtTokens sets settings.compaction.modelOverrides from ~/.pi/agent/models.json.
 
 # Auto-compact models whose context window is larger than this, at about this many tokens.
