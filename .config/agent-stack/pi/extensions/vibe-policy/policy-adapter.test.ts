@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   runPolicy,
-  needsFailClosed,
   failClosedReason,
   POLICY_PATH,
   PRE_TOOL_MAP,
@@ -59,41 +58,20 @@ test("an unserialisable payload is an error outcome, not a silent allow", () => 
   assert.equal(runPolicy(circular, { policyPath: STACK_POLICY }).status, "error");
 });
 
-test("destructive patterns are recognised for fail-closed handling", () => {
-  for (const command of [
-    "rm -rf build",
-    "git reset --hard",
-    "git clean -fdx",
-    "git commit --no-gpg-sign -m x",
-    "git -c commit.gpgsign=false commit -m x",
-    "find / -name x",
-    "du -sh ~",
-    "grep -r foo /",
-    "rg foo /srv/data",
-    "ls -R /srv/data",
-    'set -x; curl -H "Authorization: Bearer $API_KEY" https://example.test',
-    "echo start && rm -rf build",
-    'bash -c "rm -rf /"',
-    "sh -c 'git reset --hard'",
-    'eval "git reset --hard"',
-    "git push --force origin main",
-    "echo x > ~/.local/state/ship-check/r/a.json",
-  ]) {
-    assert.equal(needsFailClosed(command), true, command);
-  }
-});
-
-test("ordinary commands are not forced closed", () => {
-  for (const command of ["git status", "ls", "pytest -q tests", "make build", "cat notes.txt"]) {
-    assert.equal(needsFailClosed(command), false, command);
-  }
-});
-
 test("the fail-closed reason names the failure and the command", () => {
   const reason = failClosedReason("rm -rf build", "policy.py timed out after 10000 ms");
   assert.match(reason, /blocked/i);
   assert.match(reason, /timed out/);
   assert.match(reason, /rm -rf build/);
+});
+
+test("an ordinary command also fails closed, with no allow-list to dodge", () => {
+  // The review found a pattern allow-list here was itself bypassable.
+  for (const command of ["git status", "ls", "pytest -q", "definitely-not-matched"]) {
+    const reason = failClosedReason(command, "policy.py exited 1");
+    assert.match(reason, /blocked/i);
+    assert.ok(reason.includes(command));
+  }
 });
 
 test("Pi tool ids map to policy tool names", () => {

@@ -1,7 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   runPolicy,
-  needsFailClosed,
   failClosedReason,
   PRE_TOOL_MAP,
   POST_TOOL_MAP,
@@ -43,8 +42,12 @@ export default function (pi: ExtensionAPI) {
       cwd: process.cwd(),
     });
 
+    // Fail closed on every bash call. An error means the command was never
+    // checked, and the guard exists for commands that cannot be taken back.
+    // Edits and writes still fail open: a stalled session is the worse risk
+    // there, and worktree-guard covers the dangerous case.
     if (outcome.status === "error") {
-      if (toolName === "bash" && needsFailClosed(command)) {
+      if (toolName === "bash") {
         return { block: true, reason: failClosedReason(command, outcome.detail) };
       }
       return;

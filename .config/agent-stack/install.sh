@@ -57,6 +57,13 @@ python3 "$STACK/render.py" validate --profile "$STACK/profile.yaml"
 python3 "$STACK/render.py"
 python3 "$STACK/render.py" doctor
 
+# The policy guard only guards if Vibe is actually wired to run it. A warning,
+# not a hard failure: a fresh machine installs the stack before the hooks.
+if ! python3 "$STACK/hooks/policy.py" --doctor; then
+	echo "warning: the policy guard is not active for Vibe on this machine." >&2
+	echo "         Append the entries from $STACK/hooks.example.toml to ~/.vibe/hooks.toml." >&2
+fi
+
 # Shell wiring: source profile.env if not already wired.
 for rc in "$HOME/.zshenv.linux" "$HOME/.zshenv.macos"; do
 	[[ -f "$rc" ]] || continue
