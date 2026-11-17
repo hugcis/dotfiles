@@ -53,64 +53,16 @@ function runHook(path: string, payload: unknown, label: string): Outcome {
 }
 
 export function runPolicy(payload: unknown, opts: { policyPath?: string } = {}): Outcome {
-  let res;
-  try {
-    res = spawnSync("python3", [opts.policyPath ?? POLICY_PATH], {
-      input: JSON.stringify(payload),
-      encoding: "utf8",
-      timeout: POLICY_TIMEOUT_MS,
-    });
-  } catch (err) {
-    return { status: "error", detail: `could not run policy.py: ${String(err)}` };
-  }
-  if (res.error) {
-    const timedOut = (res.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
-    return {
-      status: "error",
-      detail: timedOut ? `policy.py timed out after ${POLICY_TIMEOUT_MS} ms` : String(res.error.message),
-    };
-  }
-  if (res.signal) return { status: "error", detail: `policy.py killed by ${res.signal}` };
-  if (res.status !== 0) {
-    return { status: "error", detail: `policy.py exited ${res.status}: ${(res.stderr ?? "").trim()}` };
-  }
-  const out = (res.stdout ?? "").trim();
-  if (!out) return { status: "allow" };
-  try {
-    return { status: "verdict", verdict: JSON.parse(out) as Verdict };
-  } catch {
-    return { status: "error", detail: `policy.py printed non-JSON: ${out.slice(0, 200)}` };
-  }
+  return runHook(opts.policyPath ?? POLICY_PATH, payload, "policy.py");
 }
 
 export function runShipCheckGate(payload: unknown, opts: { gatePath?: string } = {}): Outcome {
   return runHook(opts.gatePath ?? SHIP_CHECK_GATE_PATH, payload, "ship_check_gate.py");
 }
 
-// Commands that destroy state, bypass signing or walk the whole filesystem. A
-// policy error on one of these blocks rather than allows: these are the cases
-// the guard exists for, and an unguarded run of one is not recoverable.
-const DESTRUCTIVE_PATTERNS: RegExp[] = [
-  /(^|[\s;&|(])rm\s/,
-  /(^|[\s;&|(])git\s[^;&|]*\b(reset|clean|checkout|restore)\b/,
-  /--no-gpg-sign|commit\.gpgsign/i,
-  /(^|[\s;&|(])(find|du)\s/,
-  /(^|[\s;&|(])grep\s+(-\S*[rR]|--recursive|--directories)/,
-  /(^|[\s;&|(])rg\s/,
-  /(^|[\s;&|(])ls\s+(-\S*R|--recursive)/,
-  /(^|[\s;&|(])(set\s+(-\S*x|-o\s+xtrace)|(bash|sh|zsh|dash|ksh)\s+-\S*x)/,
-  // Wrappers hide their payload, so an unchecked one could hide anything above.
-  /(^|[\s;&|(])((bash|sh|zsh|dash|ksh)\s+(-\S*c|--command)|eval\s)/,
-  /(^|[\s;&|(])git\s[^;&|]*\bpush\b/,
-];
-
-export function needsFailClosed(command: string): boolean {
-  return DESTRUCTIVE_PATTERNS.some((pattern) => pattern.test(command));
-}
-
 export function failClosedReason(command: string, detail: string): string {
   return (
-    `The policy guard could not check this command, and it matches a destructive pattern, so it is blocked ` +
+    `The policy guard could not check this command, so it is blocked ` +
     `(${detail}). Fix the guard (\`python3 ${POLICY_PATH} < payload.json\`) or run a narrower command. ` +
     `Command: ${command.slice(0, 200)}`
   );

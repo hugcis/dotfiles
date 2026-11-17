@@ -2,7 +2,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   runPolicy,
   runShipCheckGate,
-  needsFailClosed,
   failClosedReason,
   PRE_TOOL_MAP,
   POST_TOOL_MAP,
@@ -10,15 +9,12 @@ import {
 
 // Thin adapter: forwards Pi tool events to the shared policy engine
 // (~/.config/agent-stack/hooks/policy.py), the same guard Vibe runs as a
-// [[hooks]] command.
+// [[hooks]] command. Bash calls also go through ship_check_gate.py after
+// policy.py succeeds, so push / PR publication gates match Vibe.
 //
 // Event mapping:
 //   tool_call   -> pre_tool   (deny via {block}, or rewrite event.input)
 //   tool_result -> post_tool  (redact via replaced content, or append context)
-//
-// A policy error blocks destructive-looking bash and allows everything else:
-// the guard's whole value is the destructive cases, and nudges are not worth
-// a stalled session.
 
 // Pull the plain text out of a tool-result content array.
 function contentText(content: unknown): string {
@@ -44,8 +40,12 @@ export default function (pi: ExtensionAPI) {
       cwd: process.cwd(),
     });
 
+    // Fail closed on every bash call. An error means the command was never
+    // checked, and the guard exists for commands that cannot be taken back.
+    // Edits and writes still fail open: a stalled session is the worse risk
+    // there, and worktree-guard covers the dangerous case.
     if (outcome.status === "error") {
-      if (toolName === "bash" && needsFailClosed(command)) {
+      if (toolName === "bash") {
         return { block: true, reason: failClosedReason(command, outcome.detail) };
       }
       return;

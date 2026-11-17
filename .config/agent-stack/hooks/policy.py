@@ -158,6 +158,16 @@ SECRET_PATTERNS = (
     re.compile(r"bkua_[A-Fa-f0-9]{16,}"),
     re.compile(r"lin_api_[A-Za-z0-9]{16,}"),
     re.compile(r"(?i)(api[_-]?key|token|authorization)\s*[=:]\s*['\"]?[^'\"\s,}]{12,}"),
+    # GitHub tokens: ghp_/gho_/ghu_/ghs_/ghr_ and fine-grained PATs.
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{16,}"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"\bsk-[A-Za-z0-9_\-]{16,}"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{10,}"),
+    re.compile(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
+        re.DOTALL,
+    ),
 )
 
 LOCK_OR_CONFIG_NUDGE = (
@@ -166,7 +176,7 @@ LOCK_OR_CONFIG_NUDGE = (
 )
 
 # Signing bypass. Keys are matched case-insensitively, as git does.
-SIGNING_CONFIG_KEYS = {"commit.gpgsign"}
+SIGNING_CONFIG_KEYS = {"commit.gpgsign", "tag.gpgsign", "push.gpgsign"}
 FALSE_CONFIG_VALUES = {"false", "off", "no", "0", ""}
 
 # Shell tracing with secrets in scope. `set -x` echoes every expanded word, so a
@@ -180,29 +190,47 @@ NESTING_SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 MAX_NESTING_DEPTH = 2
 NESTED_NOTE = "(found inside a nested `bash -c`/`eval` string)"
 
+# Prefixes that run another command without changing what it does. Stripping
+# them means `sudo rm -rf /` is judged as `rm -rf /` by every rule at once,
+# instead of each rule needing its own sudo clause.
+COMMAND_PREFIXES = {
+    "sudo", "doas", "env", "nohup", "command", "exec", "stdbuf", "nice", "ionice",
+    "setsid", "time", "xargs", "busybox",
+}
+# Options these prefixes take that consume the following word.
+PREFIX_OPTIONS_WITH_VALUE = {
+    "-u", "-g", "-U", "-n", "-i", "-o", "-e", "-I", "-L", "-P", "-a", "-d", "-S", "-C", "--chdir",
+    "--user", "--group", "--max-procs", "--replace", "--arg-file", "--delimiter", "--max-args",
+}
+# `timeout` takes a duration operand before the command.
+PREFIX_WITH_DURATION = {"timeout"}
+DURATION_OPERAND = re.compile(r"\d+(\.\d+)?[smhd]?")
+
+# A shell reading its script from stdin or a here-document runs text the
+# tokeniser never sees as a command.
+STDIN_FED_SHELL_NOTE = (
+    "Blocked: this feeds a script into a shell through a pipe, here-string or here-document, so "
+    "the policy guard cannot see what it runs. Put the commands in the tool call directly."
+)
+HEREDOC_OPERATORS = ("<<<", "<<-", "<<")
+REMOTE_SHELL_COMMANDS = {"ssh", "rsh", "docker", "kubectl", "podman"}
+CONTAINER_COMMANDS = {"docker", "kubectl", "podman"}
+CONTAINER_EXEC_VERBS = {"exec", "run"}
+REMOTE_OPTIONS_WITH_VALUE = {
+    "-p", "-i", "-l", "-o", "-F", "-c", "-b", "-D", "-E", "-I", "-J", "-L", "-m", "-O",
+    "-Q", "-R", "-S", "-W", "-w", "--port", "--login-name",
+}
+CONTAINER_OPTIONS_WITH_VALUE = {
+    "-n", "--namespace", "--context", "-c", "--container", "-u", "--user", "-e", "--env",
+    "-w", "--workdir", "--kubeconfig",
+}
+
 # Force-pushing a shared branch rewrites history other people have pulled.
 PROTECTED_BRANCHES = {"main", "master"}
 PROTECTED_BRANCH_PREFIXES = ("release/",)
 PUSH_FORCE_FLAGS = {"--force", "-f", "--force-with-lease", "--force-if-includes"}
 PUSH_OPTIONS_WITH_VALUE = {"--repo", "-o", "--push-option", "--receive-pack", "--exec"}
 
-# ship-check receipts. The L2 gate trusts a receipt as evidence that HEAD passed,
-# so an agent that can write one can forge its own green light.
-SHIP_CHECK_RECEIPT_ROOT = "~/.local/state/ship-check"
-# Commands that create, change or remove a file named in their operands.
-RECEIPT_MUTATING_COMMANDS = {
-    "tee", "rm", "mv", "install", "truncate", "dd", "touch", "ln", "mkdir", "rmdir",
-    "chmod", "chown", "shred", "rsync",
-}
-# `cp a b` only writes its destination; a receipt as source is an ordinary read.
-RECEIPT_DESTINATION_ONLY_COMMANDS = {"cp"}
-# Interpreters that can open a file for writing from an inline script, so any
-# mention of the receipt path in their arguments is opaque and blocked. `jq`
-# and `awk` are absent deliberately: neither can write in place, so they only
-# touch a receipt through a `>` redirect, which is checked separately.
-SCRIPT_INTERPRETERS = {"python", "python3", "perl", "ruby", "node"}
-REDIRECTION_OPERATORS = {">", ">>", ">|", "1>", "2>", "&>", "&>>", "1>>", "2>>"}
-INPUT_REDIRECTION_OPERATORS = {"<", "0<", "<<<"}
 SECRET_NAME = re.compile(r"(?i)(^|[^A-Za-z])(secret|token|key|password|passwd|credential)s?([^A-Za-z]|$)")
 # `.env`, `.env.production`, `prod.env`. Not the `env` command.
 DOTENV_FILE = re.compile(r"(?i)^\.env(\.[^/]*)?$|\.env$")
@@ -244,13 +272,19 @@ def handle_payload(payload: Payload) -> Response | None:
 
 
 def handle_pre_tool(payload: Payload) -> Response | None:
-    kind = tool_kind(str(payload.get("tool_name", "")))
+    tool_name = str(payload.get("tool_name", ""))
+    kind = tool_kind(tool_name)
     tool_input = get_tool_input(payload)
     cwd = str(payload.get("cwd", ""))
     if kind == "bash":
         return check_bash_command(tool_command(tool_input), cwd)
     if kind == "write":
         return check_mutating_file_tool(tool_input, cwd)
+    # An unrecognised tool carrying a command string runs a shell by some other
+    # name. Judging it as bash is the safe default: a new or renamed tool must
+    # not be a way past the guard.
+    if kind is None and tool_command(tool_input):
+        return check_bash_command(tool_command(tool_input), cwd)
     return None
 
 
@@ -292,11 +326,82 @@ def nested_command_strings(command: str) -> list[str] | None:
     return payloads
 
 
+def shell_reads_script_from_stdin(command: str) -> bool:
+    """A shell whose script arrives by pipe, here-string or here-document.
+
+    `echo "rm -rf /" | sh` and `bash <<< "..."` run text that never appears as
+    a command token, so no rule can see it.
+    """
+    tokens = shell_tokens(command)
+    if tokens is None:
+        return False
+    for segment, reads_pipe in command_segments_with_stdin(tokens):
+        index = shell_executable_index(segment)
+        if index is None:
+            continue
+        if os.path.basename(segment[index]) not in NESTING_SHELLS:
+            continue
+        args = segment[index + 1 :]
+        # An explicit `-c` payload is read by the nesting check instead.
+        if any(token in {"-c", "--command"} for token in args):
+            continue
+        if any(token.startswith("-") and not token.startswith("--") and "c" in token[1:] for token in args):
+            continue
+        # A script file operand is a normal invocation, not stdin.
+        if reads_pipe and not [token for token in args if not token.startswith("-")]:
+            return True
+        if any(operator in token for token in segment for operator in HEREDOC_OPERATORS):
+            return True
+    # Heredoc bodies are stripped of their operator by the lexer in some forms.
+    return any(operator in command for operator in HEREDOC_OPERATORS) and any(
+        re.search(rf"(^|[\s;&|(]){shell}(\s|$)", command) for shell in NESTING_SHELLS
+    )
+
+
+def remote_shell_payload(command: str) -> list[str]:
+    """Command words handed to ssh/docker/kubectl to run elsewhere."""
+    tokens = shell_tokens(command)
+    if tokens is None:
+        return []
+    payloads: list[str] = []
+    for segment in command_segments(tokens):
+        index = shell_executable_index(segment)
+        if index is None:
+            continue
+        executable = os.path.basename(segment[index])
+        if executable not in REMOTE_SHELL_COMMANDS:
+            continue
+        # Keep every word after the host, flags included: dropping `-rf` from
+        # `ssh host rm -rf /` would leave a harmless-looking `rm /`.
+        args = segment[index + 1 :]
+        position = 0
+        # `docker exec c cmd` / `kubectl exec pod -- cmd`: step over the verb.
+        if executable in CONTAINER_COMMANDS:
+            while position < len(args) and args[position].startswith("-"):
+                position += 2 if args[position] in CONTAINER_OPTIONS_WITH_VALUE else 1
+            if position < len(args) and args[position] in CONTAINER_EXEC_VERBS:
+                position += 1
+            else:
+                continue
+        while position < len(args) and args[position].startswith("-"):
+            position += 2 if args[position] in REMOTE_OPTIONS_WITH_VALUE else 1
+        # args[position] is the host/container; the rest is the remote command.
+        remote = args[position + 1 :]
+        if remote and remote[0] == "--":
+            remote = remote[1:]
+        if remote:
+            payloads.append(" ".join(shlex.quote(token) for token in remote))
+    return payloads
+
+
 def check_bash_command(command: str, cwd: str, depth: int = 0) -> Response | None:
     """Judge a command, then judge anything it hides inside `bash -c`/`eval`."""
     verdict = check_bash_command_text(command, cwd)
     if verdict is not None and verdict.get("decision") == "deny":
         return verdict
+
+    if shell_reads_script_from_stdin(command):
+        return deny(STDIN_FED_SHELL_NOTE)
 
     nested = nested_command_strings(command)
     if nested is None:
@@ -309,7 +414,7 @@ def check_bash_command(command: str, cwd: str, depth: int = 0) -> Response | Non
             f"Blocked: shell wrappers nested more than {MAX_NESTING_DEPTH} deep cannot be checked "
             "reliably. Run the command directly instead of wrapping it in `bash -c`/`eval`."
         )
-    for payload in nested:
+    for payload in nested + remote_shell_payload(command):
         nested_verdict = check_bash_command(payload, cwd, depth + 1)
         if nested_verdict is not None and nested_verdict.get("decision") == "deny":
             reason = nested_verdict["reason"]
@@ -322,15 +427,13 @@ def check_bash_command(command: str, cwd: str, depth: int = 0) -> Response | Non
 
 
 def check_bash_command_text(command: str, cwd: str) -> Response | None:
-    if writes_ship_check_receipt(command, cwd):
-        return deny(SHIP_CHECK_RECEIPT_DENIAL)
     if force_pushes_protected_branch(command):
         return deny(
             "Blocked a force-push to a protected branch. This rewrites history others have already "
             "pulled. Ask Hugo before force-pushing main/master/release/*; push to a feature branch "
             "and open a PR instead."
         )
-    if uses_destructive_rm(command) or uses_destructive_git(command):
+    if uses_destructive_rm(command, cwd) or uses_destructive_git(command):
         return deny(
             "Blocked destructive shell command. Use a narrower non-destructive command, "
             "or ask explicitly if this really needs to discard local state."
@@ -379,13 +482,38 @@ def is_broad_scan(command: str, cwd: str) -> bool:
 # -- shell parsing -----------------------------------------------------------
 
 
+def rejoin_brace_expansions(tokens: list[str]) -> list[str]:
+    """Put `${VAR}` back together after lexing.
+
+    `{` and `}` are punctuation so `{ cmd; }` groups split correctly, but that
+    also shreds `${HOME}` into `$`, `{`, `HOME`, `}`. Left split, the root of
+    `find ${HOME}` never reaches variable expansion and the scan is allowed.
+    """
+    merged: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if (
+            token.endswith("$")
+            and index + 3 < len(tokens)
+            and tokens[index + 1] == "{"
+            and tokens[index + 3] == "}"
+        ):
+            merged.append(f"{token}{{{tokens[index + 2]}}}")
+            index += 4
+            continue
+        merged.append(token)
+        index += 1
+    return merged
+
+
 def shell_tokens(command: str) -> list[str] | None:
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|\n(){}")
         lexer.whitespace_split = True
         lexer.whitespace = " \t\r"
         lexer.commenters = ""
-        return list(lexer)
+        return rejoin_brace_expansions(list(lexer))
     except ValueError:
         return None
 
@@ -422,11 +550,33 @@ def command_segments(tokens: list[str]) -> list[list[str]]:
 
 
 def shell_executable_index(segment: list[str]) -> int | None:
+    """Index of the real command, past assignments, keywords and wrappers.
+
+    Every rule calls this, so stripping `sudo`/`env`/`timeout` here makes
+    `sudo rm -rf /` judged as `rm -rf /` by all of them at once.
+    """
     index = 0
-    while index < len(segment) and (
-        ENV_ASSIGNMENT.match(segment[index]) or segment[index] in SHELL_LEADING_RESERVED_WORDS
-    ):
-        index += 1
+    while index < len(segment):
+        token = segment[index]
+        if ENV_ASSIGNMENT.match(token) or token in SHELL_LEADING_RESERVED_WORDS:
+            index += 1
+            continue
+        name = os.path.basename(token)
+        if name in COMMAND_PREFIXES or name in PREFIX_WITH_DURATION:
+            index += 1
+            # Skip the prefix's own options, and the words they consume.
+            while index < len(segment) and segment[index].startswith("-"):
+                consumes = segment[index] in PREFIX_OPTIONS_WITH_VALUE
+                index += 2 if consumes and index + 1 < len(segment) else 1
+            if name in PREFIX_WITH_DURATION:
+                # `timeout 5 cmd`: step over the duration operand.
+                if index < len(segment) and DURATION_OPERAND.fullmatch(segment[index]):
+                    index += 1
+            if name == "env":
+                while index < len(segment) and ENV_ASSIGNMENT.match(segment[index]):
+                    index += 1
+            continue
+        break
     if index >= len(segment):
         return None
     return index
@@ -438,15 +588,35 @@ def is_executable_named(token: str, name: str) -> bool:
 
 def executable_segments(command: str, name: str) -> list[list[str]]:
     """Argument lists of every segment whose executable is `name`."""
+    return [args for args, _, _ in executable_frames(command, name, "")]
+
+
+def executable_frames(command: str, name: str, cwd: str) -> list[tuple[list[str], str, dict[str, str]]]:
+    """Every `name` invocation with the cwd and assignments in force at it.
+
+    `cd /tmp && find .` must judge `.` as /tmp, and `find $HOME` must judge the
+    expanded value, so scan rules need more than the raw argument list.
+    """
     tokens = shell_tokens(command)
     if tokens is None:
         return []
-    found: list[list[str]] = []
+    assignments = shell_assignments(tokens)
+    frames: list[tuple[list[str], str, dict[str, str]]] = []
+    effective_cwd = cwd
     for segment in command_segments(tokens):
         index = shell_executable_index(segment)
-        if index is not None and is_executable_named(segment[index], name):
-            found.append(segment[index + 1 :])
-    return found
+        if index is None:
+            continue
+        executable = os.path.basename(segment[index])
+        args = segment[index + 1 :]
+        if executable == "cd" and args:
+            target = expand_shell_variables(args[0], assignments)
+            if not UNRESOLVED_EXPANSION.search(target):
+                effective_cwd = normalize_command_path(target, effective_cwd)
+            continue
+        if is_executable_named(segment[index], name):
+            frames.append((args, effective_cwd, assignments))
+    return frames
 
 
 # -- destructive rm / git ----------------------------------------------------
@@ -475,8 +645,61 @@ def rm_args_are_recursive_force(args: list[str]) -> bool:
     return False
 
 
-def uses_destructive_rm(command: str) -> bool:
-    return any(rm_args_are_recursive_force(args) for args in executable_segments(command, "rm"))
+# Regenerable build and cache directories. Deleting one costs a rebuild, so
+# blocking it trains people to work around the guard for no safety gain.
+DISPOSABLE_DIRECTORIES = {
+    "node_modules", ".pytest_cache", "__pycache__", ".ruff_cache", ".mypy_cache",
+    "dist", "build", "target", ".venv",
+}
+
+
+def rm_targets_are_all_disposable(args: list[str], cwd: str) -> bool:
+    """Whether every operand is a regenerable directory directly in the cwd.
+
+    Scoped deliberately tightly: a direct child only, so `../build` and
+    `/etc/build` stay blocked, and never a symlink, so a planted
+    `node_modules -> /` link cannot borrow the exemption.
+    """
+    operands: list[str] = []
+    after_double_dash = False
+    for token in args:
+        if after_double_dash:
+            operands.append(token)
+            continue
+        if token == "--":
+            after_double_dash = True
+            continue
+        if token.startswith("-") and token != "-":
+            continue
+        operands.append(token)
+    if not operands:
+        return False
+    for token in operands:
+        if UNRESOLVED_EXPANSION.search(token):
+            return False
+        resolved = normalize_command_path(token, cwd)
+        # Judge the resolved path, not the spelling: `./build`, `build/` and
+        # `sub/../build` must all be decided the same way.
+        if os.path.basename(resolved) not in DISPOSABLE_DIRECTORIES:
+            return False
+        # A direct child of the cwd only, so `../build` and `sub/build` stay
+        # blocked even though they end in a disposable name.
+        if os.path.dirname(resolved) != os.path.normpath(cwd or os.getcwd()):
+            return False
+        # A symlink wearing a disposable name must not borrow the exemption.
+        if os.path.islink(resolved):
+            return False
+    return True
+
+
+def uses_destructive_rm(command: str, cwd: str = "") -> bool:
+    for args, frame_cwd, _ in executable_frames(command, "rm", cwd):
+        if not rm_args_are_recursive_force(args):
+            continue
+        if rm_targets_are_all_disposable(args, frame_cwd):
+            continue
+        return True
+    return False
 
 
 def git_command_args(segment: list[str]) -> list[str] | None:
@@ -500,6 +723,20 @@ def git_pathspec_args(args: list[str]) -> list[str]:
     if "--" in args:
         return args[args.index("--") + 1 :]
     return [token for token in args if not token.startswith("-")]
+
+
+def git_checkout_pathspec_args(args: list[str]) -> list[str]:
+    """Pathspecs of `git checkout`, with or without the `--` separator.
+
+    After `--` every operand is a pathspec. Without it git treats operands as a
+    revision first, so only a whole-tree spec like `.` is a worktree discard:
+    returning [] for `git checkout main` keeps branch switching allowed, and
+    bare `git checkout` likewise names nothing.
+    """
+    if "--" in args:
+        return args[args.index("--") + 1 :]
+    operands = [token for token in args if not token.startswith("-")]
+    return [token for token in operands if token in WHOLE_TREE_PATHSPECS or token.rstrip("/") in WHOLE_TREE_PATHSPECS]
 
 
 def discards_whole_tree(paths: list[str]) -> bool:
@@ -549,7 +786,22 @@ def uses_destructive_git(command: str) -> bool:
         # `reset --hard` always resets the whole tree; there is no path-scoped form.
         if subcommand == "reset" and "--hard" in rest:
             return True
-        if subcommand == "checkout" and "--" in rest and discards_whole_tree(git_pathspec_args(rest)):
+        # `git checkout .` discards the worktree exactly like `git checkout -- .`;
+        # requiring the `--` separator missed the commoner spelling.
+        if subcommand == "checkout":
+            if "-f" in rest or "--force" in rest:
+                return True
+            if "--" in rest:
+                if discards_whole_tree(git_pathspec_args(rest)):
+                    return True
+            # Without `--`, an empty result means the command named a revision
+            # or nothing, so it is not a worktree discard.
+            elif git_checkout_pathspec_args(rest):
+                return True
+        if subcommand == "switch" and ("--discard-changes" in rest or "-f" in rest or "--force" in rest):
+            return True
+        # Dropped stash entries are unrecoverable without reflog spelunking.
+        if subcommand == "stash" and any(word in rest for word in ("drop", "clear")):
             return True
         if subcommand == "restore" and restore_touches_worktree(rest) and discards_whole_tree(git_pathspec_args(rest)):
             return True
@@ -592,7 +844,8 @@ def bypasses_commit_signing(command: str) -> bool:
             continue
         args = segment[index + 1 :]
         for position, token in enumerate(args):
-            if token == "--no-gpg-sign":
+            # `--no-gpg-sign` and git's `--no-gpg-sign=<keyid>` form.
+            if token == "--no-gpg-sign" or token.startswith("--no-gpg-sign="):
                 return True
             if token == "-c" and position + 1 < len(args) and config_pair_disables_signing(args[position + 1]):
                 return True
@@ -644,7 +897,10 @@ def push_refspecs(args: list[str]) -> list[str]:
             continue
         operands.append(token)
         index += 1
-    # The first operand is the remote; the rest are refspecs.
+    # `--repo=X` / `--repo X` supplies the remote, so every operand is a refspec.
+    if any(token == "--repo" or token.startswith("--repo=") for token in args):
+        return operands
+    # Otherwise the first operand is the remote; the rest are refspecs.
     return operands[1:] if len(operands) > 1 else []
 
 
@@ -671,94 +927,6 @@ def force_pushes_protected_branch(command: str) -> bool:
             return True
         # `git push --force` with no refspec pushes the current branch, which is
         # unknowable here. The push itself is gated by ship-check, so stay quiet.
-    return False
-
-
-# -- ship-check receipts -----------------------------------------------------
-
-SHIP_CHECK_RECEIPT_DENIAL = (
-    "Blocked a write to the ship-check receipt directory. Receipts are the evidence that a commit "
-    "passed its gate, so only the ship-check tool may write them: an agent that writes its own "
-    "receipt grants itself a pass. Run `ship-check` and let it record the result. Reading receipts "
-    "is allowed."
-)
-
-
-def _mentions_receipt_root(text: str, root: str) -> bool:
-    """A literal mention of the receipt root, at a path boundary.
-
-    `ship-check-notes.txt` is a sibling, not a receipt, so a bare substring
-    test would deny unrelated files.
-    """
-    for form in (SHIP_CHECK_RECEIPT_ROOT, root):
-        start = text.find(form)
-        while start != -1:
-            rest = text[start + len(form) :]
-            if rest == "" or rest[0] in "/'\"":
-                return True
-            start = text.find(form, start + 1)
-    return False
-
-
-def path_is_receipt(path: str, cwd: str) -> bool:
-    if not path:
-        return False
-    root = os.path.normpath(os.path.expanduser(SHIP_CHECK_RECEIPT_ROOT))
-    candidate = expand_shell_variables(path, {})
-    # An unexpanded $VAR could still resolve into the receipt directory, so a
-    # literal mention counts even when expansion leaves it unresolved.
-    if _mentions_receipt_root(path, root) or _mentions_receipt_root(candidate, root):
-        return True
-    return path_is_or_under(normalize_command_path(candidate, cwd), root)
-
-
-def writes_ship_check_receipt(command: str, cwd: str) -> bool:
-    """Any shell route that creates, changes or deletes a receipt file."""
-    tokens = shell_tokens(command)
-    if tokens is None:
-        # Unparseable and mentions the receipt path: refuse to guess.
-        return SHIP_CHECK_RECEIPT_ROOT in command
-
-    for segment in command_segments(tokens):
-        # Redirection writes whatever follows the operator, whatever the command.
-        for position, token in enumerate(segment):
-            if token in REDIRECTION_OPERATORS and position + 1 < len(segment):
-                if path_is_receipt(segment[position + 1], cwd):
-                    return True
-            # shlex keeps `>file` as one token when unspaced.
-            for operator in (">>", ">"):
-                if token.startswith(operator) and len(token) > len(operator):
-                    if path_is_receipt(token[len(operator) :], cwd):
-                        return True
-                    break
-
-        index = shell_executable_index(segment)
-        if index is None:
-            continue
-        executable = os.path.basename(segment[index])
-        args = segment[index + 1 :]
-
-        if executable in RECEIPT_MUTATING_COMMANDS:
-            if any(path_is_receipt(token, cwd) for token in args if not token.startswith("-")):
-                return True
-        elif executable in RECEIPT_DESTINATION_ONLY_COMMANDS:
-            operands = [token for token in args if not token.startswith("-")]
-            if operands and path_is_receipt(operands[-1], cwd):
-                return True
-        elif executable == "sed":
-            # Only `-i` edits in place; everything else streams to stdout.
-            if any(token.startswith("-i") or token == "--in-place" for token in args):
-                if any(path_is_receipt(token, cwd) for token in args if not token.startswith("-")):
-                    return True
-        elif executable in SCRIPT_INTERPRETERS:
-            # An inline script is opaque, so any mention of the path is a block,
-            # except where it is plainly the input side of a redirect.
-            for position, token in enumerate(args):
-                if position and args[position - 1] in INPUT_REDIRECTION_OPERATORS:
-                    continue
-                if path_is_receipt(token, cwd):
-                    return True
-
     return False
 
 
@@ -865,8 +1033,17 @@ def path_is_or_under(path: str, root: str) -> bool:
         return False
 
 
-def is_broad_root(path: str, cwd: str) -> bool:
-    return normalize_command_path(path, cwd) in BROAD_ROOTS
+def is_broad_root(path: str, cwd: str, assignments: dict[str, str] | None = None) -> bool:
+    """Whether a scan root is one of the configured broad roots.
+
+    `$HOME` and `${VAR}` are expanded first, so `find $HOME` is judged exactly
+    like `find ~`. An unresolvable name is not judged: the real path is unknown
+    and denying it would block correct commands.
+    """
+    expanded = expand_shell_variables(path, assignments or {})
+    if UNRESOLVED_EXPANSION.search(expanded):
+        return False
+    return normalize_command_path(expanded, cwd) in BROAD_ROOTS
 
 
 def find_roots(args: list[str]) -> list[str]:
@@ -886,10 +1063,10 @@ def find_roots(args: list[str]) -> list[str]:
 
 
 def is_broad_find(command: str, cwd: str = "") -> bool:
-    for args in executable_segments(command, "find"):
+    for args, frame_cwd, assignments in executable_frames(command, "find", cwd):
         if "-maxdepth" in args:
             continue
-        if any(is_broad_root(root, cwd) for root in find_roots(args)):
+        if any(is_broad_root(root, frame_cwd, assignments) for root in find_roots(args)):
             return True
     return False
 
@@ -987,9 +1164,9 @@ def grep_paths_and_recursive_flag(args: list[str]) -> tuple[list[str], bool]:
 
 
 def is_broad_recursive_grep(command: str, cwd: str = "") -> bool:
-    for args in executable_segments(command, "grep"):
+    for args, frame_cwd, assignments in executable_frames(command, "grep", cwd):
         paths, recursive = grep_paths_and_recursive_flag(args)
-        if recursive and any(is_broad_root(path, cwd) for path in paths or ["."]):
+        if recursive and any(is_broad_root(path, frame_cwd, assignments) for path in paths or ["."]):
             return True
     return False
 
@@ -1036,22 +1213,34 @@ def rg_paths_and_max_depth(args: list[str]) -> tuple[list[str], bool]:
 
 
 def is_broad_rg(command: str, cwd: str = "") -> bool:
+    # Keeps its own loop rather than using executable_frames, because the
+    # stdin carve-out below needs to know whether the segment is pipe-fed.
     tokens = shell_tokens(command)
     if tokens is None:
         return False
+    assignments = shell_assignments(tokens)
+    effective_cwd = cwd
     for segment, reads_pipe in command_segments_with_stdin(tokens):
         index = shell_executable_index(segment)
-        if index is None or os.path.basename(segment[index]) != "rg":
+        if index is None:
+            continue
+        executable = os.path.basename(segment[index])
+        if executable == "cd" and len(segment) > index + 1:
+            target = expand_shell_variables(segment[index + 1], assignments)
+            if not UNRESOLVED_EXPANSION.search(target):
+                effective_cwd = normalize_command_path(target, effective_cwd)
+            continue
+        if executable != "rg":
             continue
         paths, max_depth = rg_paths_and_max_depth(segment[index + 1 :])
         if max_depth:
             continue
-        if any(is_broad_root(path, cwd) for path in paths):
+        if any(is_broad_root(path, effective_cwd, assignments) for path in paths):
             return True
         # With no path operands rg reads stdin instead of walking the cwd, so a
         # piped rg never touches the filesystem. GNU grep -r does both, hence no
         # equivalent carve-out in is_broad_recursive_grep.
-        if not paths and not reads_pipe and is_broad_root(".", cwd):
+        if not paths and not reads_pipe and is_broad_root(".", effective_cwd, assignments):
             return True
     return False
 
@@ -1075,8 +1264,8 @@ def operand_paths(args: list[str]) -> list[str]:
 
 def is_broad_du(command: str, cwd: str = "") -> bool:
     """`du` over a broad root. `--max-depth` only limits reporting, not the walk."""
-    for args in executable_segments(command, "du"):
-        if any(is_broad_root(path, cwd) for path in operand_paths(args) or ["."]):
+    for args, frame_cwd, assignments in executable_frames(command, "du", cwd):
+        if any(is_broad_root(path, frame_cwd, assignments) for path in operand_paths(args) or ["."]):
             return True
     return False
 
@@ -1095,10 +1284,10 @@ def ls_is_recursive(args: list[str]) -> bool:
 
 
 def is_broad_recursive_ls(command: str, cwd: str = "") -> bool:
-    for args in executable_segments(command, "ls"):
+    for args, frame_cwd, assignments in executable_frames(command, "ls", cwd):
         if not ls_is_recursive(args):
             continue
-        if any(is_broad_root(path, cwd) for path in operand_paths(args) or ["."]):
+        if any(is_broad_root(path, frame_cwd, assignments) for path in operand_paths(args) or ["."]):
             return True
     return False
 
@@ -1276,8 +1465,6 @@ def creates_worktree_inside_repo(command: str, cwd: str = "") -> bool:
 
 def check_mutating_file_tool(tool_input: dict[str, Any], cwd: str) -> Response | None:
     path = str(tool_input.get("file_path") or tool_input.get("path") or "")
-    if path_is_receipt(path, cwd):
-        return deny(SHIP_CHECK_RECEIPT_DENIAL)
     normalized_path = normalize_command_path(path, cwd)
     target_is_in_repo = any(path_is_or_under(normalized_path, root) for root in REPO_ROOTS)
     if target_is_in_repo and mentions_lock_or_config(normalized_path):
@@ -1303,9 +1490,118 @@ def redact_sensitive(text: str) -> str:
     return redacted
 
 
-def main() -> int:
-    payload = json.load(sys.stdin)
-    response = handle_payload(payload)
+# -- doctor ------------------------------------------------------------------
+
+VIBE_HOOKS_PATH = "~/.vibe/hooks.toml"
+GATE_HOOK_SCRIPT = "ship_check_gate.py"
+# Tool names the pre_tool match must cover, in each spelling a harness uses.
+REQUIRED_HOOK_MATCHES = ("bash", "file_system.bash", "process_start", "process.start", "edit", "write_file")
+
+
+def _loaded_hooks(path: str) -> list[dict[str, Any]]:
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # Python 3.10
+        import tomli as tomllib  # type: ignore[no-redef]
+    with open(path, "rb") as handle:
+        data = tomllib.load(handle)
+    hooks = data.get("hooks")
+    return [hook for hook in hooks if isinstance(hook, dict)] if isinstance(hooks, list) else []
+
+
+def _match_covers(pattern: str, names: tuple[str, ...]) -> list[str]:
+    """Tool names a Vibe `match` fails to select. Vibe searches, not fullmatch."""
+    if not pattern.startswith("re:"):
+        return [name for name in names if name != pattern]
+    try:
+        compiled = re.compile(pattern[3:])
+    except re.error:
+        return list(names)
+    return [name for name in names if not compiled.search(name)]
+
+
+def run_doctor(hooks_path: str | None = None) -> int:
+    """Verify this machine actually runs the guard. Non-zero means it does not."""
+    path = os.path.expanduser(hooks_path or VIBE_HOOKS_PATH)
+    problems: list[str] = []
+
+    if not os.path.isfile(path):
+        print(f"policy doctor: FAIL no Vibe hooks file at {path}", file=sys.stderr)
+        print("  Append the entries from hooks.example.toml.", file=sys.stderr)
+        return 1
+    try:
+        hooks = _loaded_hooks(path)
+    except Exception as error:  # noqa: BLE001 - report, never crash
+        print(f"policy doctor: FAIL cannot parse {path}: {error}", file=sys.stderr)
+        return 1
+
+    policy_hooks = [
+        hook
+        for hook in hooks
+        if hook.get("type") == "pre_tool" and "policy.py" in str(hook.get("command", ""))
+    ]
+    if not policy_hooks:
+        problems.append("no pre_tool hook runs hooks/policy.py")
+    for hook in policy_hooks:
+        name = hook.get("name", "<unnamed>")
+        if hook.get("strict") is not True:
+            problems.append(f"pre_tool hook {name!r} is not strict = true, so a guard failure allows the call")
+        uncovered = _match_covers(str(hook.get("match", "")), REQUIRED_HOOK_MATCHES)
+        if uncovered:
+            problems.append(f"pre_tool hook {name!r} match misses: {', '.join(uncovered)}")
+
+    # The ship-check gate is optional until its script is installed, but a
+    # present script with no hook is a silent gap.
+    gate_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), GATE_HOOK_SCRIPT)
+    gate_hooks = [
+        hook
+        for hook in hooks
+        if hook.get("type") == "pre_tool" and GATE_HOOK_SCRIPT in str(hook.get("command", ""))
+    ]
+    if os.path.isfile(gate_script):
+        if not gate_hooks:
+            problems.append(f"{GATE_HOOK_SCRIPT} is installed but no pre_tool hook runs it")
+        for hook in gate_hooks:
+            if hook.get("strict") is not True:
+                problems.append(f"gate hook {hook.get('name', '<unnamed>')!r} is not strict = true")
+
+    if problems:
+        print(f"policy doctor: FAIL ({path})", file=sys.stderr)
+        for problem in problems:
+            print(f"  - {problem}", file=sys.stderr)
+        print("  See hooks.example.toml for the expected entries.", file=sys.stderr)
+        return 1
+    print(f"policy doctor: OK ({len(policy_hooks)} policy hook(s), {len(gate_hooks)} gate hook(s)) in {path}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Read a payload on stdin, print a verdict, always exit 0.
+
+    A crash here would surface as a hook failure. Under `strict = true` that
+    denies, but with a Python traceback as the user-visible reason; under a
+    non-strict hook it would allow. An explicit deny is clearer in both cases.
+    """
+    argv = sys.argv[1:] if argv is None else argv
+    if "--doctor" in argv:
+        rest = [token for token in argv if token != "--doctor"]
+        return run_doctor(rest[0] if rest else None)
+    try:
+        payload = json.load(sys.stdin)
+        if not isinstance(payload, dict):
+            raise ValueError("payload is not a JSON object")
+        response = handle_payload(payload)
+    except Exception as error:  # noqa: BLE001 - a guard must not crash open
+        print(
+            json.dumps(
+                deny(
+                    "Blocked: the policy guard could not read this tool call "
+                    f"({type(error).__name__}: {error}). This is a bug in the hook or the payload; "
+                    "the command was not checked, so it was not allowed."
+                )
+            )
+        )
+        return 0
     if response:
         print(json.dumps(response))
     return 0
