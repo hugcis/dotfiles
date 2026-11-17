@@ -46,15 +46,20 @@ def git_out(repo: Path, *args: str) -> str:
     return run_git(repo, *args).stdout.strip()
 
 
-def resolve_base(repo: Path, base: str) -> str:
-    try:
-        git_out(repo, "rev-parse", "--verify", base)
-        return base
-    except subprocess.CalledProcessError:
-        if base == "origin/main":
-            git_out(repo, "rev-parse", "--verify", "main")
-            return "main"
-        raise
+def resolve_base(repo: Path, base: str | None = None) -> str:
+    candidates = [base] if base else []
+    if base in {None, "origin/main"}:
+        candidates += ["origin/HEAD", "origin/main", "main", "origin/master", "master"]
+    seen = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        proc = run_git(repo, "rev-parse", "--verify", candidate, check=False)
+        if proc.returncode == 0:
+            return candidate
+    wanted = base or "origin/HEAD -> origin/main -> main -> origin/master -> master"
+    raise RuntimeError(f"missing base {wanted}")
 
 
 def commit_messages(repo: Path, base: str, head: str = "HEAD") -> list[tuple[str, str]]:
