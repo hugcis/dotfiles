@@ -2,15 +2,22 @@
 # installed. Append these blocks to ~/.vibe/hooks.toml by hand, keeping whatever
 # is already there.
 #
-# Vibe 3.x qualifies tool names (`file_system.bash`, `file_system.edit`,
-# `file_system.write_file`) and runs background commands through
-# `process_start`/`process.start`, so the pre_tool match is a regex over
-# substrings rather than an anchored list of bare names. hooks/policy.py accepts
-# both the bare and the qualified form.
+# The pre_tool match must survive every name the same tool goes by, because a
+# name the regex misses is a tool the guard never sees:
 #
-# strict = true turns a hook failure into a deny. The pre-tool entry is strict
-# because a guard that silently fails open is not a guard; the post-tool entry
-# is not, because a redaction failure must not block a session.
+#   Vibe 3.x    bash, file_system.bash, file_system.edit, file_system.write_file
+#   background  process_start AND process.start (underscore or dot)
+#   Pi          bash, edit, write (Pi's name for write_file)
+#
+# Hence `re:.*(bash|process[._]start|edit|write_file|write).*` — wrapped in
+# `.*` so it matches a qualified name anywhere in the string, and with
+# `process[._]start` covering both separators. An anchored list of bare names
+# (`re:^(bash|edit)$`) silently stops guarding the moment a harness qualifies
+# its tool names. hooks/policy.py accepts every one of these spellings.
+#
+# strict = true turns a hook failure into a deny. The pre-tool entries are
+# strict because a guard that silently fails open is not a guard; the post-tool
+# entry is not, because a redaction failure must not block a session.
 #
 # Site-specific roots come from ~/.config/agent-stack/policy.local.json
 # (see policy.local.example.json). With no such file only the generic rules
@@ -19,11 +26,25 @@
 [[hooks]]
 name = "agent-stack-policy-pre-tool"
 type = "pre_tool"
-match = "re:bash|process_start|edit|write_file"
+match = "re:.*(bash|process[._]start|edit|write_file|write).*"
 command = "python3 ~/.config/agent-stack/hooks/policy.py"
 timeout = 10.0
 strict = true
-description = "Block destructive commands, signing bypasses, traced secrets and filesystem-wide scans."
+description = "Block destructive commands, force-pushes, signing bypasses, traced secrets, wide scans and receipt writes."
+
+# The L2 ship-check gate: denies `git push` / `gh pr create` / `gh pr ready`
+# unless a passing receipt exists for the current HEAD sha and tree hash.
+# ship_check_gate.py ships from the ship-check branch; this entry is inert
+# (and Vibe will error on a missing command) until that branch lands, so add
+# it only once the file exists.
+[[hooks]]
+name = "agent-stack-ship-check-gate"
+type = "pre_tool"
+match = "re:.*(bash|process[._]start).*"
+command = "python3 ~/.config/agent-stack/hooks/ship_check_gate.py"
+timeout = 30.0
+strict = true
+description = "Require a passing ship-check receipt for the current HEAD before a push or PR."
 
 [[hooks]]
 name = "agent-stack-policy-post-tool"

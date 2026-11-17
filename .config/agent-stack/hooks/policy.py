@@ -82,7 +82,8 @@ REPO_ROOTS: tuple[str, ...] = SITE["repo_roots"]
 # them bare. Background commands arrive as `process_start` or `process.start`.
 BASH_TOOL_LEAVES = frozenset({"bash", "process_start"})
 PROCESS_BASH_LEAVES = frozenset({"start"})
-FILE_WRITE_TOOL_LEAVES = frozenset({"edit", "write_file", "search_replace"})
+# `write` is Pi's name for the tool Vibe calls `write_file`.
+FILE_WRITE_TOOL_LEAVES = frozenset({"edit", "write_file", "write", "search_replace"})
 COMMAND_KEYS = ("command", "cmd")
 
 
@@ -171,6 +172,37 @@ FALSE_CONFIG_VALUES = {"false", "off", "no", "0", ""}
 # Shell tracing with secrets in scope. `set -x` echoes every expanded word, so a
 # traced command that reads a token writes that token to the transcript.
 TRACE_SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+
+# `bash -c "..."` hides its payload from a tokeniser that only looks at the outer
+# words, so every rule here can be bypassed by one level of quoting. Inner
+# strings are parsed and judged by the same rules, up to this nesting depth.
+NESTING_SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+MAX_NESTING_DEPTH = 2
+NESTED_NOTE = "(found inside a nested `bash -c`/`eval` string)"
+
+# Force-pushing a shared branch rewrites history other people have pulled.
+PROTECTED_BRANCHES = {"main", "master"}
+PROTECTED_BRANCH_PREFIXES = ("release/",)
+PUSH_FORCE_FLAGS = {"--force", "-f", "--force-with-lease", "--force-if-includes"}
+PUSH_OPTIONS_WITH_VALUE = {"--repo", "-o", "--push-option", "--receive-pack", "--exec"}
+
+# ship-check receipts. The L2 gate trusts a receipt as evidence that HEAD passed,
+# so an agent that can write one can forge its own green light.
+SHIP_CHECK_RECEIPT_ROOT = "~/.local/state/ship-check"
+# Commands that create, change or remove a file named in their operands.
+RECEIPT_MUTATING_COMMANDS = {
+    "tee", "rm", "mv", "install", "truncate", "dd", "touch", "ln", "mkdir", "rmdir",
+    "chmod", "chown", "shred", "rsync",
+}
+# `cp a b` only writes its destination; a receipt as source is an ordinary read.
+RECEIPT_DESTINATION_ONLY_COMMANDS = {"cp"}
+# Interpreters that can open a file for writing from an inline script, so any
+# mention of the receipt path in their arguments is opaque and blocked. `jq`
+# and `awk` are absent deliberately: neither can write in place, so they only
+# touch a receipt through a `>` redirect, which is checked separately.
+SCRIPT_INTERPRETERS = {"python", "python3", "perl", "ruby", "node"}
+REDIRECTION_OPERATORS = {">", ">>", ">|", "1>", "2>", "&>", "&>>", "1>>", "2>>"}
+INPUT_REDIRECTION_OPERATORS = {"<", "0<", "<<<"}
 SECRET_NAME = re.compile(r"(?i)(^|[^A-Za-z])(secret|token|key|password|passwd|credential)s?([^A-Za-z]|$)")
 # `.env`, `.env.production`, `prod.env`. Not the `env` command.
 DOTENV_FILE = re.compile(r"(?i)^\.env(\.[^/]*)?$|\.env$")
@@ -222,7 +254,82 @@ def handle_pre_tool(payload: Payload) -> Response | None:
     return None
 
 
-def check_bash_command(command: str, cwd: str) -> Response | None:
+def nested_command_strings(command: str) -> list[str] | None:
+    """Payloads of `bash -c "..."`, `eval "..."` and friends, one level down.
+
+    None means a wrapper was found but its payload could not be read, so the
+    caller must not treat the command as checked.
+    """
+    tokens = shell_tokens(command)
+    if tokens is None:
+        return None
+    payloads: list[str] = []
+    for segment in command_segments(tokens):
+        index = shell_executable_index(segment)
+        if index is None:
+            continue
+        executable = os.path.basename(segment[index])
+        args = segment[index + 1 :]
+        if executable == "eval":
+            if not args:
+                continue
+            # `eval a b` concatenates its words into one command.
+            payloads.append(" ".join(args))
+            continue
+        if executable not in NESTING_SHELLS:
+            continue
+        for position, token in enumerate(args):
+            if token in {"-c", "--command"}:
+                if position + 1 >= len(args):
+                    return None
+                payloads.append(args[position + 1])
+                break
+            if token.startswith("-") and not token.startswith("--") and "c" in token[1:]:
+                if position + 1 >= len(args):
+                    return None
+                payloads.append(args[position + 1])
+                break
+    return payloads
+
+
+def check_bash_command(command: str, cwd: str, depth: int = 0) -> Response | None:
+    """Judge a command, then judge anything it hides inside `bash -c`/`eval`."""
+    verdict = check_bash_command_text(command, cwd)
+    if verdict is not None and verdict.get("decision") == "deny":
+        return verdict
+
+    nested = nested_command_strings(command)
+    if nested is None:
+        return deny(
+            "Blocked: this command wraps another command in a way the policy guard cannot read, "
+            "so its contents cannot be checked. Run the inner command directly."
+        )
+    if nested and depth >= MAX_NESTING_DEPTH:
+        return deny(
+            f"Blocked: shell wrappers nested more than {MAX_NESTING_DEPTH} deep cannot be checked "
+            "reliably. Run the command directly instead of wrapping it in `bash -c`/`eval`."
+        )
+    for payload in nested:
+        nested_verdict = check_bash_command(payload, cwd, depth + 1)
+        if nested_verdict is not None and nested_verdict.get("decision") == "deny":
+            reason = nested_verdict["reason"]
+            # Only the outermost frame annotates, so the note appears once.
+            if NESTED_NOTE in reason:
+                return deny(reason)
+            return deny(f"{reason} {NESTED_NOTE}")
+
+    return verdict
+
+
+def check_bash_command_text(command: str, cwd: str) -> Response | None:
+    if writes_ship_check_receipt(command, cwd):
+        return deny(SHIP_CHECK_RECEIPT_DENIAL)
+    if force_pushes_protected_branch(command):
+        return deny(
+            "Blocked a force-push to a protected branch. This rewrites history others have already "
+            "pulled. Ask Hugo before force-pushing main/master/release/*; push to a feature branch "
+            "and open a PR instead."
+        )
     if uses_destructive_rm(command) or uses_destructive_git(command):
         return deny(
             "Blocked destructive shell command. Use a narrower non-destructive command, "
@@ -493,6 +600,165 @@ def bypasses_commit_signing(command: str) -> bool:
                 return True
         if git_config_sets_signing_off(git_command_args(segment) or []):
             return True
+    return False
+
+
+# -- force push --------------------------------------------------------------
+
+
+def branch_is_protected(name: str) -> bool:
+    """Whether a refspec destination names a shared branch."""
+    ref = name.strip()
+    if not ref:
+        return False
+    ref = ref.lstrip("+")
+    # A refspec's destination is what gets overwritten: `local:remote`.
+    if ":" in ref:
+        ref = ref.rpartition(":")[2]
+    for prefix in ("refs/heads/", "refs/remotes/"):
+        if ref.startswith(prefix):
+            ref = ref[len(prefix) :]
+    return ref in PROTECTED_BRANCHES or ref.startswith(PROTECTED_BRANCH_PREFIXES)
+
+
+def push_refspecs(args: list[str]) -> list[str]:
+    """Operands of `git push`, minus the remote name and option values."""
+    operands: list[str] = []
+    index = 0
+    after_double_dash = False
+    while index < len(args):
+        token = args[index]
+        if after_double_dash:
+            operands.append(token)
+            index += 1
+            continue
+        if token == "--":
+            after_double_dash = True
+            index += 1
+            continue
+        if token in PUSH_OPTIONS_WITH_VALUE:
+            index += 2
+            continue
+        if token.startswith("-"):
+            index += 1
+            continue
+        operands.append(token)
+        index += 1
+    # The first operand is the remote; the rest are refspecs.
+    return operands[1:] if len(operands) > 1 else []
+
+
+def force_pushes_protected_branch(command: str) -> bool:
+    tokens = shell_tokens(command)
+    if tokens is None:
+        return False
+    for segment in command_segments(tokens):
+        args = git_command_args(segment)
+        if not args or args[0] != "push":
+            continue
+        rest = args[1:]
+        refspecs = push_refspecs(rest)
+        flag_forced = any(
+            token in PUSH_FORCE_FLAGS or token.startswith("--force-with-lease=") for token in rest
+        )
+        # A leading `+` on a refspec is force, per-ref.
+        plus_forced = [ref for ref in refspecs if ref.startswith("+")]
+        if plus_forced and any(branch_is_protected(ref) for ref in plus_forced):
+            return True
+        if not flag_forced:
+            continue
+        if any(branch_is_protected(ref) for ref in refspecs):
+            return True
+        # `git push --force` with no refspec pushes the current branch, which is
+        # unknowable here. The push itself is gated by ship-check, so stay quiet.
+    return False
+
+
+# -- ship-check receipts -----------------------------------------------------
+
+SHIP_CHECK_RECEIPT_DENIAL = (
+    "Blocked a write to the ship-check receipt directory. Receipts are the evidence that a commit "
+    "passed its gate, so only the ship-check tool may write them: an agent that writes its own "
+    "receipt grants itself a pass. Run `ship-check` and let it record the result. Reading receipts "
+    "is allowed."
+)
+
+
+def _mentions_receipt_root(text: str, root: str) -> bool:
+    """A literal mention of the receipt root, at a path boundary.
+
+    `ship-check-notes.txt` is a sibling, not a receipt, so a bare substring
+    test would deny unrelated files.
+    """
+    for form in (SHIP_CHECK_RECEIPT_ROOT, root):
+        start = text.find(form)
+        while start != -1:
+            rest = text[start + len(form) :]
+            if rest == "" or rest[0] in "/'\"":
+                return True
+            start = text.find(form, start + 1)
+    return False
+
+
+def path_is_receipt(path: str, cwd: str) -> bool:
+    if not path:
+        return False
+    root = os.path.normpath(os.path.expanduser(SHIP_CHECK_RECEIPT_ROOT))
+    candidate = expand_shell_variables(path, {})
+    # An unexpanded $VAR could still resolve into the receipt directory, so a
+    # literal mention counts even when expansion leaves it unresolved.
+    if _mentions_receipt_root(path, root) or _mentions_receipt_root(candidate, root):
+        return True
+    return path_is_or_under(normalize_command_path(candidate, cwd), root)
+
+
+def writes_ship_check_receipt(command: str, cwd: str) -> bool:
+    """Any shell route that creates, changes or deletes a receipt file."""
+    tokens = shell_tokens(command)
+    if tokens is None:
+        # Unparseable and mentions the receipt path: refuse to guess.
+        return SHIP_CHECK_RECEIPT_ROOT in command
+
+    for segment in command_segments(tokens):
+        # Redirection writes whatever follows the operator, whatever the command.
+        for position, token in enumerate(segment):
+            if token in REDIRECTION_OPERATORS and position + 1 < len(segment):
+                if path_is_receipt(segment[position + 1], cwd):
+                    return True
+            # shlex keeps `>file` as one token when unspaced.
+            for operator in (">>", ">"):
+                if token.startswith(operator) and len(token) > len(operator):
+                    if path_is_receipt(token[len(operator) :], cwd):
+                        return True
+                    break
+
+        index = shell_executable_index(segment)
+        if index is None:
+            continue
+        executable = os.path.basename(segment[index])
+        args = segment[index + 1 :]
+
+        if executable in RECEIPT_MUTATING_COMMANDS:
+            if any(path_is_receipt(token, cwd) for token in args if not token.startswith("-")):
+                return True
+        elif executable in RECEIPT_DESTINATION_ONLY_COMMANDS:
+            operands = [token for token in args if not token.startswith("-")]
+            if operands and path_is_receipt(operands[-1], cwd):
+                return True
+        elif executable == "sed":
+            # Only `-i` edits in place; everything else streams to stdout.
+            if any(token.startswith("-i") or token == "--in-place" for token in args):
+                if any(path_is_receipt(token, cwd) for token in args if not token.startswith("-")):
+                    return True
+        elif executable in SCRIPT_INTERPRETERS:
+            # An inline script is opaque, so any mention of the path is a block,
+            # except where it is plainly the input side of a redirect.
+            for position, token in enumerate(args):
+                if position and args[position - 1] in INPUT_REDIRECTION_OPERATORS:
+                    continue
+                if path_is_receipt(token, cwd):
+                    return True
+
     return False
 
 
@@ -1010,6 +1276,8 @@ def creates_worktree_inside_repo(command: str, cwd: str = "") -> bool:
 
 def check_mutating_file_tool(tool_input: dict[str, Any], cwd: str) -> Response | None:
     path = str(tool_input.get("file_path") or tool_input.get("path") or "")
+    if path_is_receipt(path, cwd):
+        return deny(SHIP_CHECK_RECEIPT_DENIAL)
     normalized_path = normalize_command_path(path, cwd)
     target_is_in_repo = any(path_is_or_under(normalized_path, root) for root in REPO_ROOTS)
     if target_is_in_repo and mentions_lock_or_config(normalized_path):

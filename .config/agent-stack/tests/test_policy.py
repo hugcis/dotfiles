@@ -317,6 +317,197 @@ class CommitSigningTests(PolicyTestCase):
                 self.assert_not_denied(command)
 
 
+class ShellIndirectionTests(PolicyTestCase):
+    def test_wrapped_destructive_commands_are_denied(self) -> None:
+        for command in (
+            'bash -c "rm -rf /"',
+            "sh -c 'git reset --hard'",
+            'eval "git reset --hard"',
+            'zsh -c "git clean -fdx"',
+            "bash -lc 'rm -rf build'",
+            'bash --command "rm -rf /"',
+            'eval "git commit --no-gpg-sign -m x"',
+            'echo ok && bash -c "rm -rf /"',
+        ):
+            with self.subTest(command=command):
+                self.assert_denied(command, contains="nested")
+
+    def test_wrapped_commands_keep_the_underlying_reason(self) -> None:
+        reason = self.assert_denied('bash -c "git commit --no-gpg-sign -m x"')["reason"]
+        self.assertIn("signing", reason)
+
+    def test_the_nesting_note_appears_once(self) -> None:
+        """Recursion must annotate at one frame only, or reasons stack up."""
+        policy = load_policy()
+        reason = self.assert_denied(
+            """bash -c "bash -c 'rm -rf /'" """.strip(), policy=policy
+        )["reason"]
+        self.assertEqual(reason.count(policy.NESTED_NOTE), 1)
+
+    def test_nesting_deeper_than_two_is_denied_unchecked(self) -> None:
+        self.assert_denied("""bash -c "bash -c 'bash -c \\"ls\\"'" """.strip(), contains="nested more than 2")
+
+    def test_unreadable_wrapper_payload_is_denied(self) -> None:
+        for command in ('bash -c "unterminated', "bash -c", "sh -c"):
+            with self.subTest(command=command):
+                self.assert_denied(command, contains="cannot read")
+
+    def test_benign_wrapped_commands_stay_allowed(self) -> None:
+        for command in ('bash -c "echo hi"', "sh -c 'ls'", 'eval "git status"'):
+            with self.subTest(command=command):
+                self.assert_not_denied(command)
+
+
+class ForcePushTests(PolicyTestCase):
+    def test_force_push_to_a_protected_branch_is_denied(self) -> None:
+        for command in (
+            "git push --force origin main",
+            "git push --force-with-lease origin main",
+            "git push -f origin master",
+            "git push origin +main",
+            "git push -f origin release/1.2",
+            "git push --force origin HEAD:main",
+            "git push --force-with-lease=main:abc123 origin main",
+            "git push --force origin refs/heads/main",
+            "git push origin +release/2.0",
+            f"git -C {REPO} push --force origin main",
+        ):
+            with self.subTest(command=command):
+                self.assert_denied(command, contains="force-push")
+
+    def test_the_deny_message_says_to_ask(self) -> None:
+        reason = self.assert_denied("git push --force origin main")["reason"]
+        self.assertIn("Ask Hugo", reason)
+
+    def test_plain_push_stays_allowed(self) -> None:
+        # ship-check gates pushes; this rule only covers history rewrites.
+        for command in (
+            "git push origin main",
+            "git push",
+            "git push origin feature",
+            "git push -u origin feature",
+            "git push origin HEAD:feature",
+        ):
+            with self.subTest(command=command):
+                self.assert_not_denied(command)
+
+    def test_force_push_to_an_unprotected_branch_is_allowed(self) -> None:
+        for command in (
+            "git push -f origin feature",
+            "git push --force-with-lease origin my-branch",
+            "git push origin +feature",
+            "git push --force origin HEAD:scratch",
+        ):
+            with self.subTest(command=command):
+                self.assert_not_denied(command)
+
+    def test_force_push_without_a_refspec_is_left_to_ship_check(self) -> None:
+        # The current branch is unknowable from the payload.
+        self.assert_not_denied("git push --force")
+
+    def test_a_branch_merely_named_in_text_is_not_a_force_push(self) -> None:
+        self.assert_silent("echo git push --force origin main")
+
+
+class ShipCheckReceiptTests(PolicyTestCase):
+    RECEIPT = "~/.local/state/ship-check/myrepo/abc123.json"
+
+    def test_shell_writes_to_a_receipt_are_denied(self) -> None:
+        for command in (
+            f"echo x > {self.RECEIPT}",
+            f"echo x >> {self.RECEIPT}",
+            f"echo x >{self.RECEIPT}",
+            f"echo x | tee {self.RECEIPT}",
+            f"rm {self.RECEIPT}",
+            f"rm -rf ~/.local/state/ship-check",
+            f"mv /tmp/f.json {self.RECEIPT}",
+            f"cp /tmp/f.json {self.RECEIPT}",
+            f"sed -i s/fail/pass/ {self.RECEIPT}",
+            f"sed --in-place s/fail/pass/ {self.RECEIPT}",
+            f"touch {self.RECEIPT}",
+            f"truncate -s 0 {self.RECEIPT}",
+            f"chmod 777 {self.RECEIPT}",
+            f'python3 -c "open(\'{self.RECEIPT}\', \'w\').write(1)"',
+            f"mkdir -p ~/.local/state/ship-check/myrepo",
+            f"echo ok && echo x > {self.RECEIPT}",
+            f'bash -c "echo x > {self.RECEIPT}"',
+            f"jq '.ok = true' /tmp/in.json > {self.RECEIPT}",
+        ):
+            with self.subTest(command=command):
+                self.assert_denied(command, contains="receipt")
+
+    def test_write_tools_targeting_a_receipt_are_denied(self) -> None:
+        policy = load_policy()
+        expanded = os.path.expanduser(self.RECEIPT)
+        for tool_name, key in (
+            ("write_file", "file_path"),
+            ("edit", "file_path"),
+            ("file_system.write_file", "file_path"),
+            ("file_system.edit", "file_path"),
+            ("write", "path"),
+            ("search_replace", "file_path"),
+        ):
+            with self.subTest(tool_name=tool_name):
+                response = policy.handle_payload(
+                    {
+                        "hook_event_name": "pre_tool",
+                        "tool_name": tool_name,
+                        "cwd": "/home/dev/worktree",
+                        "tool_input": {key: expanded},
+                    }
+                )
+                self.assertEqual(response["decision"], "deny", tool_name)
+                self.assertIn("receipt", response["reason"])
+
+    def test_a_relative_path_into_the_receipt_dir_is_denied(self) -> None:
+        policy = load_policy()
+        response = policy.handle_payload(
+            {
+                "hook_event_name": "pre_tool",
+                "tool_name": "write_file",
+                "cwd": os.path.expanduser("~/.local/state/ship-check/myrepo"),
+                "tool_input": {"file_path": "abc123.json"},
+            }
+        )
+        self.assertEqual(response["decision"], "deny")
+
+    def test_reading_a_receipt_stays_allowed(self) -> None:
+        for command in (
+            f"cat {self.RECEIPT}",
+            f"jq -r .sha < {self.RECEIPT}",
+            f"cp {self.RECEIPT} /tmp/copy.json",
+            "ls ~/.local/state/ship-check",
+            f"grep sha {self.RECEIPT}",
+            # jq and awk cannot edit in place; without a `>` the file is untouched.
+            f"jq '.ok = true' {self.RECEIPT}",
+            f"awk '{{print}}' {self.RECEIPT}",
+            f"test -f {self.RECEIPT}",
+        ):
+            with self.subTest(command=command):
+                self.assert_not_denied(command)
+
+    def test_reading_a_receipt_with_a_read_tool_is_allowed(self) -> None:
+        self.assertIsNone(
+            load_policy().handle_payload(
+                {
+                    "hook_event_name": "pre_tool",
+                    "tool_name": "file_system.read_file",
+                    "cwd": "/home/dev/worktree",
+                    "tool_input": {"file_path": os.path.expanduser(self.RECEIPT)},
+                }
+            )
+        )
+
+    def test_writes_to_neighbouring_state_dirs_are_allowed(self) -> None:
+        for command in (
+            "echo x > ~/.local/state/other-tool/a.json",
+            "rm -f ~/.local/state/ship-check-notes.txt",
+            "echo x > /tmp/ship-check/a.json",
+        ):
+            with self.subTest(command=command):
+                self.assert_not_denied(command)
+
+
 class ShellTraceSecretTests(PolicyTestCase):
     def test_trace_with_a_secret_env_var_is_denied(self) -> None:
         for command in (

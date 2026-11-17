@@ -73,6 +73,11 @@ test("destructive patterns are recognised for fail-closed handling", () => {
     "ls -R /srv/data",
     'set -x; curl -H "Authorization: Bearer $API_KEY" https://example.test',
     "echo start && rm -rf build",
+    'bash -c "rm -rf /"',
+    "sh -c 'git reset --hard'",
+    'eval "git reset --hard"',
+    "git push --force origin main",
+    "echo x > ~/.local/state/ship-check/r/a.json",
   ]) {
     assert.equal(needsFailClosed(command), true, command);
   }

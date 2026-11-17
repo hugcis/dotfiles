@@ -65,6 +65,10 @@ const DESTRUCTIVE_PATTERNS: RegExp[] = [
   /(^|[\s;&|(])rg\s/,
   /(^|[\s;&|(])ls\s+(-\S*R|--recursive)/,
   /(^|[\s;&|(])(set\s+(-\S*x|-o\s+xtrace)|(bash|sh|zsh|dash|ksh)\s+-\S*x)/,
+  // Wrappers hide their payload, so an unchecked one could hide anything above.
+  /(^|[\s;&|(])((bash|sh|zsh|dash|ksh)\s+(-\S*c|--command)|eval\s)/,
+  /(^|[\s;&|(])git\s[^;&|]*\bpush\b/,
+  /\.local\/state\/ship-check/,
 ];
 
 export function needsFailClosed(command: string): boolean {
