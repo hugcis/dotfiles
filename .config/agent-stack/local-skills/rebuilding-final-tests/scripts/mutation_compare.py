@@ -19,7 +19,7 @@ kills fewer / size: not strictly smaller, 2 usage or integrity error (bad budget
 production code changed since the baseline, timeout), 3 mutation check unavailable or partial
 (no engine for some changed code file, no mutants on the changed lines, mutmut cannot run).
 
-Only `killed`, `timeout` and `segfault` count as killed. `survived`, `no tests` and `suspicious`
+Only `killed` and `segfault` count as killed. `timeout`, `survived`, `no tests` and `suspicious`
 count as not killed on both sides.
 
 Python goes through mutmut (pinned to MUTMUT_VERSION). Rust and JS/TS have engine hooks
@@ -48,7 +48,7 @@ from pathlib import Path, PurePosixPath
 
 MUTMUT_VERSION = "3.8.1"
 DEFAULT_SEED = 1729
-KILLED_STATUSES = {"killed", "timeout", "segfault"}
+KILLED_STATUSES = {"killed", "segfault"}
 PER_MUTANT_OVERHEAD_S = 0.3
 SETUP_SHARE_OF_BUDGET = 0.3
 MARKER = ".mutation_compare"
