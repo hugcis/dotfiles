@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+"""Recompute the agent stack's health metrics from logs and git, never from agent reports.
+
+stack-metrics collect HOST   Read this machine's Vibe and Pi session logs since --since
+                             and print one JSON record per metric to stdout.
+stack-metrics check          Read every record under the metrics dir and list metrics
+                             that are stale (no value in 26 h) or unchanged for 7 days.
+
+Each record carries the metric's definition hash, so a quietly changed definition shows
+up as a new series instead of a continued one. The crutch ledger is the per-name count
+of skill loads and guard denials; `check` lists names with zero fires in 14 days.
+"""
+from __future__ import annotations
+
+import argparse
+import glob
+import hashlib
+import json
+import os
+import re
+import sys
+from collections import Counter
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+METRICS_DIR = Path(os.environ.get("STACK_METRICS_DIR", Path.home() / "docs/herd/metrics"))
+HOME = Path.home()
+
+CORRECTION = re.compile(
+    r"(?i)\b(again|i (already )?told you|wrong|why (did|are) you|not what i|"
+    r"you (forgot|missed|ignored|skipped)|stuck|revert|too long|shorter|wtf|"
+    r"that'?s not|still (not|failing|broken))\b"
+)
+NOT_HUMAN = re.compile(
+    r"^(New task|Hugo's answers|Decision from Hugo|New from Hugo|\[pi-loop\]|<goal_context|"
+    r"<skill|Cluster context|Repository context|Herd sweep)"
+)
+# Matched only at the start of a tool result, so documents that quote these strings don't count.
+GUARD_DENY = re.compile(r"^\s*(?:Tool '[^']+' was denied by hook '([^']+)'|Blocked by vibe policy|"
+                        r"Blocked destructive shell command|This find/grep/rg command is too broad|"
+                        r"Blocked: this foreground command asks for)")
+
+DEFINITIONS = {
+    "correction_rate": "root human turns matching CORRECTION / root human turns, per 100; "
+                       "excludes NOT_HUMAN prefixes and turns over 1500 chars",
+    "skill_loads": "count of skill tool calls (Vibe) or reads of */SKILL.md (Pi), by skill name",
+    "guard_denies": "tool results matching GUARD_DENY, by guard",
+    "compactions": "compaction checkpoints (Vibe) and compaction entries (Pi)",
+}
+
+
+def definition_hash(name: str) -> str:
+    source = DEFINITIONS[name] + CORRECTION.pattern + NOT_HUMAN.pattern + GUARD_DENY.pattern
+    return hashlib.sha256(source.encode()).hexdigest()[:12]
+
+
+def _text(content) -> str:
+    if isinstance(content, str):
+        return content
+    return "\n".join(p.get("text", "") for p in content or [] if isinstance(p, dict) and p.get("type") == "text")
+
+
+def _human_turn(text: str) -> bool:
+    return bool(text.strip()) and len(text) <= 1500 and not NOT_HUMAN.match(text)
+
+
+def pi_events(since: datetime):
+    for path in glob.glob(str(HOME / ".pi/agent/sessions/*/*.jsonl")):
+        if datetime.fromtimestamp(os.path.getmtime(path), timezone.utc) < since:
+            continue
+        child = False
+        try:
+            lines = open(path)
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            kind = entry.get("type")
+            if kind == "session":
+                child = bool(entry.get("parentSession"))
+            elif kind == "session_info" and str(entry.get("name", "")).startswith("subagent-"):
+                child = True
+            elif kind == "compaction":
+                yield "compaction", "pi", child
+            elif kind == "message":
+                message = entry.get("message") or {}
+                role = message.get("role")
+                if role == "user" and not child:
+                    yield "human_turn", _text(message.get("content")), child
+                elif role == "assistant":
+                    for part in message.get("content") or []:
+                        if isinstance(part, dict) and part.get("type") == "toolCall" and part.get("name") == "read":
+                            target = str((part.get("arguments") or {}).get("path", ""))
+                            if target.endswith("SKILL.md"):
+                                yield "skill", Path(target).parent.name, child
+                elif role == "toolResult":
+                    match = GUARD_DENY.match(_text(message.get("content")))
+                    if match:
+                        yield "guard", match.group(1) or match.group(0).strip()[:40], child
+
+
+def vibe_events(since: datetime):
+    cutoff = since.timestamp() * 1000
+    for session in glob.glob(str(HOME / ".vibe/logs/session/unified/*")):
+        child = os.path.basename(session).startswith("child-")
+        for chunk in glob.glob(session + "/chunks/*.json"):
+            if os.path.getmtime(chunk) < since.timestamp():
+                continue
+            try:
+                entries = json.load(open(chunk))
+            except (OSError, json.JSONDecodeError):
+                continue
+            for entry in entries if isinstance(entries, list) else []:
+                if (entry.get("createdAt") or 0) < cutoff:
+                    continue
+                kind = entry.get("type")
+                detail = entry.get("detail") or entry.get("details") or {}
+                if kind == "message" and entry.get("role") == "user" and not child:
+                    yield "human_turn", _text(entry.get("content")), child
+                elif kind == "checkpoint" and entry.get("kind") == "compaction":
+                    yield "compaction", "vibe", child
+                elif kind == "effect" and detail.get("kind") == "tool":
+                    name = detail.get("toolName")
+                    if name in ("skill", "skill.read", "skill.load"):
+                        yield "skill", (detail.get("input") or {}).get("name") or "?", child
+                    state = entry.get("state") or {}
+                    match = GUARD_DENY.match(str(state.get("outputText") or ""))
+                    if state.get("status") == "failed" and match:
+                        yield "guard", match.group(1) or match.group(0).strip()[:40], child
+
+
+def collect(host: str, since: datetime) -> list[dict]:
+    turns = corrections = 0
+    skills: Counter = Counter()
+    guards: Counter = Counter()
+    compactions = 0
+    for source in (pi_events(since), vibe_events(since)):
+        for kind, value, _child in source:
+            if kind == "human_turn" and _human_turn(value):
+                turns += 1
+                corrections += bool(CORRECTION.search(value))
+            elif kind == "skill":
+                skills[value] += 1
+            elif kind == "guard":
+                guards[value] += 1
+            elif kind == "compaction":
+                compactions += 1
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    base = {"host": host, "at": now, "since": since.isoformat(timespec="seconds")}
+    return [
+        {**base, "metric": "correction_rate", "def": definition_hash("correction_rate"),
+         "value": round(100 * corrections / turns, 2) if turns else None, "n": turns, "hits": corrections},
+        {**base, "metric": "skill_loads", "def": definition_hash("skill_loads"), "value": dict(skills)},
+        {**base, "metric": "guard_denies", "def": definition_hash("guard_denies"), "value": dict(guards)},
+        {**base, "metric": "compactions", "def": definition_hash("compactions"), "value": compactions},
+    ]
+
+
+def load_records(directory: Path) -> list[dict]:
+    records = []
+    for path in sorted(directory.glob("*.jsonl")):
+        for line in path.read_text().splitlines():
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return records
+
+
+def check(records: list[dict], now: datetime, installed_skills: set[str]) -> list[str]:
+    """Problems a human should see: stale or flat metrics, and crutches that stopped firing."""
+    problems = []
+    latest: dict[tuple, dict] = {}
+    history: dict[tuple, list] = {}
+    for record in records:
+        key = (record["host"], record["metric"], record.get("def"))
+        history.setdefault(key, []).append(record)
+        if key not in latest or record["at"] > latest[key]["at"]:
+            latest[key] = record
+    for (host, metric, _def), record in sorted(latest.items()):
+        age = now - datetime.fromisoformat(record["at"])
+        if age > timedelta(hours=26):
+            problems.append(f"STALE {host}/{metric}: last value {age.days}d {age.seconds // 3600}h ago")
+        week = [r for r in history[(host, metric, _def)] if now - datetime.fromisoformat(r["at"]) <= timedelta(days=7)]
+        if len(week) >= 5 and len({json.dumps(r["value"], sort_keys=True) for r in week}) == 1:
+            problems.append(f"FLAT {host}/{metric}: same value on {len(week)} runs in 7 days")
+    fired: Counter = Counter()
+    for record in records:
+        if record["metric"] == "skill_loads" and now - datetime.fromisoformat(record["at"]) <= timedelta(days=14):
+            fired.update(record["value"] or {})
+    for name in sorted(installed_skills - set(fired)):
+        problems.append(f"UNUSED skill {name}: 0 loads in 14 days on any host (deletion candidate)")
+    return problems
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="command", required=True)
+    c = sub.add_parser("collect")
+    c.add_argument("host")
+    c.add_argument("--hours", type=float, default=24.0)
+    k = sub.add_parser("check")
+    k.add_argument("--skills-dir", type=Path, default=Path(__file__).resolve().parents[1] / "local-skills")
+    args = parser.parse_args(argv)
+    now = datetime.now(timezone.utc)
+    if args.command == "collect":
+        for record in collect(args.host, now - timedelta(hours=args.hours)):
+            print(json.dumps(record, sort_keys=True))
+        return 0
+    installed = {p.name for p in args.skills_dir.iterdir() if (p / "SKILL.md").is_file()} if args.skills_dir.is_dir() else set()
+    problems = check(load_records(METRICS_DIR), now, installed)
+    print("\n".join(problems) if problems else "stack-metrics: all metrics fresh")
+    return 1 if any(p.startswith("STALE") for p in problems) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
