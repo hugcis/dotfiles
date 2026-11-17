@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   runPolicy,
+  runShipCheckGate,
   needsFailClosed,
   failClosedReason,
   PRE_TOOL_MAP,
@@ -49,19 +50,33 @@ export default function (pi: ExtensionAPI) {
       }
       return;
     }
-    if (outcome.status === "allow") return;
+    if (outcome.status === "verdict") {
+      const verdict = outcome.verdict;
+      if (verdict.decision === "deny") {
+        return { block: true, reason: verdict.reason ?? "Blocked by the agent-stack policy guard." };
+      }
 
-    const verdict = outcome.verdict;
-    if (verdict.decision === "deny") {
-      return { block: true, reason: verdict.reason ?? "Blocked by the agent-stack policy guard." };
+      // Rewrite: policy.py may return a patched tool_input. Mutate in place
+      // (Pi honors mutations to event.input; return only controls blocking).
+      const rewritten = verdict.hook_specific_output?.tool_input;
+      if (rewritten && typeof rewritten === "object") {
+        for (const k of Object.keys(event.input)) delete event.input[k];
+        Object.assign(event.input, rewritten);
+      }
     }
 
-    // Rewrite: policy.py may return a patched tool_input. Mutate in place
-    // (Pi honors mutations to event.input; return only controls blocking).
-    const rewritten = verdict.hook_specific_output?.tool_input;
-    if (rewritten && typeof rewritten === "object") {
-      for (const k of Object.keys(event.input)) delete event.input[k];
-      Object.assign(event.input, rewritten);
+    if (toolName === "bash") {
+      const gate = runShipCheckGate({
+        tool_name: "bash",
+        tool_input: event.input,
+        cwd: process.cwd(),
+      });
+      if (gate.status === "error") {
+        return { block: true, reason: `ship-check gate failed closed: ${gate.detail}` };
+      }
+      if (gate.status === "verdict" && gate.verdict.decision === "deny") {
+        return { block: true, reason: gate.verdict.reason ?? "Blocked by the ship-check gate." };
+      }
     }
     // Soft pre_tool system_message nudges are dropped here: a blocking hook
     // has no advisory-only channel (same choice as the opencode plugin).

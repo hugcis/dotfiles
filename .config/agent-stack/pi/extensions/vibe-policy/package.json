@@ -2,5 +2,8 @@
   "name": "vibe-policy",
   "private": true,
   "type": "module",
-  "description": "Pi extension forwarding tool events to ~/.config/agent-stack/hooks/policy.py, the shared policy guard. Fails closed on destructive bash."
+  "description": "Pi extension forwarding tool events to ~/.config/agent-stack/hooks/policy.py, the shared policy guard. Fails closed on destructive bash.",
+  "scripts": {
+    "test": "node --test --experimental-strip-types policy-adapter.test.ts"
+  }
 }

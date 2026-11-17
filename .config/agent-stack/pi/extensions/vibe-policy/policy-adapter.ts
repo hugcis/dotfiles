@@ -20,7 +20,37 @@ export type Outcome =
   | { status: "error"; detail: string };
 
 export const POLICY_PATH = join(homedir(), ".config/agent-stack/hooks/policy.py");
+export const SHIP_CHECK_GATE_PATH = join(homedir(), ".config/agent-stack/hooks/ship_check_gate.py");
 export const POLICY_TIMEOUT_MS = 10_000;
+
+function runHook(path: string, payload: unknown, label: string): Outcome {
+  let res;
+  try {
+    res = spawnSync("python3", [path], {
+      input: JSON.stringify(payload),
+      encoding: "utf8",
+      timeout: POLICY_TIMEOUT_MS,
+    });
+  } catch (err) {
+    return { status: "error", detail: `could not run ${label}: ${String(err)}` };
+  }
+  if (res.error) {
+    const timedOut = (res.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
+    return {
+      status: "error",
+      detail: timedOut ? `${label} timed out after ${POLICY_TIMEOUT_MS} ms` : String(res.error.message),
+    };
+  }
+  if (res.signal) return { status: "error", detail: `${label} killed by ${res.signal}` };
+  if (res.status !== 0) return { status: "error", detail: `${label} exited ${res.status}: ${(res.stderr ?? "").trim()}` };
+  const out = (res.stdout ?? "").trim();
+  if (!out) return { status: "allow" };
+  try {
+    return { status: "verdict", verdict: JSON.parse(out) as Verdict };
+  } catch {
+    return { status: "error", detail: `${label} printed non-JSON: ${out.slice(0, 200)}` };
+  }
+}
 
 export function runPolicy(payload: unknown, opts: { policyPath?: string } = {}): Outcome {
   let res;
@@ -53,6 +83,10 @@ export function runPolicy(payload: unknown, opts: { policyPath?: string } = {}):
   }
 }
 
+export function runShipCheckGate(payload: unknown, opts: { gatePath?: string } = {}): Outcome {
+  return runHook(opts.gatePath ?? SHIP_CHECK_GATE_PATH, payload, "ship_check_gate.py");
+}
+
 // Commands that destroy state, bypass signing or walk the whole filesystem. A
 // policy error on one of these blocks rather than allows: these are the cases
 // the guard exists for, and an unguarded run of one is not recoverable.
@@ -68,7 +102,6 @@ const DESTRUCTIVE_PATTERNS: RegExp[] = [
   // Wrappers hide their payload, so an unchecked one could hide anything above.
   /(^|[\s;&|(])((bash|sh|zsh|dash|ksh)\s+(-\S*c|--command)|eval\s)/,
   /(^|[\s;&|(])git\s[^;&|]*\bpush\b/,
-  /\.local\/state\/ship-check/,
 ];
 
 export function needsFailClosed(command: string): boolean {

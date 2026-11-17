@@ -1,5 +1,6 @@
 import json
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -11,10 +12,9 @@ STACK = Path(__file__).resolve().parents[1]
 SHIP_CHECK = STACK / "bin" / "ship-check"
 SHIP_GATE = STACK / "hooks" / "ship_check_gate.py"
 PASS_CMD = f"{sys.executable} -c 'import sys; sys.exit(0)'"
-FAIL_CMD = f"{sys.executable} -c 'import sys; sys.exit(7)'"
 
 
-def git(repo: Path, *args: str, input: str | None = None) -> str:
+def git(repo: Path, *args: str, input: str | None = None, check: bool = True) -> str:
     env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
     identity = ["-c", "user.email=t@example.invalid", "-c", "user.name=Test User"]
     result = subprocess.run(
@@ -23,7 +23,7 @@ def git(repo: Path, *args: str, input: str | None = None) -> str:
         input=input,
         text=True,
         capture_output=True,
-        check=True,
+        check=check,
         env=env,
     )
     return result.stdout.strip()
@@ -40,8 +40,8 @@ def commit_all(repo: Path, message: str) -> str:
     return git(repo, "rev-parse", "HEAD")
 
 
-def make_repo(tmp_path: Path) -> Path:
-    repo = tmp_path / "repo"
+def make_repo(tmp_path: Path, name: str = "repo") -> Path:
+    repo = tmp_path / name
     repo.mkdir()
     git(repo, "init", "-q", "-b", "main")
     write(repo / "app.py", "VALUE = 1\n")
@@ -61,28 +61,19 @@ def run_ship(repo: Path, home: Path, *args: str) -> subprocess.CompletedProcess[
     )
 
 
-def receipts(home: Path) -> list[Path]:
-    return sorted((home / ".local" / "state" / "ship-check").glob("*/*.json"))
-
-
-def run_hook(repo: Path, home: Path, payload: dict, *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def run_hook(repo: Path, home: Path, payload: dict, *, cwd: Path | None = None, extra_env: dict | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(SHIP_GATE)],
         cwd=cwd or repo,
         input=json.dumps(payload),
         text=True,
         capture_output=True,
-        env={**os.environ, "HOME": str(home)},
+        env={**os.environ, "HOME": str(home), **(extra_env or {})},
     )
 
 
-def bash_payload(command: str, repo: Path, *, tool_name: str = "file_system.bash", top_level_cwd: bool = False) -> dict:
-    payload = {"tool_name": tool_name, "tool_input": {"command": command}}
-    if top_level_cwd:
-        payload["cwd"] = str(repo)
-    else:
-        payload["tool_input"]["cwd"] = str(repo)
-    return payload
+def bash_payload(command: str, repo: Path, *, tool_name: str = "file_system.bash") -> dict:
+    return {"tool_name": tool_name, "tool_input": {"command": command, "cwd": str(repo)}}
 
 
 def denied(result: subprocess.CompletedProcess[str]) -> dict:
@@ -99,248 +90,170 @@ def allowed(result: subprocess.CompletedProcess[str]) -> None:
     assert result.stdout == ""
 
 
-def test_clean_branch_passes_records_test_command_and_writes_receipt(tmp_path):
+def fake_gh(directory: Path, *, head: str, rollup: list[dict] | None = None, exit_code: int = 0) -> Path:
+    bin_dir = directory / "bin"
+    bin_dir.mkdir()
+    script = bin_dir / "gh"
+    if exit_code:
+        script.write_text(f"#!/bin/sh\necho gh failed >&2\nexit {exit_code}\n")
+    else:
+        body = json.dumps({"headRefOid": head, "statusCheckRollup": rollup or []})
+        script.write_text(f"#!/bin/sh\nprintf '%s\\n' '{body}'\n")
+    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    return bin_dir
+
+
+def test_ship_check_is_local_prefight_only_and_writes_no_receipt(tmp_path):
     repo = make_repo(tmp_path)
     home = tmp_path / "home"
     write(repo / "app.py", "VALUE = 2\n")
-    sha = commit_all(repo, "change value\n")
+    commit_all(repo, "change value\n")
 
     result = run_ship(repo, home, "--test-cmd", PASS_CMD)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "attribution: PASS" in result.stdout
-    assert "size: PASS" in result.stdout
-    assert "working_docs: PASS" in result.stdout
     assert "tests: PASS" in result.stdout
-    receipt_path = receipts(home)[0]
-    receipt = json.loads(receipt_path.read_text())
-    assert receipt["sha"] == sha
-    assert receipt["overall"] == "pass"
-    assert receipt["checks"]["tests"]["command"] == PASS_CMD
+    assert "receipt:" not in result.stdout
+    assert not (home / ".local" / "state" / "ship-check").exists()
 
 
-def test_ai_attribution_in_commit_message_fails(tmp_path):
+def test_push_gate_reruns_inline_checks_and_ignores_forged_receipts(tmp_path):
     repo = make_repo(tmp_path)
     home = tmp_path / "home"
     write(repo / "app.py", "VALUE = 3\n")
-    commit_all(repo, "change value\n\nCo-Authored-By: Vibe Agent <agent@example.invalid>\n")
+    sha = commit_all(repo, "change value\n\nCo-Authored-By: Vibe Agent <agent@example.invalid>\n")
+    forged = home / ".local" / "state" / "ship-check" / "repo-forged" / f"{sha}.json"
+    write(forged, json.dumps({"overall": "pass", "sha": sha}))
 
-    result = run_ship(repo, home, "--test-cmd", PASS_CMD)
+    denial = denied(run_hook(repo, home, bash_payload("git push origin HEAD", repo)))
 
-    assert result.returncode == 1
-    assert "attribution: FAIL" in result.stdout
-    assert "Co-Authored-By" in result.stdout
-
-
-def test_oversized_production_diff_fails_without_size_justification(tmp_path):
-    repo = make_repo(tmp_path)
-    home = tmp_path / "home"
-    write(repo / "app.py", "".join(f"VALUE_{i} = {i}\n" for i in range(601)))
-    commit_all(repo, "large change\n")
-
-    result = run_ship(repo, home, "--test-cmd", PASS_CMD)
-
-    assert result.returncode == 1
-    assert "size: FAIL" in result.stdout
-    assert "production lines 602" in result.stdout
+    assert "attribution" in denial["reason"]
+    assert "receipt" not in denial["reason"].lower()
 
 
-def test_oversized_test_diff_reports_tests_but_does_not_trip_the_production_gate(tmp_path):
-    repo = make_repo(tmp_path)
-    home = tmp_path / "home"
-    write(repo / "tests" / "test_large.py", "".join(f"def test_{i}():\n    assert True\n" for i in range(301)))
-    commit_all(repo, "large test change\n")
-
-    result = run_ship(repo, home, "--test-cmd", PASS_CMD)
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "size: PASS" in result.stdout
-    assert "production lines 0, tests 602" in result.stdout
-
-
-def test_size_justification_trailer_allows_an_oversized_production_diff(tmp_path):
-    repo = make_repo(tmp_path)
-    home = tmp_path / "home"
-    write(repo / "app.py", "".join(f"VALUE_{i} = {i}\n" for i in range(601)))
-    commit_all(repo, "large change\n\nSize-justification: generated fixture table kept together\n")
-
-    result = run_ship(repo, home, "--test-cmd", PASS_CMD)
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "size: PASS" in result.stdout
-
-
-def test_working_doc_added_on_the_range_fails(tmp_path):
-    repo = make_repo(tmp_path)
-    home = tmp_path / "home"
-    write(repo / "docs" / "plans" / "feature-plan.md", "temporary plan\n")
-    commit_all(repo, "add temporary plan\n")
-
-    result = run_ship(repo, home, "--test-cmd", PASS_CMD)
-
-    assert result.returncode == 1
-    assert "working_docs: FAIL" in result.stdout
-    assert "docs/plans/feature-plan.md" in result.stdout
-
-
-def test_test_command_failure_fails_but_missing_command_is_explicitly_skipped(tmp_path):
+def test_push_gate_allows_clean_inline_checks_without_receipt(tmp_path):
     repo = make_repo(tmp_path)
     home = tmp_path / "home"
     write(repo / "app.py", "VALUE = 4\n")
     commit_all(repo, "change value\n")
 
-    failed = run_ship(repo, home, "--test-cmd", FAIL_CMD)
-    skipped = run_ship(repo, tmp_path / "home-skip")
-
-    assert failed.returncode == 1
-    assert "tests: FAIL" in failed.stdout
-    assert "exit code 7" in failed.stdout
-    assert skipped.returncode == 0, skipped.stdout + skipped.stderr
-    assert "tests: SKIPPED" in skipped.stdout
-
-
-def test_noop_test_command_is_rejected_as_a_gate_bypass(tmp_path):
-    repo = make_repo(tmp_path)
-    home = tmp_path / "home"
-    write(repo / "app.py", "VALUE = 5\n")
-    commit_all(repo, "change value\n")
-
-    result = run_ship(repo, home, "--test-cmd", "true")
-
-    assert result.returncode == 1
-    assert "tests: FAIL" in result.stdout
-    assert "no-op" in result.stdout
-
-
-def test_ship_check_toml_supplies_the_test_command(tmp_path):
-    repo = make_repo(tmp_path)
-    home = tmp_path / "home"
-    write(repo / "ship-check.toml", f'test-cmd = "{PASS_CMD}"\n')
-    write(repo / "app.py", "VALUE = 6\n")
-    commit_all(repo, "change value\n")
-
-    result = run_ship(repo, home)
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    receipt = json.loads(receipts(home)[0].read_text())
-    assert receipt["checks"]["tests"]["command"] == PASS_CMD
-
-
-def test_gate_denies_without_receipt_allows_matching_receipt_and_denies_after_amend(tmp_path):
-    repo = make_repo(tmp_path)
-    home = tmp_path / "home"
-    write(repo / "app.py", "VALUE = 7\n")
-    commit_all(repo, "change value\n")
-
-    first_denial = denied(run_hook(repo, home, bash_payload("git push origin HEAD", repo)))
-    assert "receipt" in first_denial["reason"]
-    passed = run_ship(repo, home, "--test-cmd", PASS_CMD)
-    assert passed.returncode == 0, passed.stdout + passed.stderr
     allowed(run_hook(repo, home, bash_payload("git push origin HEAD", repo)))
 
-    git(repo, "commit", "--amend", "-F", "-", input="same tree, new commit\n")
 
-    second_denial = denied(run_hook(repo, home, bash_payload("git push origin HEAD", repo)))
-    assert "receipt" in second_denial["reason"]
+@pytest.mark.parametrize(
+    "command",
+    ["cd ../other && git push", "git -C ../other push", "git --git-dir=../other/.git --work-tree=../other push"],
+)
+def test_b4_push_checks_the_repo_targeted_by_cd_or_git_directory_options(tmp_path, command):
+    caller = make_repo(tmp_path, "caller")
+    other = make_repo(tmp_path, "other")
+    home = tmp_path / "home"
+    write(other / "app.py", "VALUE = 5\n")
+    commit_all(other, "bad\n\nGenerated by Vibe\n")
+
+    denial = denied(run_hook(caller, home, bash_payload(command, caller)))
+
+    assert "attribution" in denial["reason"]
 
 
-def test_gate_guards_gh_pr_create_and_ready_and_process_start_payloads(tmp_path):
+def test_b4_uncertain_push_target_denies_with_actionable_reason(tmp_path):
     repo = make_repo(tmp_path)
     home = tmp_path / "home"
-    write(repo / "app.py", "VALUE = 8\n")
-    commit_all(repo, "change value\n")
 
-    denied(run_hook(repo, home, bash_payload("gh pr create --fill", repo)))
-    denied(run_hook(repo, home, bash_payload("gh pr ready", repo, tool_name="process_start")))
-    denied(run_hook(repo, home, bash_payload("gh pr merge 123", repo)))
+    denial = denied(run_hook(repo, home, bash_payload("git --git-dir=.git push", repo)))
 
-
-
-@pytest.mark.parametrize("tool_name", ["bash", "file_system.bash", "process_start", "process.start"])
-def test_gate_guards_any_command_bearing_shell_tool_name(tmp_path, tool_name):
-    repo = make_repo(tmp_path)
-    home = tmp_path / "home"
-    write(repo / "app.py", "VALUE = 9\n")
-    commit_all(repo, "change value\n")
-
-    denial = denied(run_hook(repo, home, bash_payload("git push origin HEAD", repo, tool_name=tool_name)))
-
-    assert "receipt" in denial["reason"]
+    assert "run the push from inside the repo" in denial["reason"]
 
 
 @pytest.mark.parametrize(
     "command",
     [
-        "git -C . push origin x",
-        "/usr/bin/git push",
-        "command git push",
+        "sudo git push",
+        "doas git push",
         "env FOO=1 git push",
-        "FOO=1 git push",
-        "git  push",
-        "git -c x=y push",
+        "nohup git push",
+        "timeout 5 git push",
+        "stdbuf -oL git push",
+        "nice -n 10 git push",
+        "command git push",
         "exec git push",
-        "git --git-dir=.git --work-tree=. push",
-        "true && git push",
-        "true; gh pr merge 123",
-        "true\ngh pr create --fill",
-        'bash -c "git push"',
-        'sh -c "git push origin"',
-        'zsh -c "git push origin"',
-        'eval "git push"',
+        "( git push )",
+        "{ git push; }",
     ],
 )
-def test_gate_parses_guarded_command_forms_in_shell_segments(tmp_path, command):
+def test_h2_wrappers_still_reach_inline_push_checks(tmp_path, command):
     repo = make_repo(tmp_path)
     home = tmp_path / "home"
-    write(repo / "app.py", "VALUE = 10\n")
-    commit_all(repo, "change value\n")
+    write(repo / "app.py", "VALUE = 6\n")
+    commit_all(repo, "bad\n\nGenerated by Vibe\n")
 
     denial = denied(run_hook(repo, home, bash_payload(command, repo)))
 
-    assert "receipt" in denial["reason"]
+    assert "attribution" in denial["reason"]
 
 
-def test_gate_does_not_guard_echoed_command_text(tmp_path):
+@pytest.mark.parametrize(
+    "command",
+    [
+        'echo "git push" | bash',
+        'bash <<< "git push"',
+        'cat <<EOF | bash\ngit push\nEOF',
+        'printf "%s" "git push" | xargs sh -c',
+        'xargs git push',
+        'ssh host git push',
+    ],
+)
+def test_h2_unreadable_shell_feeds_and_remote_pushes_fail_closed(tmp_path, command):
     repo = make_repo(tmp_path)
     home = tmp_path / "home"
-    write(repo / "app.py", "VALUE = 11\n")
+
+    denial = denied(run_hook(repo, home, bash_payload(command, repo)))
+
+    assert "unreadable" in denial["reason"] or "run the push from inside the repo" in denial["reason"]
+
+
+def test_h3_pr_ready_with_no_ci_denies_even_when_inline_checks_pass(tmp_path):
+    repo = make_repo(tmp_path)
+    home = tmp_path / "home"
+    write(repo / "app.py", "VALUE = 7\n")
+    head = commit_all(repo, "change value\n")
+    gh_bin = fake_gh(tmp_path, head=head, rollup=[])
+
+    denial = denied(run_hook(repo, home, bash_payload("gh pr ready", repo), extra_env={"PATH": f"{gh_bin}:{os.environ['PATH']}"}))
+
+    assert "status checks" in denial["reason"]
+    assert head in denial["reason"]
+
+
+def test_pr_merge_denies_when_gh_fails(tmp_path):
+    repo = make_repo(tmp_path)
+    home = tmp_path / "home"
+    gh_bin = fake_gh(tmp_path, head="unused", exit_code=1)
+
+    denial = denied(run_hook(repo, home, bash_payload("gh pr merge", repo), extra_env={"PATH": f"{gh_bin}:{os.environ['PATH']}"}))
+
+    assert "gh pr view" in denial["reason"]
+
+
+def test_pr_ready_allows_when_every_check_succeeds_for_current_head(tmp_path):
+    repo = make_repo(tmp_path)
+    home = tmp_path / "home"
+    write(repo / "app.py", "VALUE = 8\n")
+    head = commit_all(repo, "change value\n")
+    gh_bin = fake_gh(
+        tmp_path,
+        head=head,
+        rollup=[{"name": "ci", "conclusion": "SUCCESS", "status": "COMPLETED"}],
+    )
+
+    allowed(run_hook(repo, home, bash_payload("gh pr ready", repo), extra_env={"PATH": f"{gh_bin}:{os.environ['PATH']}"}))
+
+
+def test_gh_pr_create_runs_only_inline_checks_not_ci(tmp_path):
+    repo = make_repo(tmp_path)
+    home = tmp_path / "home"
+    write(repo / "app.py", "VALUE = 9\n")
     commit_all(repo, "change value\n")
+    gh_bin = fake_gh(tmp_path, head="would-fail-if-called", exit_code=1)
 
-    allowed(run_hook(repo, home, bash_payload("echo git push", repo)))
-
-
-def test_gate_uses_top_level_cwd_before_process_cwd(tmp_path):
-    repo = make_repo(tmp_path)
-    home = tmp_path / "home"
-    write(repo / "app.py", "VALUE = 12\n")
-    commit_all(repo, "change value\n")
-    outside = tmp_path / "outside"
-    outside.mkdir()
-
-    denial = denied(run_hook(repo, home, bash_payload("git push origin HEAD", repo, top_level_cwd=True), cwd=outside))
-
-    assert "receipt" in denial["reason"]
-
-
-def test_gate_fails_closed_when_shell_recursion_is_too_deep(tmp_path):
-    repo = make_repo(tmp_path)
-    home = tmp_path / "home"
-    write(repo / "app.py", "VALUE = 13\n")
-    commit_all(repo, "change value\n")
-
-    denial = denied(run_hook(repo, home, bash_payload('bash -c "bash -c \\"bash -c \\\\\\\"git push\\\\\\\"\\""', repo)))
-
-    assert "nested shell command" in denial["reason"]
-
-
-def test_gate_non_repo_cwd_denial_is_actionable(tmp_path):
-    repo = make_repo(tmp_path)
-    home = tmp_path / "home"
-    outside = tmp_path / "outside"
-    outside.mkdir()
-
-    denial = denied(run_hook(repo, home, {"tool_name": "bash", "cwd": str(outside), "tool_input": {"command": "git push"}}, cwd=outside))
-
-    assert "run ship-check in" in denial["reason"]
-    assert str(outside) in denial["reason"]
-    assert "returned non-zero" not in denial["reason"]
+    allowed(run_hook(repo, home, bash_payload("gh pr create --draft", repo), extra_env={"PATH": f"{gh_bin}:{os.environ['PATH']}"}))

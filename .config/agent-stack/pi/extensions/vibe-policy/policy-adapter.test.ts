@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   runPolicy,
+  runShipCheckGate,
   needsFailClosed,
   failClosedReason,
   POLICY_PATH,
@@ -77,7 +78,6 @@ test("destructive patterns are recognised for fail-closed handling", () => {
     "sh -c 'git reset --hard'",
     'eval "git reset --hard"',
     "git push --force origin main",
-    "echo x > ~/.local/state/ship-check/r/a.json",
   ]) {
     assert.equal(needsFailClosed(command), true, command);
   }
@@ -102,4 +102,17 @@ test("Pi tool ids map to policy tool names", () => {
   assert.equal(PRE_TOOL_MAP.edit, "edit");
   assert.equal(POST_TOOL_MAP.read, "read_file");
   assert.equal(POST_TOOL_MAP.grep, "grep");
+});
+
+test("ship-check gate verdicts are exposed to Pi", () => {
+  const gate = join(site, "ship-gate.py");
+  writeFileSync(gate, "#!/usr/bin/env python3\nprint('{\\\"decision\\\":\\\"deny\\\",\\\"reason\\\":\\\"no ci\\\"}')\n");
+  const outcome = runShipCheckGate({ tool_input: { command: "git push" } }, { gatePath: gate });
+  assert.equal(outcome.status, "verdict");
+  assert.equal(outcome.status === "verdict" && outcome.verdict.reason, "no ci");
+});
+
+test("ship-check gate failures are fail-closed errors", () => {
+  const outcome = runShipCheckGate({ tool_input: { command: "git push" } }, { gatePath: "/nonexistent/ship_check_gate.py" });
+  assert.equal(outcome.status, "error");
 });

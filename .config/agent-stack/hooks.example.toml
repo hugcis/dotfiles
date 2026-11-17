@@ -30,13 +30,11 @@ match = "re:.*(bash|process[._]start|edit|write_file|write).*"
 command = "python3 ~/.config/agent-stack/hooks/policy.py"
 timeout = 10.0
 strict = true
-description = "Block destructive commands, force-pushes, signing bypasses, traced secrets, wide scans and receipt writes."
+description = "Block destructive commands, force-pushes, signing bypasses, traced secrets and wide scans."
 
-# The L2 ship-check gate: denies `git push` / `gh pr create` / `gh pr ready`
-# unless a passing receipt exists for the current HEAD sha and tree hash.
-# ship_check_gate.py ships from the ship-check branch; this entry is inert
-# (and Vibe will error on a missing command) until that branch lands, so add
-# it only once the file exists.
+# The L2 ship-check gate: reruns deterministic checks inline for `git push` /
+# `gh pr create`; `gh pr ready` and `gh pr merge` additionally require GitHub
+# status checks to be successful for the exact PR head SHA.
 [[hooks]]
 name = "agent-stack-ship-check-gate"
 type = "pre_tool"
@@ -44,7 +42,7 @@ match = "re:.*(bash|process[._]start).*"
 command = "python3 ~/.config/agent-stack/hooks/ship_check_gate.py"
 timeout = 30.0
 strict = true
-description = "Require a passing ship-check receipt for the current HEAD before a push or PR."
+description = "Rerun ship-check inline for pushes and require PR CI before ready/merge."
 
 [[hooks]]
 name = "agent-stack-policy-post-tool"
