@@ -1,0 +1,6 @@
+{
+  "name": "vibe-policy",
+  "private": true,
+  "type": "module",
+  "description": "Pi extension forwarding tool events to ~/.config/agent-stack/hooks/policy.py, the shared policy guard. Fails closed on destructive bash."
+}

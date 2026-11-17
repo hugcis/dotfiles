@@ -1,0 +1,6 @@
+{
+  "name": "bash-timeout-guard",
+  "private": true,
+  "type": "module",
+  "description": "Pi extension capping foreground bash duration. Wide-scan bans live in hooks/policy.py."
+}

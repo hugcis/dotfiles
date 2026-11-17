@@ -1,0 +1,35 @@
+# Vibe hook entries for the shared policy guard. EXAMPLE ONLY: this file is not
+# installed. Append these blocks to ~/.vibe/hooks.toml by hand, keeping whatever
+# is already there.
+#
+# Vibe 3.x qualifies tool names (`file_system.bash`, `file_system.edit`,
+# `file_system.write_file`) and runs background commands through
+# `process_start`/`process.start`, so the pre_tool match is a regex over
+# substrings rather than an anchored list of bare names. hooks/policy.py accepts
+# both the bare and the qualified form.
+#
+# strict = true turns a hook failure into a deny. The pre-tool entry is strict
+# because a guard that silently fails open is not a guard; the post-tool entry
+# is not, because a redaction failure must not block a session.
+#
+# Site-specific roots come from ~/.config/agent-stack/policy.local.json
+# (see policy.local.example.json). With no such file only the generic rules
+# apply: `/`, `/mnt` and $HOME.
+
+[[hooks]]
+name = "agent-stack-policy-pre-tool"
+type = "pre_tool"
+match = "re:bash|process_start|edit|write_file"
+command = "python3 ~/.config/agent-stack/hooks/policy.py"
+timeout = 10.0
+strict = true
+description = "Block destructive commands, signing bypasses, traced secrets and filesystem-wide scans."
+
+[[hooks]]
+name = "agent-stack-policy-post-tool"
+type = "post_tool"
+match = "re:bash|read_file|grep|web_fetch|web_search"
+command = "python3 ~/.config/agent-stack/hooks/policy.py"
+timeout = 10.0
+strict = false
+description = "Redact credentials from tool output before the model sees them."

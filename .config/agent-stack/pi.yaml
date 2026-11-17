@@ -40,7 +40,9 @@ packages:
   - npm:@dietrichgebert/ponytail
   - npm:pi-blackhole@0.5.11
 extensions:
+  - bash-timeout-guard
   - comment-discipline
   - goal-guard
   - subagent
+  - vibe-policy
   - worktree-guard

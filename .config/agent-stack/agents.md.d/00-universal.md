@@ -16,6 +16,8 @@ These are not suggestions: a guard blocks the action, and its message says what 
 |---|---|
 | No destructive git or `rm` on shared or unapproved targets | `policy.py` pre-tool hook |
 | No signing bypass (`--no-gpg-sign`, `commit.gpgsign=false`) | `policy.py` pre-tool hook |
-| No home-wide scans or unbounded long commands | `policy.py` pre-tool hook, Pi `bash-timeout-guard` |
+| No home-wide scans (`find`/`grep -r`/`rg`/`du`/`ls -R`) | `policy.py` pre-tool hook |
+| No tracing (`set -x`) of a command that reads a secret | `policy.py` pre-tool hook |
+| No foreground command longer than 10 min | Pi `bash-timeout-guard` |
 | No edits in a primary checkout | Pi `worktree-guard` |
 | No AI attribution, no working docs staged, PR size justified | `ship-check` on push and PR creation |
