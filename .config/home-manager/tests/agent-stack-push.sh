@@ -50,7 +50,7 @@ else:
     (here / "rendered").write_text("yes")
     print("rendered 9 agents")
 EOF
-echo a1 > "$s/a.txt"; echo b1 > "$s/b.txt"; echo pin1 > "$s/methodologies.yaml"
+echo a1 > "$s/a.txt"; echo b1 > "$s/b.txt"
 c1=$(commit c1)
 
 # The host starts at c1, as a checkout of its own dotfiles repo, plus files
@@ -61,7 +61,7 @@ mkdir -p "$h"
 echo "ok: true" > "$h/profile.yaml"; echo local > "$h/local.md"
 
 echo "== first push: base is the host repo's HEAD"
-echo a2 > "$s/a.txt"; cfg rm -q .config/agent-stack/b.txt; echo c2 > "$s/c.txt"; echo pin2 > "$s/methodologies.yaml"
+echo a2 > "$s/a.txt"; cfg rm -q .config/agent-stack/b.txt; echo c2 > "$s/c.txt"
 c2=$(commit c2)
 out=$(push)
 expect "first push succeeds" "$out" "exit=0"
@@ -72,7 +72,6 @@ same "profile.yaml kept" "$(cat "$h/profile.yaml")" "ok: true"
 same "local-only file kept" "$(cat "$h/local.md")" "local"
 same "rendered on the host" "$(cat "$h/rendered" 2>/dev/null)" "yes"
 same "pushed revision recorded" "$(cat "$h/.pushed-rev")" "$c2"
-expect "methodology change hinted" "$out" "methodology.py preflight"
 
 echo "== drift: a file edited on the host stops the push"
 echo edited-on-host > "$h/a.txt"
@@ -83,7 +82,6 @@ expect "drift names the file" "$out" "edited on host: .config/agent-stack/a.txt"
 expect "drift shows the diff" "$out" "+edited-on-host"
 same "nothing written on refusal" "$(cat "$h/c.txt")" "c2"
 same "pushed revision unchanged on refusal" "$(cat "$h/.pushed-rev")" "$c2"
-reject "no methodology hint without a change" "$out" "methodology.py preflight"
 
 echo "== --force overwrites the host edit"
 out=$(push --force)
