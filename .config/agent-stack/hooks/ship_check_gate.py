@@ -11,20 +11,25 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
 
-GUARDED_TOOLS = {"file_system.bash", "process_start"}
-GUARDED_RE = re.compile(r"(^|[;&|()]|\s)(git\s+push\b|gh\s+pr\s+(create|ready)\b)")
+SEGMENT_OPERATORS = {";", "&&", "||", "|", "\n"}
+WRAPPER_COMMANDS = {"command", "exec"}
+GIT_GLOBAL_OPTIONS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree"}
+GIT_GUARDED_SUBCOMMANDS = {"push"}
+GH_GUARDED = {("pr", "create"), ("pr", "ready"), ("pr", "merge")}
+ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*")
 
 
-def allow(message: str = "ship-check gate: not a guarded command") -> dict:
-    return {"decision": "allow", "message": message}
+def allow() -> dict | None:
+    return None
 
 
-def deny(message: str) -> dict:
-    return {"decision": "deny", "message": message}
+def deny(reason: str) -> dict:
+    return {"decision": "deny", "reason": reason}
 
 
 def git_out(cwd: str, *args: str) -> str:
@@ -42,20 +47,103 @@ def receipt_file(cwd: str, sha: str) -> Path:
 
 
 def command_from(payload: dict) -> tuple[str | None, str]:
-    tool = payload.get("tool_name") or payload.get("name") or ""
-    if tool not in GUARDED_TOOLS:
-        return None, ""
     tool_input = payload.get("tool_input") or payload.get("input") or payload.get("arguments") or {}
     if not isinstance(tool_input, dict):
-        return None, ""
+        return None, str(payload.get("cwd") or os.getcwd())
     command = tool_input.get("command") or tool_input.get("cmd")
-    cwd = tool_input.get("cwd") or tool_input.get("directory") or os.getcwd()
+    cwd = payload.get("cwd") or tool_input.get("cwd") or tool_input.get("directory") or os.getcwd()
     return (command if isinstance(command, str) else None), str(cwd)
 
 
-def decision(payload: dict) -> dict:
+def shell_words(command: str) -> list[str]:
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|\n")
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    return list(lexer)
+
+
+def command_segments(command: str) -> list[list[str]]:
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for word in shell_words(command):
+        if word in SEGMENT_OPERATORS:
+            if current:
+                segments.append(current)
+                current = []
+            continue
+        current.append(word)
+    if current:
+        segments.append(current)
+    return segments
+
+
+def basename(word: str) -> str:
+    return Path(word).name
+
+
+def strip_prefixes(words: list[str]) -> list[str]:
+    words = list(words)
+    while words:
+        head = basename(words[0])
+        if head in WRAPPER_COMMANDS:
+            words.pop(0)
+            continue
+        if head == "env":
+            words.pop(0)
+            while words and ASSIGNMENT.match(words[0]):
+                words.pop(0)
+            continue
+        if ASSIGNMENT.match(words[0]):
+            words.pop(0)
+            continue
+        break
+    return words
+
+
+def git_subcommand(words: list[str]) -> str | None:
+    words = strip_prefixes(words)
+    if not words or basename(words.pop(0)) != "git":
+        return None
+    while words:
+        word = words.pop(0)
+        if word == "--":
+            continue
+        if word in GIT_GLOBAL_OPTIONS_WITH_VALUE:
+            if words:
+                words.pop(0)
+            continue
+        if any(word.startswith(option + "=") for option in GIT_GLOBAL_OPTIONS_WITH_VALUE):
+            continue
+        if word.startswith("-"):
+            continue
+        return word
+    return None
+
+
+def gh_command(words: list[str]) -> tuple[str, str] | None:
+    words = strip_prefixes(words)
+    if len(words) < 3 or basename(words[0]) != "gh":
+        return None
+    return words[1], words[2]
+
+
+def is_guarded_segment(words: list[str]) -> bool:
+    if git_subcommand(list(words)) in GIT_GUARDED_SUBCOMMANDS:
+        return True
+    gh = gh_command(list(words))
+    return gh in GH_GUARDED
+
+
+def is_guarded_command(command: str) -> bool:
+    try:
+        return any(is_guarded_segment(segment) for segment in command_segments(command))
+    except ValueError:
+        return False
+
+
+def decision(payload: dict) -> dict | None:
     command, cwd = command_from(payload)
-    if not command or not GUARDED_RE.search(command):
+    if not command or not is_guarded_command(command):
         return allow()
     try:
         sha = git_out(cwd, "rev-parse", "HEAD")
@@ -70,7 +158,7 @@ def decision(payload: dict) -> dict:
         return deny(f"ship-check receipt is not passing for {sha}")
     if receipt.get("sha") != sha or receipt.get("tree_hash") != tree_hash:
         return deny("ship-check receipt does not match current HEAD sha and tree hash")
-    return allow(f"ship-check receipt verified for {sha}")
+    return allow()
 
 
 def main() -> int:
@@ -79,7 +167,8 @@ def main() -> int:
         result = decision(payload if isinstance(payload, dict) else {})
     except Exception as error:  # hooks fail closed
         result = deny(f"ship-check gate failed closed: {error}")
-    print(json.dumps(result, sort_keys=True))
+    if result is not None:
+        print(json.dumps(result, sort_keys=True))
     return 0
 
 

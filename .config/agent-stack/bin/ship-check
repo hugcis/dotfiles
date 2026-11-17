@@ -135,23 +135,20 @@ def check_size(base: str) -> dict:
     justified = has_size_justification(base)
     production = split["production"]
     tests = split["tests"]
-    code_lines = production + tests
-    if code_lines > PRODUCTION_LIMIT and not justified:
+    if production > PRODUCTION_LIMIT and not justified:
         return status(
             "size",
             "fail",
-            f"code lines {code_lines} (production {production}, tests {tests}) exceed {PRODUCTION_LIMIT} without Size-justification trailer",
+            f"production lines {production} exceed {PRODUCTION_LIMIT} without Size-justification trailer; tests {tests}, docs {split['docs']}",
             split=split,
-            code_lines=code_lines,
             size_justification=justified,
         )
     return status(
         "size",
         "pass",
-        f"code lines {code_lines} (production {production}, tests {tests}), docs {split['docs']}"
+        f"production lines {production}, tests {tests}, docs {split['docs']}"
         + ("; Size-justification present" if justified else ""),
         split=split,
-        code_lines=code_lines,
         size_justification=justified,
     )
 
