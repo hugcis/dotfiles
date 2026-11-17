@@ -283,6 +283,10 @@ def test_gate_guards_any_command_bearing_shell_tool_name(tmp_path, tool_name):
         "true && git push",
         "true; gh pr merge 123",
         "true\ngh pr create --fill",
+        'bash -c "git push"',
+        'sh -c "git push origin"',
+        'zsh -c "git push origin"',
+        'eval "git push"',
     ],
 )
 def test_gate_parses_guarded_command_forms_in_shell_segments(tmp_path, command):
@@ -316,3 +320,27 @@ def test_gate_uses_top_level_cwd_before_process_cwd(tmp_path):
     denial = denied(run_hook(repo, home, bash_payload("git push origin HEAD", repo, top_level_cwd=True), cwd=outside))
 
     assert "receipt" in denial["reason"]
+
+
+def test_gate_fails_closed_when_shell_recursion_is_too_deep(tmp_path):
+    repo = make_repo(tmp_path)
+    home = tmp_path / "home"
+    write(repo / "app.py", "VALUE = 13\n")
+    commit_all(repo, "change value\n")
+
+    denial = denied(run_hook(repo, home, bash_payload('bash -c "bash -c \\"bash -c \\\\\\\"git push\\\\\\\"\\""', repo)))
+
+    assert "nested shell command" in denial["reason"]
+
+
+def test_gate_non_repo_cwd_denial_is_actionable(tmp_path):
+    repo = make_repo(tmp_path)
+    home = tmp_path / "home"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    denial = denied(run_hook(repo, home, {"tool_name": "bash", "cwd": str(outside), "tool_input": {"command": "git push"}}, cwd=outside))
+
+    assert "run ship-check in" in denial["reason"]
+    assert str(outside) in denial["reason"]
+    assert "returned non-zero" not in denial["reason"]

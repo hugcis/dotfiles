@@ -18,6 +18,8 @@ from pathlib import Path
 
 SEGMENT_OPERATORS = {";", "&&", "||", "|", "\n"}
 WRAPPER_COMMANDS = {"command", "exec"}
+SHELL_COMMANDS = {"bash", "sh", "zsh"}
+MAX_SHELL_RECURSION = 2
 GIT_GLOBAL_OPTIONS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree"}
 GIT_GUARDED_SUBCOMMANDS = {"push"}
 GH_GUARDED = {("pr", "create"), ("pr", "ready"), ("pr", "merge")}
@@ -127,33 +129,79 @@ def gh_command(words: list[str]) -> tuple[str, str] | None:
     return words[1], words[2]
 
 
-def is_guarded_segment(words: list[str]) -> bool:
+def nested_command(words: list[str]) -> str | None:
+    words = strip_prefixes(words)
+    if not words:
+        return None
+    head = basename(words[0])
+    if head == "eval" and len(words) >= 2:
+        return " ".join(words[1:])
+    if head not in SHELL_COMMANDS:
+        return None
+    index = 1
+    while index < len(words):
+        word = words[index]
+        if word == "-c":
+            return words[index + 1] if index + 1 < len(words) else ""
+        if word.startswith("-"):
+            index += 1
+            continue
+        return None
+    return None
+
+
+def is_guarded_segment(words: list[str], depth: int) -> tuple[bool, str | None]:
     if git_subcommand(list(words)) in GIT_GUARDED_SUBCOMMANDS:
-        return True
+        return True, None
     gh = gh_command(list(words))
-    return gh in GH_GUARDED
-
-
-def is_guarded_command(command: str) -> bool:
+    if gh in GH_GUARDED:
+        return True, None
+    inner = nested_command(list(words))
+    if inner is None:
+        return False, None
+    if depth >= MAX_SHELL_RECURSION:
+        return True, "nested shell command is too deep; run ship-check in the repo first"
+    if not inner:
+        return True, "nested shell command is empty or unparseable; run ship-check in the repo first"
     try:
-        return any(is_guarded_segment(segment) for segment in command_segments(command))
+        return is_guarded_command(inner, depth + 1)
     except ValueError:
-        return False
+        return True, "nested shell command could not be parsed; run ship-check in the repo first"
+
+
+def is_guarded_command(command: str, depth: int = 0) -> tuple[bool, str | None]:
+    guarded = False
+    for segment in command_segments(command):
+        segment_guarded, reason = is_guarded_segment(segment, depth)
+        if reason:
+            return True, reason
+        guarded = guarded or segment_guarded
+    return guarded, None
 
 
 def decision(payload: dict) -> dict | None:
     command, cwd = command_from(payload)
-    if not command or not is_guarded_command(command):
+    if not command:
         return allow()
+    try:
+        guarded, parse_reason = is_guarded_command(command)
+    except ValueError:
+        guarded, parse_reason = True, "command could not be parsed; run ship-check in the repo first"
+    if not guarded:
+        return allow()
+    if parse_reason:
+        return deny(parse_reason)
     try:
         sha = git_out(cwd, "rev-parse", "HEAD")
         tree_hash = git_out(cwd, "rev-parse", "HEAD^{tree}")
         path = receipt_file(cwd, sha)
         if not path.exists():
-            return deny(f"ship-check receipt missing for current HEAD {sha}; run ship-check first")
+            return deny(f"ship-check receipt missing for current HEAD {sha}; run ship-check in {cwd} first")
         receipt = json.loads(path.read_text())
-    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
-        return deny(f"ship-check gate could not verify receipt: {error}")
+    except subprocess.CalledProcessError:
+        return deny(f"ship-check could not identify a git repository at {cwd}; run ship-check in {cwd} first")
+    except (OSError, json.JSONDecodeError) as error:
+        return deny(f"ship-check gate could not verify receipt; run ship-check in {cwd} first: {error}")
     if receipt.get("overall") != "pass":
         return deny(f"ship-check receipt is not passing for {sha}")
     if receipt.get("sha") != sha or receipt.get("tree_hash") != tree_hash:
