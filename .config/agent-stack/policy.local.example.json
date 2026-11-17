@@ -1,0 +1,31 @@
+{
+  "__doc__": [
+    "Site-specific roots for hooks/policy.py. Copy to ~/.config/agent-stack/policy.local.json",
+    "and fill in this machine's paths. That file is UNTRACKED: this repo is public, and the",
+    "roots name internal mounts, so they must not be committed. Override the location with",
+    "$AGENT_STACK_POLICY_LOCAL.",
+    "",
+    "Missing or malformed file: the hook keeps the generic broad roots ('/', '/mnt', $HOME)",
+    "and switches off every repo-scoped rule. It never fails to start over this file.",
+    "",
+    "broad_roots: directories too large to scan. find/grep -r/rg/du/ls -R rooted at one of",
+    "  these is denied unless it is depth-limited. '~' is expanded. Generic roots are always",
+    "  included, so list only the extras: shared mounts, the home's big subdirectories, and",
+    "  the top of each large repo.",
+    "",
+    "repo_roots: checkouts that carry extra conventions. Inside one of these the hook denies",
+    "  standalone 'python'/'python3' (use 'uv run python'), denies 'git worktree add' with a",
+    "  target inside the checkout, and adds a review note to lockfile and package-install",
+    "  commands. Leave the list empty to switch all three off."
+  ],
+  "broad_roots": [
+    "/shared",
+    "/shared/data",
+    "~/work",
+    "~/work/monorepo",
+    "~/docs"
+  ],
+  "repo_roots": [
+    "~/work/monorepo"
+  ]
+}
