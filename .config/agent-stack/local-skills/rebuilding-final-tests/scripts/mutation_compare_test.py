@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+import mutation_compare
+
 SCRIPT = Path(__file__).with_name("mutation_compare.py")
 
 needs_uv = pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required to run mutmut")
@@ -400,3 +402,7 @@ def test_size_counts_changed_test_definitions_and_lines_and_gates_strict_shrink(
     assert json.loads((tmp_path / "new.json").read_text())["tests"] == 1
     assert same_size.returncode == 1, "three tests against three must not count as shrinking"
     assert "BLOCKED" in same_size.stdout
+
+
+def test_timeout_mutants_are_not_counted_as_killed():
+    assert "timeout" not in mutation_compare.KILLED_STATUSES
