@@ -199,329 +199,6 @@ def test_public_roster_names_slots_not_models():
     _assert_public_roster_names_slots_not_models(STACK / "roster.yaml")
 
 
-def test_final_test_audit_skill_is_stack_managed():
-    skill = LOCAL_SKILLS / "auditing-final-tests" / "SKILL.md"
-    assert skill.is_file(), "final-test audit must be a canonical agent-stack skill"
-    text = skill.read_text()
-    assert "name: auditing-final-tests" in text
-    assert "description: Use when" in text
-
-
-def test_unslop_is_in_the_cross_harness_local_skill_layer():
-    skill = LOCAL_SKILLS / "unslop" / "SKILL.md"
-
-    assert skill.is_file()
-    assert "name: unslop" in skill.read_text()
-    assert not (STACK.parents[1] / ".agents/skills/unslop").exists()
-
-
-def test_tdd_and_verification_reference_final_test_audit():
-    tdd = (STACK / "skills" / "test-driven-development" / "SKILL.md").read_text()
-    verification = (
-        STACK / "skills" / "verification-before-completion" / "SKILL.md"
-    ).read_text()
-
-    assert "auditing-final-tests" in tdd
-    assert "auditing-final-tests" in verification
-
-
-def test_review_branch_owns_the_shared_review_engine():
-    skill_dir = LOCAL_SKILLS / "review-branch"
-    skill = (skill_dir / "SKILL.md").read_text()
-    reviewers = (skill_dir / "REVIEWERS.md").read_text()
-    schema = skill_dir / "review-finding-schema.md"
-
-    assert schema.is_file(), "review findings need a reusable schema artifact"
-    schema_text = schema.read_text()
-    for field in ("id", "severity", "confidence", "evidence", "fix_eligibility"):
-        assert field in schema_text
-    assert "eligible: yes | decision | no" in schema_text
-    assert "review-finding-schema.md" in skill
-    assert "review-finding-schema.md" in reviewers
-
-    normalized_skill = " ".join(skill.split())
-    assert "## 2. Choose the Review Mode" in skill
-    for mode in ("`quick`", "`standard`", "`deep`", "`wide`"):
-        assert mode in skill
-    assert "at most eight changed files and roughly 400 changed lines" in normalized_skill
-    assert '"Full" means complete coverage of the relevant risks' in normalized_skill
-    for agent in (
-        "reviewer-fast",
-        "reviewer-alt",
-        "reviewer-alt-low",
-        "reviewer-alt-xhigh",
-        "reviewer-primary",
-    ):
-        assert f"`{agent}`" in skill
-    assert "final-test audit using `auditing-final-tests`" in skill
-    assert "bounded turn budget" in normalized_skill
-    assert "finding ID" in skill
-    assert "**Decisions needed**" in skill
-    assert "review-yield counts" in skill
-    assert "failed or timed-out" in skill
-    assert "Do not modify code" in skill
-
-
-def test_full_review_and_fix_composes_review_branch_instead_of_copying_it():
-    """A second copy of the reviewer contracts drifts and finds different issues."""
-    skill_dir = LOCAL_SKILLS / "full-review-and-fix"
-    files = sorted(p.name for p in skill_dir.iterdir() if not p.name.startswith("."))
-    skill = (skill_dir / "SKILL.md").read_text()
-    normalized_skill = " ".join(skill.split())
-
-    assert files == ["SKILL.md"]
-    assert "Run `review-branch` steps 1-4" in normalized_skill
-    assert "`postfix`" in skill
-    assert "eight changed files" not in normalized_skill, "sizing lives in review-branch"
-    assert "`decision`" in skill
-    assert "**Decisions needed**" in skill
-    assert "review-yield counts" in skill
-    assert "accepted findings that changed the final code" in skill
-
-
-def test_architecture_lanes_compose_thermo_nuclear_review():
-    """Architecture reviewers get the canonical skill, never a drifting summary."""
-    thermo = STACK / "skills" / "thermo-nuclear-code-quality-review" / "SKILL.md"
-    skill = " ".join(
-        (LOCAL_SKILLS / "review-branch" / "SKILL.md").read_text().split()
-    )
-    reviewers = (LOCAL_SKILLS / "review-branch" / "REVIEWERS.md").read_text()
-    section = reviewers.split("## Architecture and Thermo-Nuclear Maintainability", 1)[1]
-
-    assert thermo.is_file()
-    assert (
-        "Every architecture reviewer must receive the full canonical "
-        "`thermo-nuclear-code-quality-review` skill content." in skill
-    )
-    assert "Use `thermo-nuclear-code-quality-review` as the canonical procedure" in section
-    for restated_rule in ("code judo", "spaghetti", "1,000 lines"):
-        assert restated_rule not in section.lower()
-
-
-def test_review_finding_schema_is_public_safe():
-    schema = (
-        LOCAL_SKILLS / "review-branch" / "review-finding-schema.md"
-    ).read_text().lower()
-    placeholders_for_private_details = {
-        "private-marker",
-        "internal-only-marker",
-        "nonpublic-marker",
-    }
-    assert placeholders_for_private_details.isdisjoint(
-        set(re.findall(r"[a-z0-9_-]+", schema))
-    )
-
-
-def test_pr_feedback_skill_set_is_stack_managed():
-    expected = {
-        "drafting-github-replies",
-        "ci-red-triage",
-        "pr-feedback-watch-loop",
-    }
-    for name in expected:
-        skill = LOCAL_SKILLS / name / "SKILL.md"
-        assert skill.is_file(), f"{name} must be a canonical agent-stack skill"
-        text = skill.read_text()
-        assert f"name: {name}" in text
-        assert "description: Use when" in text
-
-
-def test_drafting_github_replies_forbids_posting():
-    text = (LOCAL_SKILLS / "drafting-github-replies" / "SKILL.md").read_text()
-
-    assert "copy-pasteable draft" in text
-    assert "Never post" in text
-    assert "gh pr comment" in text
-    assert "gh pr review" in text
-    assert "gh api" in text
-    assert "AI" not in text.split("## Rules", 1)[1]
-
-
-def test_ci_red_triage_requires_logs_and_classification():
-    text = (LOCAL_SKILLS / "ci-red-triage" / "SKILL.md").read_text()
-
-    for phrase in (
-        "Do not guess from check names",
-        "Fetch the exact failing job",
-        "Classify the failure",
-        "code regression",
-        "stale branch",
-        "unknown",
-    ):
-        assert phrase in text
-
-
-def test_pr_feedback_watch_loop_composes_other_skills_and_uses_loops():
-    text = (LOCAL_SKILLS / "pr-feedback-watch-loop" / "SKILL.md").read_text()
-
-    assert "LoopCreate" in text
-    assert "MonitorCreate" in text
-    assert "Do not use raw shell sleep loops" in text
-    for skill in (
-        "ci-red-triage",
-        "receiving-code-review",
-        "drafting-github-replies",
-        "merging-main-resolving-conflicts",
-        "verification-before-completion",
-    ):
-        assert skill in text
-
-
-def test_new_pr_feedback_skills_are_public_safe():
-    text = "\n".join(
-        (LOCAL_SKILLS / name / "SKILL.md").read_text().lower()
-        for name in (
-            "drafting-github-replies",
-            "ci-red-triage",
-            "pr-feedback-watch-loop",
-        )
-    )
-    placeholders_for_private_details = {
-        "private-marker",
-        "internal-only-marker",
-        "nonpublic-marker",
-    }
-    assert placeholders_for_private_details.isdisjoint(
-        set(re.findall(r"[a-z0-9_-]+", text))
-    )
-
-
-def test_rationalizing_code_comments_skill_is_stack_managed():
-    skill = LOCAL_SKILLS / "rationalizing-code-comments" / "SKILL.md"
-    assert skill.is_file(), "comment rationalization must be a canonical skill"
-    text = skill.read_text()
-
-    assert "name: rationalizing-code-comments" in text
-    assert "description: Use when" in text
-    assert "verbose inline explanations" in text
-    assert "why, not how" in text
-    assert "delete" in text.lower()
-    assert "compress" in text.lower()
-
-
-def test_review_contracts_apply_comment_rationalization():
-    reviewers = (LOCAL_SKILLS / "review-branch" / "REVIEWERS.md").read_text()
-    assert "rationalizing-code-comments" in reviewers
-    assert "why, not how" in reviewers
-    assert "Delete comments" in reviewers
-
-
-def test_auditing_final_tests_curates_against_development_artifacts():
-    """The gate has to keep saying how a useful RED-GREEN test becomes wrong.
-
-    The four outcomes and the record schema are asserted by the gate suite; what
-    is asserted here is the curation semantics an auditor applies to reach them.
-    """
-    text = (LOCAL_SKILLS / "auditing-final-tests" / "SKILL.md").read_text()
-
-    for phrase in (
-        "durable behavior",
-        "Merge duplicates unless each protects a distinct boundary.",
-        "Exercise public behavior instead of private helpers when possible.",
-        "Extract durable coverage from stabilization or graveyard files",
-        "A test can help during RED-GREEN development and still be wrong for the "
-        "final suite.",
-    ):
-        assert phrase in text
-
-
-def test_comment_and_test_rationalization_are_public_safe():
-    text = "\n".join(
-        (LOCAL_SKILLS / name / "SKILL.md").read_text().lower()
-        for name in ("rationalizing-code-comments", "auditing-final-tests")
-    )
-    placeholders_for_private_details = {
-        "private-marker",
-        "internal-only-marker",
-        "nonpublic-marker",
-    }
-    assert placeholders_for_private_details.isdisjoint(
-        set(re.findall(r"[a-z0-9_-]+", text))
-    )
-
-
-def test_skill_provenance_record_is_public_safe():
-    path = STACK / "skills" / "provenance.yaml"
-    assert path.is_file()
-    provenance = render.yaml.safe_load(path.read_text())
-
-    assert provenance["version"] == 1
-    skill_names = {
-        path.parent.name
-        for root in (STACK / "skills", LOCAL_SKILLS)
-        for path in root.glob("*/SKILL.md")
-    }
-    assert set(provenance["skills"]) == skill_names
-    assert provenance["skills"]["diagnose"]["origin"] == "external-upstream"
-    assert provenance["skills"]["write-a-skill"]["origin"] == "external-upstream"
-    assert provenance["skills"]["full-review-and-fix"]["origin"] == "local-adapted"
-    assert provenance["skills"]["ci-red-triage"]["origin"] == "local"
-    assert provenance["skills"]["auditing-final-tests"]["origin"] == "local-adapted"
-    assert provenance["skills"]["pr-feedback-watch-loop"]["origin"] == "local"
-
-    text = path.read_text().lower()
-    placeholders_for_private_details = {
-        "private-marker",
-        "internal-only-marker",
-        "nonpublic-marker",
-    }
-    assert placeholders_for_private_details.isdisjoint(
-        set(re.findall(r"[a-z0-9_-]+", text))
-    )
-
-
-def test_provenance_origins_are_declared_and_immutable_skills_keep_origins():
-    """Origin decides edit rights, so immutable ownership changes must be explicit."""
-    provenance = render.yaml.safe_load(
-        (STACK / "skills" / "provenance.yaml").read_text()
-    )
-    declared = set(provenance["origins"])
-    origins = {
-        name: record["origin"] for name, record in provenance["skills"].items()
-    }
-
-    undeclared = sorted(n for n, o in origins.items() if o not in declared)
-    assert undeclared == [], f"skills carry an undeclared origin: {undeclared}"
-
-    locally_owned = {"local", "local-adapted"}
-    assert locally_owned <= declared, "local ownership categories must stay declared"
-
-    immutable_origin_names = {"inherited-process", "external-upstream"}
-    expected_immutable_origins = frozenset(
-        {
-            ("brainstorming", "inherited-process"),
-            ("diagnose", "external-upstream"),
-            ("dispatching-parallel-agents", "inherited-process"),
-            ("evaluate-codebase", "inherited-process"),
-            ("executing-plans", "inherited-process"),
-            ("finishing-a-development-branch", "inherited-process"),
-            ("grill-me", "external-upstream"),
-            ("grill-with-docs", "external-upstream"),
-            ("merging-main-resolving-conflicts", "inherited-process"),
-            ("receiving-code-review", "inherited-process"),
-            ("requesting-code-review", "inherited-process"),
-            ("subagent-driven-development", "inherited-process"),
-            ("systematic-debugging", "inherited-process"),
-            ("test-driven-development", "inherited-process"),
-            ("using-git-worktrees", "inherited-process"),
-            ("using-superpowers", "inherited-process"),
-            ("verification-before-completion", "inherited-process"),
-            ("write-a-skill", "external-upstream"),
-            ("writing-plans", "inherited-process"),
-            ("writing-skills", "inherited-process"),
-        }
-    )
-    actual_immutable_origins = frozenset(
-        (name, origin)
-        for name, origin in origins.items()
-        if origin in immutable_origin_names
-    )
-    assert actual_immutable_origins == expected_immutable_origins, (
-        "inherited-process and external-upstream origins are an explicit immutable "
-        "contract; update this contract for an intentional ownership change"
-    )
-
-
 def test_public_roster_rejects_top_level_leak(tmp_path):
     roster_path = tmp_path / "roster.yaml"
     roster_path.write_text(
@@ -639,98 +316,16 @@ def test_emit_claude_frontmatter():
     assert "You are a strict code reviewer." in content
 
 
-def test_methodology_name_defaults_to_superpowers():
-    assert render.methodology_name({}) == "superpowers"
+def test_compose_agents_md_appends_extra_fragments_after_the_universal_one(tmp_path, monkeypatch):
+    fragments = tmp_path / "agents.md.d"
+    fragments.mkdir()
+    (fragments / "00-universal.md").write_text("UNIVERSAL\n")
+    (fragments / "work.md").write_text("WORK ONLY MARKER\n")
+    monkeypatch.setattr(render, "STACK", tmp_path)
 
+    text = render.compose_agents_md({"agents_md_extra": ["work.md"]})
 
-def test_methodology_name_accepts_compound_engineering():
-    assert render.methodology_name({"methodology": "compound-engineering"}) == "compound-engineering"
-
-
-def test_methodology_name_rejects_unknown_value():
-    with pytest.raises(render.ConfigError, match="methodology"):
-        render.methodology_name({"methodology": "unknown"})
-
-
-@pytest.mark.parametrize(
-    "value",
-    [["superpowers"], {"superpowers": None}, 3, None],
-    ids=["list", "dict", "int", "null"],
-)
-def test_methodology_name_rejects_non_string_value(value):
-    with pytest.raises(render.ConfigError, match="methodology"):
-        render.methodology_name({"methodology": value})
-
-
-@pytest.mark.parametrize("name", sorted(render.METHODOLOGY_FRAGMENTS))
-def test_every_mapped_methodology_is_selectable_and_renders(name):
-    profile = render.load_profile(FIXTURE)
-    profile["methodology"] = name
-
-    assert render.methodology_name(profile) == name
-    assert render.compose_agents_md(profile).strip()
-
-
-def test_compose_agents_md_selects_exactly_one_methodology():
-    profile = render.load_profile(FIXTURE)
-    profile["methodology"] = "compound-engineering"
-    text = render.compose_agents_md(profile)
-    assert "Compound Engineering Workflow" in text
-    assert "Superpowers Skill Use" not in text
-    assert "~/docs/<repository-identity>" in text
-    assert "The selected methodology owns the outer lifecycle." in text
-    assert "Prefer a local skill when its exact specialty matches" in text
-    assert "search its `CONCEPTS.md`, `solutions/README.md`, and `solutions/`" in text
-    assert "record `prior_art`" in text
-    assert "record exactly one learning disposition" in text
-    assert "150,000 to 200,000 tokens" in text
-    assert "Default to one focused independent reviewer." in text
-
-
-def test_compose_agents_md_includes_extra_fragments(tmp_path):
-    extra = STACK / "agents.md.d" / "_test_fragment.md"
-    extra.write_text("WORK ONLY MARKER\n")
-    try:
-        profile = render.load_profile(FIXTURE)
-        profile["methodology"] = "superpowers"
-        profile["agents_md_extra"] = ["_test_fragment.md"]
-        text = render.compose_agents_md(profile)
-        assert "Superpowers Skill Use" in text
-        assert "WORK ONLY MARKER" in text
-    finally:
-        extra.unlink()
-
-
-@pytest.mark.parametrize(
-    "selected,extra",
-    [
-        ("superpowers", "10-compound-engineering.md"),
-        ("compound-engineering", "10-superpowers.md"),
-        ("superpowers", "10-superpowers.md"),
-        ("compound-engineering", "10-compound-engineering.md"),
-        ("superpowers", "./10-compound-engineering.md"),
-        ("compound-engineering", "../agents.md.d/10-superpowers.md"),
-    ],
-    ids=[
-        "opposite-ce",
-        "opposite-sp",
-        "duplicate-sp",
-        "duplicate-ce",
-        "dot-alias",
-        "parent-alias",
-    ],
-)
-def test_compose_agents_md_rejects_methodology_fragment_in_extra(selected, extra):
-    profile = render.load_profile(FIXTURE)
-    profile["methodology"] = selected
-    profile["agents_md_extra"] = [extra]
-
-    with pytest.raises(render.ConfigError) as exc:
-        render.compose_agents_md(profile)
-
-    msg = str(exc.value)
-    assert extra in msg
-    assert "methodology" in msg
+    assert text == "UNIVERSAL\n\nWORK ONLY MARKER\n"
 
 
 def test_compose_agents_md_rejects_fragment_path_outside_directory():
@@ -770,21 +365,6 @@ def test_composed_agents_md_does_not_reference_unavailable_trash_tools():
         assert "vtrash" not in render.compose_agents_md(profile)
     finally:
         extra.unlink()
-
-
-def test_composed_agents_md_requires_signed_commits_and_format_specific_recovery():
-    text = render.compose_agents_md(render.load_profile(FIXTURE))
-
-    assert "Always keep git commit signing enabled" in text
-    assert "never bypass" in text
-    assert "--no-gpg-sign" in text
-    assert "commit.gpgsign=false" in text
-    assert "configured `gpg.format`" in text
-    assert "SSH_AUTH_SOCK" in text
-    assert "/tmp/ssh-*/agent.*" in text
-    assert "ssh-add -l" in text
-    assert "OpenPGP signing" in text
-    assert "gpg-agent" in text
 
 
 def test_prune_stale_moves_unknown_files_aside(tmp_path):
@@ -888,13 +468,16 @@ def _sandbox(tmp_path, monkeypatch) -> dict:
     stack.mkdir()
     shutil.copytree(STACK / "prompts", stack / "prompts")
     (stack / "agents.md.d").mkdir()
-    for fragment in ("00-universal.md", *sorted(render.METHODOLOGY_FRAGMENTS.values())):
-        shutil.copy(STACK / "agents.md.d" / fragment, stack / "agents.md.d")
+    shutil.copy(STACK / "agents.md.d" / "00-universal.md", stack / "agents.md.d")
+    (stack / "local-skills").mkdir()
     monkeypatch.setattr(render, "STACK", stack)
 
     home = tmp_path / "home"
     targets = {h: home / h / "agents" for h in ("pi", "opencode", "vibe", "claude")}
     monkeypatch.setattr(render, "TARGETS", targets)
+    monkeypatch.setattr(
+        render, "SKILL_TARGETS", {h: home / h / "skills" for h in ("pi", "vibe", "claude")}
+    )
     monkeypatch.setattr(render, "AGENTS_MD_TARGETS", [home / "pi" / "AGENTS.md"])
     monkeypatch.setattr(render, "BACKUP_ROOT", tmp_path / "backups")
     monkeypatch.setattr(render, "PI_HOME", home)
@@ -1232,7 +815,7 @@ def test_write_all_backs_up_and_deduplicates_agents_md(tmp_path, monkeypatch):
     assert [p.read_text() for p in backups] == ["hand written, untracked, irreplaceable"], (
         "the alias pair is one file and must be backed up exactly once"
     )
-    assert "Superpowers Skill Use" in real.read_text()
+    assert real.read_text() == render.compose_agents_md(render.load_profile(FIXTURE))
     assert alias.is_symlink(), "writing must not replace the alias with a real file"
 
 
@@ -1264,7 +847,7 @@ def test_external_skill_collisions_ignore_missing_external_dirs(tmp_path):
 def test_doctor_rejects_external_skills_that_shadow_stack_skills(tmp_path):
     stack = tmp_path / "stack"
     external = tmp_path / ".agents" / "skills"
-    (stack / "skills" / "owned-skill").mkdir(parents=True)
+    (stack / "local-skills" / "owned-skill").mkdir(parents=True)
     (external / "owned-skill").mkdir(parents=True)
 
     with pytest.raises(render.ConfigError) as exc:
@@ -1297,170 +880,6 @@ def test_doctor_default_rejects_external_skills_shadowing_local_skills(tmp_path)
     assert "local-skill" in str(exc.value)
 
 
-def _methodology_stack(tmp_path, *, methodology: str, ce_skills=("ce-plan",)):
-    """A stack whose profile and manifest select `methodology`."""
-    home = tmp_path / "home"
-    stack = home / ".config/agent-stack"
-    for root, name in (
-        (stack / "skills", "owned-skill"),
-        (stack / "local-skills", "local-skill"),
-    ):
-        directory = root / name
-        directory.mkdir(parents=True)
-        (directory / "SKILL.md").write_text(
-            f"---\nname: {name}\ndescription: Test skill.\n---\n"
-        )
-    checkout = home / ".local/share/agent-stack/compound-engineering-plugin"
-    for name in ce_skills:
-        directory = checkout / "skills" / name
-        directory.mkdir(parents=True)
-        (directory / "SKILL.md").write_text(
-            f"---\nname: {name}\ndescription: Test skill.\n---\n"
-        )
-    (stack / "methodologies.yaml").write_text(
-        "version: 1\n"
-        "local_skills_path: local-skills\n"
-        "methodologies:\n"
-        "  superpowers:\n"
-        "    skills_path: skills\n"
-        "  compound-engineering:\n"
-        "    repository: https://example.invalid/ce.git\n"
-        f"    revision: {'a' * 40}\n"
-        "    checkout: ~/.local/share/agent-stack/compound-engineering-plugin\n"
-        f"    expected_skill_count: {len(ce_skills)}\n"
-        "    pi_companions: []\n"
-    )
-    profile = stack / "profile.yaml"
-    profile.write_text(f"methodology: {methodology}\n")
-    return home, stack, profile
-
-
-def test_active_skill_names_follow_the_selected_methodology(tmp_path):
-    home, stack, profile = _methodology_stack(
-        tmp_path, methodology="compound-engineering"
-    )
-
-    assert render.active_skill_names(stack=stack, profile=profile, home=home) == {
-        "ce-plan",
-        "local-skill",
-    }
-
-    profile.write_text("methodology: superpowers\n")
-    assert render.active_skill_names(stack=stack, profile=profile, home=home) == {
-        "local-skill",
-        "owned-skill",
-    }
-
-
-def test_doctor_rejects_an_external_skill_shadowing_an_active_ce_skill(tmp_path):
-    home, stack, profile = _methodology_stack(
-        tmp_path, methodology="compound-engineering"
-    )
-    external = home / ".agents/skills"
-    (external / "ce-plan").mkdir(parents=True)
-    (external / "owned-skill").mkdir(parents=True)
-
-    with pytest.raises(render.ConfigError) as exc:
-        render.doctor(
-            stack=stack,
-            external_skill_dirs=[external],
-            canonical_skill_names=render.active_skill_names(
-                stack=stack, profile=profile, home=home
-            ),
-        )
-
-    message = str(exc.value)
-    assert "ce-plan" in message
-    # superpowers is inactive, so its names are not canonical right now
-    assert "owned-skill" not in message
-
-
-def test_main_doctor_checks_the_active_methodology_skill_names(
-    tmp_path, monkeypatch, capsys
-):
-    home, stack, profile = _methodology_stack(
-        tmp_path, methodology="compound-engineering"
-    )
-    external = home / ".agents/skills"
-    (external / "ce-plan").mkdir(parents=True)
-    monkeypatch.setattr(render, "STACK", stack)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "render.py",
-            "doctor",
-            "--profile",
-            str(profile),
-            "--home",
-            str(home),
-            "--external-skill-dir",
-            str(external),
-        ],
-    )
-
-    with pytest.raises(SystemExit) as exc:
-        render.main()
-
-    assert "ce-plan" in str(exc.value)
-    assert "Traceback" not in capsys.readouterr().err
-
-
-def test_main_doctor_reports_local_methodology_collisions_without_a_traceback(
-    tmp_path, monkeypatch, capsys
-):
-    home, stack, profile = _methodology_stack(
-        tmp_path, methodology="compound-engineering"
-    )
-    colliding = stack / "local-skills" / "ce-plan"
-    colliding.mkdir(parents=True)
-    (colliding / "SKILL.md").write_text(
-        "---\nname: ce-plan\ndescription: Collision.\n---\n"
-    )
-    monkeypatch.setattr(render, "STACK", stack)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["render.py", "doctor", "--profile", str(profile), "--home", str(home)],
-    )
-
-    with pytest.raises(SystemExit) as exc:
-        render.main()
-
-    assert isinstance(exc.value.__cause__, render.ConfigError)
-    assert "skill name collision" in str(exc.value)
-    assert "ce-plan" in str(exc.value)
-    assert "Traceback" not in capsys.readouterr().err
-
-
-def test_main_doctor_turns_collisions_into_a_plain_message(tmp_path, monkeypatch, capsys):
-    home, stack, profile = _methodology_stack(tmp_path, methodology="superpowers")
-    external = home / ".agents/skills"
-    (external / "owned-skill").mkdir(parents=True)
-    monkeypatch.setattr(render, "STACK", stack)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "render.py",
-            "doctor",
-            "--profile",
-            str(profile),
-            "--home",
-            str(home),
-            "--external-skill-dir",
-            str(external),
-        ],
-    )
-
-    with pytest.raises(SystemExit) as exc:
-        render.main()
-
-    assert isinstance(exc.value.__cause__, render.ConfigError)
-    assert "owned-skill" in str(exc.value)
-    assert "Traceback" not in capsys.readouterr().err
-
-
 def test_main_turns_a_config_error_into_a_plain_message(tmp_path, monkeypatch, capsys):
     missing = tmp_path / "nope" / "profile.yaml"
     monkeypatch.setattr(sys, "argv", ["render.py", "--profile", str(missing)])
@@ -1473,8 +892,24 @@ def test_main_turns_a_config_error_into_a_plain_message(tmp_path, monkeypatch, c
     assert "Traceback" not in capsys.readouterr().err
 
 
-def test_adapted_upstream_skills_are_always_on():
-    universal = (STACK / "agents.md.d" / "00-universal.md").read_text()
-    for name in ("vetting-measured-results", "encoding-repeated-corrections"):
-        assert (LOCAL_SKILLS / name / "SKILL.md").is_file()
-        assert f"`{name}`" in universal
+
+
+def test_link_skills_links_local_skills_and_retires_removed_ones(tmp_path):
+    stack = tmp_path / "stack"
+    source = stack / "local-skills"
+    for name in ("kept", "added"):
+        (source / name).mkdir(parents=True)
+        (source / name / "SKILL.md").write_text(f"---\nname: {name}\n---\n")
+    (stack / "skills" / "retired").mkdir(parents=True)
+    destination = tmp_path / "home" / "skills"
+    destination.mkdir(parents=True)
+    (destination / "kept").symlink_to(source / "kept")
+    (destination / "retired").symlink_to(stack / "skills" / "retired")
+    (destination / "personal").mkdir()
+    (destination / "elsewhere").symlink_to(tmp_path)
+
+    render.link_skills(source, {"vibe": destination})
+
+    assert sorted(p.name for p in destination.iterdir()) == ["added", "elsewhere", "kept", "personal"]
+    assert (destination / "added").resolve() == (source / "added").resolve()
+    assert (destination / "elsewhere").resolve() == tmp_path.resolve()

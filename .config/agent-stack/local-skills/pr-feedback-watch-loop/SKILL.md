@@ -23,17 +23,13 @@ On each wake:
 2. Identify only new or still-actionable feedback.
 3. Route by type:
    - red check or failing job → use `ci-red-triage`
-   - review comment or requested change → use `receiving-code-review`
+   - review comment or requested change → verify it against the code before acting
    - response text needed → use `drafting-github-replies`
-   - stale or conflicted branch → use `merging-main-resolving-conflicts`
-   - completion claim → use `verification-before-completion`
+   - stale or conflicted branch → merge the base in; never rebase or force-push unless asked
 4. Fix only validated issues that are in scope.
 5. Run focused verification.
-6. **Final-test gate:** Before this workflow completes, invoke `auditing-final-tests`
-   over the workflow's full change scope. Continue only on `PASS` or `NOT_APPLICABLE`.
-   Resolve `ACTION_REQUIRED`; report `BLOCKED` honestly.
-7. Push only when requested or clearly part of the approved workflow.
-8. Update loop state with what changed, what remains, and when to wake next.
+6. Push only when requested or clearly part of the approved workflow.
+7. Update loop state with what changed, what remains, and when to wake next.
 
 ## Stop Conditions
 

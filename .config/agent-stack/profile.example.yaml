@@ -51,12 +51,7 @@ slots:
   fast: { provider: openai, model: REPLACE-ME }
   research: { provider: openai, model: REPLACE-ME, thinking: medium }
 
-# Global software-engineering methodology: superpowers or compound-engineering.
-# Selects the single methodology fragment appended after 00-universal.md.
-methodology: superpowers
-
-# Extra AGENTS.md fragments from agents.md.d/, appended after the methodology
-# fragment.
+# Extra AGENTS.md fragments from agents.md.d/, appended after 00-universal.md.
 agents_md_extra: []
 
 # Optional: this machine's Pi default model, when it is not any slot's exact

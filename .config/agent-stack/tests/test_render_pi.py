@@ -251,7 +251,6 @@ def _stack(tmp_path, monkeypatch, pi_yaml: str, extensions=()) -> Path:
     for name in extensions:
         (stack / "pi" / "extensions" / name).mkdir(parents=True)
     (stack / "pi.yaml").write_text(pi_yaml)
-    shutil.copy(STACK / "methodologies.yaml", stack / "methodologies.yaml")
     monkeypatch.setattr(render, "STACK", stack)
     monkeypatch.setattr(render, "PI_HOME", tmp_path / "home")
     monkeypatch.setattr(render, "BACKUP_ROOT", tmp_path / "backups")
@@ -477,9 +476,9 @@ def test_install_failure_is_reported_not_raised(tmp_path, monkeypatch):
     assert report == ["pi: `pi install npm:nope` failed: npm ERR! 404"]
 
 
-def test_install_reports_an_unreadable_manifest_instead_of_raising(tmp_path, monkeypatch):
-    stack = _stack(tmp_path, monkeypatch, "")
-    (stack / "methodologies.yaml").write_text("version: [")
+def test_install_reports_unreadable_settings_instead_of_raising(tmp_path, monkeypatch):
+    _stack(tmp_path, monkeypatch, "")
+    _settings_file(tmp_path, "{not json")
     runner = Runner()
 
     report = render.install_pi_packages(["npm:x"], runner=runner, which=_pi_on_path)
@@ -528,7 +527,6 @@ def test_write_all_applies_pi_yaml(tmp_path, monkeypatch, capsys):
 def test_write_all_adopts_a_host_with_an_existing_pi_setup(tmp_path, monkeypatch, capsys):
     box = _sandbox(tmp_path, monkeypatch)
     stack, home = box["stack"], box["home"]
-    shutil.copy(STACK / "methodologies.yaml", stack / "methodologies.yaml")
     (stack / "pi/extensions/subagent").mkdir(parents=True)
     (stack / "pi.yaml").write_text(
         PI_YAML + "packages: [npm:pi-zentui, npm:pi-ask-user]\nextensions: [subagent]\n"

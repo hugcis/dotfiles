@@ -8,16 +8,14 @@ agent, but every slot pi.yaml names must be bound or render stops.
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 import re
 import shlex
 import shutil
-import sys
+import subprocess
 import tempfile
 from dataclasses import dataclass
-from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 import yaml
@@ -25,16 +23,9 @@ import yaml
 STACK = Path(__file__).resolve().parent
 SHELL_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
-# The global software-engineering methodology. Exactly one of these supplies the
-# methodology-specific half of AGENTS.md; the profile picks it, and an absent
-# key keeps pre-migration profiles on superpowers.
-METHODOLOGY_FRAGMENTS = {
-    "superpowers": "10-superpowers.md",
-    "compound-engineering": "10-compound-engineering.md",
-}
-# The mapping above is the only list of legal methodology names; adding a
-# methodology means adding its fragment, so the two can never drift apart.
-METHODOLOGIES = frozenset(METHODOLOGY_FRAGMENTS)
+# pi's parseNpmSpec: `@scope/name@1.2.3` splits into the scoped name and the version.
+NPM_SPEC_PATTERN = re.compile(r"^(@?[^@]+(?:/[^@]+)?)(?:@(.+))?$")
+PI_REMOTE_PREFIXES = ("npm:", "git:", "github:", "http:", "https:", "ssh:")
 
 
 class ConfigError(ValueError):
@@ -359,36 +350,10 @@ def _read_fragment(name: str) -> str:
     return _fragment_path(name).read_text().strip()
 
 
-def methodology_name(profile: dict) -> str:
-    name = profile.get("methodology", "superpowers")
-    # A YAML list or dict is unhashable, so the membership test below would blow
-    # up with a TypeError instead of the profile error a human can act on.
-    if not isinstance(name, str) or name not in METHODOLOGIES:
-        raise ConfigError(
-            "profile.yaml: methodology must be one of "
-            f"{', '.join(sorted(METHODOLOGIES))}; got {name!r}"
-        )
-    return name
-
-
 def compose_agents_md(profile: dict) -> str:
-    selected = methodology_name(profile)
-    parts = [
-        _read_fragment("00-universal.md"),
-        _read_fragment(METHODOLOGY_FRAGMENTS[selected]),
-    ]
-    methodology_paths = {
-        _fragment_path(name) for name in METHODOLOGY_FRAGMENTS.values()
-    }
+    parts = [_read_fragment("00-universal.md")]
     for name in profile.get("agents_md_extra") or []:
-        path = _fragment_path(name)
-        if path in methodology_paths:
-            raise ConfigError(
-                f"profile.yaml: agents_md_extra must not list the methodology "
-                f"fragment '{name}'. Set methodology: <name> instead; "
-                f"this profile selects {selected!r}."
-            )
-        parts.append(path.read_text().strip())
+        parts.append(_read_fragment(name))
     return "\n\n".join(parts) + "\n"
 
 
@@ -434,39 +399,6 @@ def skill_names(directory: Path) -> set[str]:
     return {path.name for path in directory.iterdir() if path.is_dir()}
 
 
-def _load_methodology():
-    """Load methodology.py by path, so the manifest has a single definition.
-
-    Imported lazily, by doctor and the Pi package step: methodology.py loads
-    this module in turn, and nothing here may depend on it at import time.
-    The code sits beside this file; STACK only locates the data it reads.
-    """
-    name = "agent_stack_methodology"
-    if name in sys.modules:
-        return sys.modules[name]
-    source = Path(__file__).resolve().parent / "methodology.py"
-    loader = SourceFileLoader(name, str(source))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    try:
-        loader.exec_module(module)
-    except Exception:
-        del sys.modules[name]
-        raise
-    return module
-
-
-def active_skill_names(*, stack: Path, profile: Path, home: Path) -> set[str]:
-    """Names published by the always-on local and selected methodology layers."""
-    methodology = _load_methodology()
-    controller = methodology.Controller(home=home, stack=stack, profile=profile)
-    try:
-        return set(controller.active_skills(controller.selected_methodology()))
-    except methodology.MethodologyError as error:
-        raise ConfigError(str(error)) from error
-
-
 def external_skill_collisions(
     canonical: set[str],
     external_skill_dirs: list[Path],
@@ -495,9 +427,7 @@ def doctor(
     if external_skill_dirs is None:
         external_skill_dirs = DEFAULT_EXTERNAL_SKILL_DIRS
     if canonical_skill_names is None:
-        canonical_skill_names = skill_names(stack / "skills") | skill_names(
-            stack / "local-skills"
-        )
+        canonical_skill_names = skill_names(stack / "local-skills")
     collisions = external_skill_collisions(canonical_skill_names, external_skill_dirs)
     if collisions:
         lines = [
@@ -535,6 +465,43 @@ def prune_stale(directory: Path, keep: set[str]) -> list[str]:
             )
         p.rename(destination)
     return [p.name for p in stale]
+
+
+SKILL_TARGETS = {
+    "pi": Path.home() / ".pi/agent/skills",
+    "vibe": Path.home() / ".vibe/skills",
+    "claude": Path.home() / ".claude/skills",
+}
+
+
+def link_skills(source: Path, destinations: dict[str, Path]) -> list[str]:
+    """Link every skill in `source` into each harness skill directory.
+
+    Links into this stack that no longer name a local skill are removed, which is
+    how retired skills leave every harness. Other entries are never touched.
+    """
+    stack_root = source.parent.resolve()
+    wanted = {p.name: p.resolve() for p in source.iterdir() if (p / "SKILL.md").is_file()}
+    report: list[str] = []
+    for harness, directory in destinations.items():
+        directory.mkdir(parents=True, exist_ok=True)
+        for entry in sorted(directory.iterdir()):
+            if not entry.is_symlink():
+                continue
+            target = Path(os.path.realpath(entry))
+            if stack_root in target.parents and wanted.get(entry.name) != target:
+                entry.unlink()
+                report.append(f"{harness}: removed skill link {entry.name}")
+        for name, target in sorted(wanted.items()):
+            link = directory / name
+            if link.is_symlink() and Path(os.path.realpath(link)) == target:
+                continue
+            if link.exists() or link.is_symlink():
+                report.append(f"{harness}: {link} exists and is not this stack's link; left alone")
+                continue
+            link.symlink_to(target)
+            report.append(f"{harness}: linked skill {name}")
+    return report
 
 
 # -- pi settings, packages and extensions ------------------------------------
@@ -808,20 +775,57 @@ def link_pi_extensions(names: list[str], directory: Path) -> list[str]:
     return report
 
 
-def install_pi_packages(packages: list[str], *, runner=None, which=None) -> list[str]:
-    """`pi install` every listed package Pi does not have yet; never remove any.
+def _npm_identity(source: str) -> str | None:
+    """pi's identity for an npm source: `npm:<name>` without the version, or None."""
+    text = source.strip()
+    if not text.startswith("npm:"):
+        return None
+    spec = text[len("npm:"):].strip()
+    match = NPM_SPEC_PATTERN.match(spec)
+    return "npm:" + (match.group(1) if match else spec)
 
-    Presence uses methodology.py's identity rules, so a pinned version or a
-    local checkout with the same package.json name counts as installed.
-    """
+
+def _local_package_identity(source: str, agent_dir: Path) -> str | None:
+    """`npm:<name>` from a local package's package.json, resolved the way pi resolves it."""
+    text = source.strip()
+    if not text or text.startswith(PI_REMOTE_PREFIXES):
+        return None
+    path = Path(os.path.expanduser(text))
+    if not path.is_absolute():
+        path = agent_dir / path
+    try:
+        package = json.loads((path / "package.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    name = package.get("name") if isinstance(package, dict) else None
+    return f"npm:{name}" if isinstance(name, str) else None
+
+
+def missing_pi_packages(packages: list[str], settings_path: Path) -> list[str]:
+    """The npm `packages` Pi does not provide yet, matched by name, ignoring versions."""
+    entries = read_pi_json(settings_path).get("packages") or []
+    if not isinstance(entries, list):
+        raise ConfigError(f"{settings_path}: packages must be a list.")
+    sources = [
+        e if isinstance(e, str) else e.get("source")
+        for e in entries
+        if isinstance(e, str) or (isinstance(e, dict) and isinstance(e.get("source"), str))
+    ]
+    present = {_npm_identity(s) or _local_package_identity(s, settings_path.parent) for s in sources}
+    return [p for p in packages if _npm_identity(p) not in present]
+
+
+def _run(args, check=False):
+    return subprocess.run(args, check=check, text=True, capture_output=True)
+
+
+def install_pi_packages(packages: list[str], *, runner=None, which=None) -> list[str]:
+    """`pi install` every listed package Pi does not have yet; never remove any."""
     if not packages:
         return []
-    methodology = _load_methodology()
     try:
-        controller = methodology.Controller(home=PI_HOME, stack=STACK)
-        missing = controller.missing_pi_packages(packages)
-    # methodology's ConfigError is its own load of render.py, not this module's.
-    except (methodology.MethodologyError, methodology.ConfigError) as error:
+        missing = missing_pi_packages(packages, PI_HOME / ".pi/agent/settings.json")
+    except ConfigError as error:
         return [f"pi: packages not checked: {error}"]
     if not missing:
         return []
@@ -831,7 +835,7 @@ def install_pi_packages(packages: list[str], *, runner=None, which=None) -> list
             "run in a shell where pi works:",
             *(f"  pi install {p}" for p in missing),
         ]
-    run = runner or methodology.run_command
+    run = runner or _run
     report: list[str] = []
     for package in missing:
         try:
@@ -907,6 +911,9 @@ def write_all(roster: dict, profile: dict, *, runner=None, which=None) -> None:
         if moved:
             print(f"{harness}: moved {len(moved)} stale file(s) aside: {', '.join(sorted(moved))}")
 
+    for line in link_skills(STACK / "local-skills", SKILL_TARGETS):
+        print(line)
+
     if pi_plan is not None:
         for line in apply_pi(pi_plan, runner=runner, which=which):
             print(line)
@@ -928,19 +935,15 @@ def main() -> None:
     parser.add_argument("--external-skill-dir", action="append", type=Path,
                         help="External third-party skill directory to check for name collisions. Repeatable; defaults to ~/.agents/skills.")
     parser.add_argument("--home", type=Path, default=Path.home(),
-                        help="Home directory used to resolve the active methodology. Defaults to $HOME.")
+                        help="Home directory whose external skill dir is checked. Defaults to $HOME.")
     args = parser.parse_args()
     try:
         if args.command == "doctor":
-            canonical = active_skill_names(
-                stack=STACK, profile=args.profile, home=args.home
-            )
             for message in doctor(
                 stack=STACK,
                 external_skill_dirs=(
                     args.external_skill_dir or [args.home / ".agents/skills"]
                 ),
-                canonical_skill_names=canonical,
             ):
                 print(message)
             print("agent-stack doctor: ok")

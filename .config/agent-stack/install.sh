@@ -38,7 +38,7 @@ command -v python3 >/dev/null || {
 	echo "python3 required"
 	exit 1
 }
-# ce-artifact-root evaluates Python 3.10 union annotations at import time.
+# render.py evaluates Python 3.10 union annotations at import time.
 python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null || {
 	echo "Python 3.10 or newer is required; select a supported python3 on PATH."
 	exit 1
@@ -53,14 +53,9 @@ if [[ ! -f "$STACK/profile.yaml" ]]; then
 	exit 1
 fi
 
-# Check prerequisites before preparation can replace sources, and validate
-# every rendered output before activation.
-python3 "$STACK/methodology.py" preflight --profile "$STACK/profile.yaml"
-python3 "$STACK/methodology.py" prepare --profile "$STACK/profile.yaml"
 python3 "$STACK/render.py" validate --profile "$STACK/profile.yaml"
-python3 "$STACK/methodology.py" activate --profile "$STACK/profile.yaml"
 python3 "$STACK/render.py"
-python3 "$STACK/methodology.py" doctor --profile "$STACK/profile.yaml"
+python3 "$STACK/render.py" doctor
 
 # Shell wiring: source profile.env if not already wired.
 for rc in "$HOME/.zshenv.linux" "$HOME/.zshenv.macos"; do

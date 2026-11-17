@@ -45,7 +45,7 @@ architecture lane; this lane covers local cleanups.
 
 ## Comments
 
-Apply `rationalizing-code-comments`: comments should explain why, not how.
+Comments should explain why, not how.
 Delete comments that narrate the code or explain obvious how. Keep or compress comments
 that explain why: surprising constraints,
 invariants, external contracts, compatibility, safety, or performance reasons.
@@ -77,7 +77,7 @@ is read-only, so compose only the gate's four-outcome interface:
 
 ## Architecture and Thermo-Nuclear Maintainability
 
-Use `thermo-nuclear-code-quality-review` as the canonical procedure; this contract
+Use [thermo-nuclear.md](thermo-nuclear.md) as the canonical procedure; this contract
 deliberately does not restate its rules, questions, or remedies. Only these adaptations
 apply:
 

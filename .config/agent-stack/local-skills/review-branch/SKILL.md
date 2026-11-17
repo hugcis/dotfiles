@@ -1,15 +1,12 @@
 ---
 name: review-branch
-description: Perform a thorough read-only multi-model code review with dedicated agents for standards, spec compliance, soundness, tests, performance, and architecture. Use when the user asks to review a branch, PR, commit range, worktree, diff, or code changes without requesting edits or fixes.
+description: Multi-model code review of a branch, PR, commit range, worktree, diff, or files, with dedicated lanes for correctness, spec, standards, tests, performance, and architecture. Read-only by default; with an explicit request to fix, applies only high-confidence behavior-preserving fixes and re-verifies.
 ---
 
 # Review Branch
 
-Review broadly and report precisely. This skill is strictly read-only: never edit files,
-apply fixes, create commits, or change branches in the user's checkout.
-
-Steps 1-4 are also the review phase of `full-review-and-fix`, so both skills find the
-same issues on the same diff. Change review behavior here, not there.
+Review broadly and report precisely. Read-only unless the user asked for fixes (step 5).
+Never create commits or change branches in the user's checkout.
 
 ## 1. Resolve the Scope
 
@@ -73,11 +70,9 @@ Lanes by mode:
 - `wide`: at most three risk-matched lanes per shard; do not repeat the complete set on
   every shard.
 
-In every mode except `quick`, launch a `reviewer-alt` final-test audit lane when the
-scope adds or changes tests; otherwise record `NOT_APPLICABLE` without launching it.
-Give that lane the latest CI or test-run results for the changed tests when available.
-Report a `BLOCKED` caused only by missing verification evidence as a testing gap, not as
-a finding against the author.
+In `deep` mode, or when the user asks for it, launch a `reviewer-alt` final-test audit
+lane when the scope adds or changes tests. Give it the latest CI or test-run results for
+the changed tests when available.
 
 The complete set is:
 
@@ -92,11 +87,8 @@ Two lanes compose a canonical skill instead of a summary:
 
 - The final-test audit reviewer must receive the full canonical `auditing-final-tests`
   skill content, and must not restate or summarize its rubric.
-- Every architecture reviewer must receive the full canonical
-  `thermo-nuclear-code-quality-review` skill content. That skill disables model
-  invocation, so read its `SKILL.md` and paste it into the prompt. When no harness skill
-  directory links it, read
-  `~/.config/agent-stack/skills/thermo-nuclear-code-quality-review/SKILL.md`.
+- Every architecture reviewer must receive the full content of
+  [thermo-nuclear.md](thermo-nuclear.md), pasted into the prompt.
 
 Architecture reviewers must work independently and must not see each other's findings.
 Drop the spec axis when no spec exists. If a named agent fails because its model is
@@ -116,7 +108,16 @@ action from the final-test audit into a `final-test-audit` finding. Classify eve
 finding's `fix_eligibility.eligible` with the schema rules. Preserve the review axes so intent, correctness, and
 maintainability do not mask each other.
 
-## 5. Report
+## 5. Fix (only when asked)
+
+Skip this step unless the user asked for fixes. Fix only findings with
+`fix_eligibility.eligible: yes`; `decision` findings go under **Decisions needed**.
+Launch one `coder-alt` with the approved list, in the worktree from step 1. It must not
+overwrite concurrent changes or commit. Run the relevant tests and linters; revert only a
+failing fix's own hunks. Re-review the result with one correctness lane plus one lane for
+the other axes of the fixed findings. Two fix cycles at most, then stop.
+
+## 6. Report
 
 Lead with findings ordered by severity. Group them under:
 
@@ -139,5 +140,6 @@ confirmed issue, and residual risks or testing gaps. Include review-yield counts
 launches, findings raised, and findings accepted after adjudication. A failed or timed-out
 reviewer counts as a launch and is reported.
 
-When this skill runs on its own: Do not modify code even when a fix is obvious; offer
-`full-review-and-fix` as a separate follow-up when useful.
+Without a fix request, do not modify code even when a fix is obvious. With fixes, mark
+every finding `fixed`, `decision needed`, `remaining`, `disputed`, `rejected`, or
+`verification failed`, and list the checks run.
