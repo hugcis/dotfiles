@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -324,7 +326,7 @@ def test_n3_gh_pr_ready_for_number_passes_repo_and_number_to_gh_and_allows_nonlo
     body = json.dumps({
         "headRefOid": pr_head,
         "statusCheckRollup": [{"__typename": "CheckRun", "name": "ci", "conclusion": "SUCCESS"}],
-        "baseRepository": {"nameWithOwner": "owner/repo"},
+        "url": "https://github.com/owner/repo/pull/123",
         "headRepository": {"nameWithOwner": "owner/repo"},
     })
     script.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" > {seen}\nprintf '%s\\n' '{body}'\n")
@@ -468,7 +470,7 @@ def test_h1_pr_number_requires_head_to_exist_locally(tmp_path):
         tmp_path,
         head=remote_head,
         rollup=[{"__typename": "CheckRun", "name": "ci", "conclusion": "SUCCESS"}],
-        extra={"baseRepository": {"nameWithOwner": "owner/repo"}, "headRepository": {"nameWithOwner": "owner/repo"}},
+        extra={"url": "https://github.com/owner/repo/pull/123", "headRepository": {"nameWithOwner": "owner/repo"}},
     )
     git(repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
 
@@ -485,7 +487,7 @@ def test_h1_pr_number_requires_base_repo_to_match_local_remote(tmp_path):
         tmp_path,
         head=head,
         rollup=[{"__typename": "CheckRun", "name": "ci", "conclusion": "SUCCESS"}],
-        extra={"baseRepository": {"nameWithOwner": "other/repo"}, "headRepository": {"nameWithOwner": "other/repo"}},
+        extra={"url": "https://github.com/other/repo/pull/123", "headRepository": {"nameWithOwner": "other/repo"}},
     )
     git(repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
 
@@ -502,7 +504,7 @@ def test_h2_gh_global_repo_option_is_guarded_and_reaches_ci(tmp_path):
         tmp_path,
         head=head,
         rollup=[{"__typename": "CheckRun", "name": "ci", "conclusion": "SUCCESS"}],
-        extra={"baseRepository": {"nameWithOwner": "owner/repo"}, "headRepository": {"nameWithOwner": "owner/repo"}},
+        extra={"url": "https://github.com/owner/repo/pull/123", "headRepository": {"nameWithOwner": "owner/repo"}},
     )
     git(repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
 
@@ -517,8 +519,21 @@ def test_h2_github_pr_url_carries_repo_identity(tmp_path):
         tmp_path,
         head=head,
         rollup=[{"__typename": "CheckRun", "name": "ci", "conclusion": "SUCCESS"}],
-        extra={"baseRepository": {"nameWithOwner": "owner/repo"}, "headRepository": {"nameWithOwner": "owner/repo"}},
+        extra={"url": "https://github.com/owner/repo/pull/123", "headRepository": {"nameWithOwner": "owner/repo"}},
     )
     git(repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
 
     allowed(run_hook(repo, home, bash_payload("gh pr ready https://github.com/owner/repo/pull/123", repo), extra_env={"PATH": f"{gh_bin}:{os.environ['PATH']}"}))
+
+
+
+@pytest.mark.skipif(shutil.which("gh") is None, reason="gh is not installed")
+def test_gate_asks_gh_pr_view_only_for_fields_the_installed_gh_accepts():
+    # An unknown --json field makes gh exit non-zero, which failed every real `gh pr ready` closed.
+    listing = subprocess.run(["gh", "pr", "view", "1", "--repo", "o/r", "--json", "__none__"],
+                             capture_output=True, text=True, timeout=30, env={**os.environ, "GH_HOST": "github.com"})
+    available = {line.strip() for line in listing.stderr.splitlines() if line.startswith("  ")}
+    assert available, listing.stderr
+    source = SHIP_GATE.read_text()
+    fields = re.search(r"GH_PR_FIELDS = \(([^)]*)\)", source).group(1)
+    assert set(re.findall(r'"([A-Za-z]+)"', fields)) <= available

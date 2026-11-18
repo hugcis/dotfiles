@@ -495,12 +495,22 @@ def inline_reason(repo: Path, heads: list[str] | None = None) -> str | None:
     return None
 
 
+# Fields `gh pr view --json` accepts (gh 2.x); an unknown field makes gh exit non-zero.
+GH_PR_FIELDS = ("headRefOid", "statusCheckRollup", "url", "headRepository")
+
+
+def pr_url_repo(url: str) -> str | None:
+    """`owner/repo` from a PR URL such as https://github.com/owner/repo/pull/12."""
+    match = re.match(r"https?://[^/]+/([^/]+/[^/]+)/pull/\d+", url)
+    return match.group(1) if match else None
+
+
 def check_ci(repo: Path, guarded: Guarded) -> str | None:
     try:
         local_head = git_out(repo, "rev-parse", "HEAD")
     except subprocess.CalledProcessError:
         return f"ship-check could not identify a git repository at {repo}; run the push from inside the repo"
-    args = ["gh", "pr", "view", "--json", "headRefOid,statusCheckRollup,baseRepository,headRepository"]
+    args = ["gh", "pr", "view", "--json", ",".join(GH_PR_FIELDS)]
     if guarded.pr:
         args.insert(3, guarded.pr)
     if guarded.gh_repo:
@@ -519,7 +529,7 @@ def check_ci(repo: Path, guarded: Guarded) -> str | None:
         pr_head = data.get("headRefOid")
         if subprocess.run(["git", "cat-file", "-e", f"{pr_head}^{{commit}}"], cwd=repo, capture_output=True).returncode != 0:
             return "PR is not from this repo: PR head sha is not present locally"
-        base_repo = ((data.get("baseRepository") or {}).get("nameWithOwner"))
+        base_repo = pr_url_repo(str(data.get("url") or ""))
         remotes = subprocess.run(["git", "remote", "-v"], cwd=repo, text=True, capture_output=True).stdout
         if base_repo and base_repo not in remotes:
             return "PR is not from this repo: PR base repo does not match a local remote"
