@@ -13,6 +13,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlparse
 
 from ship_check_core import deterministic_checks, failed_checks, git_out
 
@@ -24,7 +25,7 @@ SHELL_COMMANDS = {"bash", "sh", "zsh"}
 MAX_SHELL_RECURSION = 2
 GIT_GLOBAL_OPTIONS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree"}
 PUSH_OPTIONS_WITH_VALUE = {"--repo", "-o", "--push-option", "--receive-pack", "--exec"}
-AMBIGUOUS_PUSH_FLAGS = {"--all", "--mirror", "--tags-with-branches"}
+AMBIGUOUS_PUSH_FLAGS = {"--all", "--mirror", "--tags", "--follow-tags"}
 GIT_MUTATING_SUBCOMMANDS = {"commit", "merge", "rebase", "cherry-pick", "am", "apply", "reset", "revert", "tag"}
 GH_GUARDED = {("pr", "create"), ("pr", "ready"), ("pr", "merge")}
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*")
@@ -73,10 +74,20 @@ def shell_words(command: str) -> list[str]:
     return list(lexer)
 
 
+def normalize_token(word: str) -> str:
+    return word.strip("(){}")
+
+
 def command_segments(command: str) -> list[list[str]]:
     segments: list[list[str]] = []
     current: list[str] = []
-    for word in shell_words(command):
+    for raw in shell_words(command):
+        word = normalize_token(raw)
+        if not word:
+            if current:
+                segments.append(current)
+                current = []
+            continue
         if word in SEGMENT_OPERATORS:
             if current:
                 segments.append(current)
@@ -323,6 +334,16 @@ def mutating_curl_or_wget(words: list[str]) -> bool:
     return method in {"PATCH", "POST", "PUT", "DELETE"} and "api.github.com/repos/" in url and ("/pulls" in url or "/merges" in url)
 
 
+def pr_url_identity(token: str) -> tuple[str | None, str | None]:
+    parsed = urlparse(token)
+    if parsed.netloc not in {"github.com", "www.github.com"}:
+        return None, None
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) >= 4 and parts[2] == "pull":
+        return f"{parts[0]}/{parts[1]}", parts[3]
+    return None, None
+
+
 def parse_gh(words: list[str], cwd: Path) -> Guarded | None:
     gh_repo = None
     gh_host = None
@@ -334,12 +355,8 @@ def parse_gh(words: list[str], cwd: Path) -> Guarded | None:
     words = strip_prefixes(words)
     if len(words) < 2 or basename(words[0]) != "gh":
         return None
-    if len(words) >= 2 and words[1] == "api":
-        return parse_gh_api(words[2:])
-    if len(words) < 3:
-        return None
     index = 1
-    while index < len(words) and (ASSIGNMENT.match(words[index]) or words[index] in {"--repo", "-R"} or words[index].startswith("--repo=") or words[index].startswith("GH_REPO=") or words[index].startswith("GH_HOST=")):
+    while index < len(words):
         token = words[index]
         if token in {"--repo", "-R"} and index + 1 < len(words):
             gh_repo = words[index + 1]
@@ -349,22 +366,40 @@ def parse_gh(words: list[str], cwd: Path) -> Guarded | None:
             gh_repo = token.split("=", 1)[1]
             index += 1
             continue
-        if token.startswith("GH_REPO="):
-            gh_repo = token.split("=", 1)[1]
-        if token.startswith("GH_HOST="):
-            gh_host = token.split("=", 1)[1]
-        index += 1
+        if token.startswith("GH_REPO=") or token.startswith("GH_HOST=") or ASSIGNMENT.match(token):
+            index += 1
+            continue
+        break
+    if index < len(words) and words[index] == "api":
+        return parse_gh_api(words[index + 1 :])
     if len(words) - index < 2:
         return None
     pair = (words[index], words[index + 1])
     if pair not in GH_GUARDED:
         return None
     pr = None
-    for token in words[index + 2 :]:
-        if token.startswith("-"):
+    tail = words[index + 2 :]
+    tail_index = 0
+    while tail_index < len(tail):
+        token = tail[tail_index]
+        if token in {"--repo", "-R"} and tail_index + 1 < len(tail):
+            gh_repo = tail[tail_index + 1]
+            tail_index += 2
             continue
+        if token.startswith("--repo="):
+            gh_repo = token.split("=", 1)[1]
+            tail_index += 1
+            continue
+        if token.startswith("-"):
+            tail_index += 1
+            continue
+        url_repo, url_pr = pr_url_identity(token)
+        if url_repo and url_pr:
+            gh_repo = gh_repo or url_repo
+            pr = url_pr
+            break
         pr = token
-        break
+        tail_index += 1
     kind = "gh_" + pair[1]
     if kind in {"gh_ready", "gh_merge"} and pr and not gh_repo:
         return Guarded(kind, cwd, "PR identity is unclear; pass --repo/-R or GH_REPO with the PR number")
@@ -392,9 +427,17 @@ def nested_command(words: list[str]) -> str | None:
     return None
 
 
+def segment_mentions_publication(words: list[str]) -> bool:
+    text = " ".join(words)
+    return any(term in text for term in ("push", " pr ", "pulls", "pullRequest", "merges", "api"))
+
+
 def guarded_segment(words: list[str], cwd: Path, depth: int) -> Guarded | None:
     if not words:
         return None
+    stripped = strip_prefixes(list(words))
+    if stripped and ("$" in stripped[0] or "`" in stripped[0]) and segment_mentions_publication(stripped):
+        return Guarded("unreadable", None, "unreadable command head; run the publication command directly")
     if basename(words[0]) == "cd" and len(words) >= 2:
         return Guarded("cd", resolve_path(cwd, words[1]))
     if git_mutates_state(list(words), cwd):
@@ -431,7 +474,8 @@ def first_guarded(command: str, cwd: Path, depth: int = 0) -> Guarded | None:
             saw_mutation = True
             continue
         if saw_mutation and found.kind in {"push", "gh_create", "gh_ready", "gh_merge"}:
-            return Guarded(found.kind, found.repo, "run the push as its own tool call", found.heads, found.pr, found.gh_repo, found.gh_host)
+            noun = "PR action" if found.kind.startswith("gh_") else "push"
+            return Guarded(found.kind, found.repo, f"run the {noun} as its own tool call", found.heads, found.pr, found.gh_repo, found.gh_host)
         return found
     return None
 
@@ -456,7 +500,7 @@ def check_ci(repo: Path, guarded: Guarded) -> str | None:
         local_head = git_out(repo, "rev-parse", "HEAD")
     except subprocess.CalledProcessError:
         return f"ship-check could not identify a git repository at {repo}; run the push from inside the repo"
-    args = ["gh", "pr", "view", "--json", "headRefOid,statusCheckRollup"]
+    args = ["gh", "pr", "view", "--json", "headRefOid,statusCheckRollup,baseRepository,headRepository"]
     if guarded.pr:
         args.insert(3, guarded.pr)
     if guarded.gh_repo:
@@ -471,6 +515,14 @@ def check_ci(repo: Path, guarded: Guarded) -> str | None:
         data = json.loads(proc.stdout)
     except json.JSONDecodeError as error:
         return f"gh pr view returned invalid JSON: {error}"
+    if guarded.pr:
+        pr_head = data.get("headRefOid")
+        if subprocess.run(["git", "cat-file", "-e", f"{pr_head}^{{commit}}"], cwd=repo, capture_output=True).returncode != 0:
+            return "PR is not from this repo: PR head sha is not present locally"
+        base_repo = ((data.get("baseRepository") or {}).get("nameWithOwner"))
+        remotes = subprocess.run(["git", "remote", "-v"], cwd=repo, text=True, capture_output=True).stdout
+        if base_repo and base_repo not in remotes:
+            return "PR is not from this repo: PR base repo does not match a local remote"
     expected = data.get("headRefOid") if guarded.pr else local_head
     if data.get("headRefOid") != expected:
         return f"PR head {data.get('headRefOid')} does not match expected head {expected}"

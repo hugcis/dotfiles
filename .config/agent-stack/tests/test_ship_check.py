@@ -90,14 +90,14 @@ def allowed(result: subprocess.CompletedProcess[str]) -> None:
     assert result.stdout == ""
 
 
-def fake_gh(directory: Path, *, head: str, rollup: list[dict] | None = None, exit_code: int = 0) -> Path:
+def fake_gh(directory: Path, *, head: str, rollup: list[dict] | None = None, exit_code: int = 0, extra: dict | None = None) -> Path:
     bin_dir = directory / "bin"
     bin_dir.mkdir()
     script = bin_dir / "gh"
     if exit_code:
         script.write_text(f"#!/bin/sh\necho gh failed >&2\nexit {exit_code}\n")
     else:
-        body = json.dumps({"headRefOid": head, "statusCheckRollup": rollup or []})
+        body = json.dumps({"headRefOid": head, "statusCheckRollup": rollup or [], **(extra or {})})
         script.write_text(f"#!/bin/sh\nprintf '%s\\n' '{body}'\n")
     script.chmod(script.stat().st_mode | stat.S_IXUSR)
     return bin_dir
@@ -274,7 +274,7 @@ def test_n1_push_refspec_source_is_checked_not_just_head(tmp_path):
     assert "attribution" in denial["reason"]
 
 
-@pytest.mark.parametrize("command", ["git push --all", "git push --mirror", "git push --tags-with-branches"])
+@pytest.mark.parametrize("command", ["git push --all", "git push --mirror", "git push --tags", "git push --follow-tags"])
 def test_n1_ambiguous_push_modes_are_denied(tmp_path, command):
     repo = make_repo(tmp_path)
     home = tmp_path / "home"
@@ -309,7 +309,7 @@ def test_n2_state_mutation_before_publication_is_denied(tmp_path, command):
 
     denial = denied(run_hook(repo, home, bash_payload(command, repo)))
 
-    assert "run the push as its own tool call" in denial["reason"]
+    assert "as its own tool call" in denial["reason"]
 
 
 def test_n3_gh_pr_ready_for_number_passes_repo_and_number_to_gh_and_allows_nonlocal_head(tmp_path):
@@ -319,8 +319,14 @@ def test_n3_gh_pr_ready_for_number_passes_repo_and_number_to_gh_and_allows_nonlo
     gh_bin.mkdir()
     seen = tmp_path / "gh-args.txt"
     script = gh_bin / "gh"
-    remote_head = "a" * 40
-    body = json.dumps({"headRefOid": remote_head, "statusCheckRollup": [{"__typename": "CheckRun", "name": "ci", "conclusion": "SUCCESS"}]})
+    git(repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
+    pr_head = git(repo, "rev-parse", "HEAD")
+    body = json.dumps({
+        "headRefOid": pr_head,
+        "statusCheckRollup": [{"__typename": "CheckRun", "name": "ci", "conclusion": "SUCCESS"}],
+        "baseRepository": {"nameWithOwner": "owner/repo"},
+        "headRepository": {"nameWithOwner": "owner/repo"},
+    })
     script.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" > {seen}\nprintf '%s\\n' '{body}'\n")
     script.chmod(script.stat().st_mode | stat.S_IXUSR)
 
@@ -415,3 +421,104 @@ def test_n7_missing_base_reason_names_missing_base(tmp_path):
     denial = denied(run_hook(repo, home, bash_payload("git push", repo)))
 
     assert "missing base" in denial["reason"]
+
+
+@pytest.mark.parametrize("command", ["(( git push --all ))", "{ git push --mirror; }", "( git push --tags )", "git push --follow-tags"])
+def test_b1_b3_grouped_and_tag_push_modes_are_denied(tmp_path, command):
+    repo = make_repo(tmp_path)
+    home = tmp_path / "home"
+
+    denial = denied(run_hook(repo, home, bash_payload(command, repo)))
+
+    assert "ambiguous" in denial["reason"]
+
+
+@pytest.mark.parametrize("command", ["git commit --allow-empty -m x && ( git push )", "{ git merge main; } && gh pr ready"])
+def test_b1_grouped_mutation_before_publication_is_denied(tmp_path, command):
+    repo = make_repo(tmp_path)
+    home = tmp_path / "home"
+
+    denial = denied(run_hook(repo, home, bash_payload(command, repo)))
+
+    assert "as its own tool call" in denial["reason"]
+
+
+@pytest.mark.parametrize("command", ["$GIT push", "`which git` push", "TOOL=$GIT $TOOL push", "cmd=$GH $cmd pr ready"])
+def test_b2_variable_executable_with_publication_words_is_denied(tmp_path, command):
+    repo = make_repo(tmp_path)
+    home = tmp_path / "home"
+
+    denial = denied(run_hook(repo, home, bash_payload(command, repo)))
+
+    assert "unreadable command head" in denial["reason"]
+
+
+def test_b2_variable_executable_without_publication_words_is_allowed(tmp_path):
+    repo = make_repo(tmp_path)
+    home = tmp_path / "home"
+
+    allowed(run_hook(repo, home, bash_payload("$TOOL status", repo)))
+
+
+def test_h1_pr_number_requires_head_to_exist_locally(tmp_path):
+    repo = make_repo(tmp_path)
+    home = tmp_path / "home"
+    remote_head = "b" * 40
+    gh_bin = fake_gh(
+        tmp_path,
+        head=remote_head,
+        rollup=[{"__typename": "CheckRun", "name": "ci", "conclusion": "SUCCESS"}],
+        extra={"baseRepository": {"nameWithOwner": "owner/repo"}, "headRepository": {"nameWithOwner": "owner/repo"}},
+    )
+    git(repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
+
+    denial = denied(run_hook(repo, home, bash_payload("gh pr ready --repo owner/repo 123", repo), extra_env={"PATH": f"{gh_bin}:{os.environ['PATH']}"}))
+
+    assert "PR is not from this repo" in denial["reason"]
+
+
+def test_h1_pr_number_requires_base_repo_to_match_local_remote(tmp_path):
+    repo = make_repo(tmp_path)
+    home = tmp_path / "home"
+    head = git(repo, "rev-parse", "HEAD")
+    gh_bin = fake_gh(
+        tmp_path,
+        head=head,
+        rollup=[{"__typename": "CheckRun", "name": "ci", "conclusion": "SUCCESS"}],
+        extra={"baseRepository": {"nameWithOwner": "other/repo"}, "headRepository": {"nameWithOwner": "other/repo"}},
+    )
+    git(repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
+
+    denial = denied(run_hook(repo, home, bash_payload("gh pr ready --repo other/repo 123", repo), extra_env={"PATH": f"{gh_bin}:{os.environ['PATH']}"}))
+
+    assert "PR is not from this repo" in denial["reason"]
+
+
+def test_h2_gh_global_repo_option_is_guarded_and_reaches_ci(tmp_path):
+    repo = make_repo(tmp_path)
+    home = tmp_path / "home"
+    head = git(repo, "rev-parse", "HEAD")
+    gh_bin = fake_gh(
+        tmp_path,
+        head=head,
+        rollup=[{"__typename": "CheckRun", "name": "ci", "conclusion": "SUCCESS"}],
+        extra={"baseRepository": {"nameWithOwner": "owner/repo"}, "headRepository": {"nameWithOwner": "owner/repo"}},
+    )
+    git(repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
+
+    allowed(run_hook(repo, home, bash_payload("gh --repo owner/repo pr ready 123", repo), extra_env={"PATH": f"{gh_bin}:{os.environ['PATH']}"}))
+
+
+def test_h2_github_pr_url_carries_repo_identity(tmp_path):
+    repo = make_repo(tmp_path)
+    home = tmp_path / "home"
+    head = git(repo, "rev-parse", "HEAD")
+    gh_bin = fake_gh(
+        tmp_path,
+        head=head,
+        rollup=[{"__typename": "CheckRun", "name": "ci", "conclusion": "SUCCESS"}],
+        extra={"baseRepository": {"nameWithOwner": "owner/repo"}, "headRepository": {"nameWithOwner": "owner/repo"}},
+    )
+    git(repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
+
+    allowed(run_hook(repo, home, bash_payload("gh pr ready https://github.com/owner/repo/pull/123", repo), extra_env={"PATH": f"{gh_bin}:{os.environ['PATH']}"}))
