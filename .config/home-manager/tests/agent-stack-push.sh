@@ -36,7 +36,7 @@ export PATH="$t/bin:$PATH"
 
 cfg() { HOME="$L" git --git-dir="$L/.cfg" --work-tree="$L" "$@"; }
 commit() { cfg add -f .config/agent-stack >/dev/null && cfg commit -q -m "$1"; cfg rev-parse HEAD; }
-push() { HOME="$L" bash "$script" host "$@" 2>&1; echo "exit=$?"; }
+push() { (cd "$L/.config" && HOME="$L" bash "$script" host "$@" 2>&1); echo "exit=$?"; }  # from a subdirectory: pathspecs must not resolve against it
 s=$L/.config/agent-stack h=$R/.config/agent-stack
 
 git init -q --bare "$L/.cfg"

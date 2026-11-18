@@ -21,6 +21,8 @@ host=$1
 force=0
 [[ ${2:-} == --force ]] && force=1
 path=.config/agent-stack
+# Pathspecs are relative to the current directory, so run from the work tree root.
+cd "$HOME"
 cfg() { git --git-dir="$HOME/.cfg" --work-tree="$HOME" "$@"; }
 on_host() { ssh "$host" "$@"; }
 
