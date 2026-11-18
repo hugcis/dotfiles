@@ -11,7 +11,7 @@ hypothetical questions - make the actual decision.**
 
 ## Prompt
 
-You finished the feature branch `feat/route-resume` in the `drone_nav` package. During the
+You finished the feature branch `feat/route-resume` in the `router` package. During the
 session you wrote 14 new tests in `tests/test_resume.py` (310 lines, plus a new
 `tests/conftest_resume.py` helper of 40 lines) and you edited one test that existed before
 the branch, `tests/test_planner.py::test_plan_roundtrip`. Hugo asked that, now the phase is
