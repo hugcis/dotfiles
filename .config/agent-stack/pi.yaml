@@ -30,15 +30,19 @@ models:
     researcher: research
     oracle: primary
     watchdog: primary
+# Exact versions: render reinstalls a pinned package registered at another version, so
+# every host converges. Bump here, render, and the drift check shows any host left behind.
 packages:
-  - npm:pi-subagents
+  - npm:pi-subagents@0.89.1
+  # pi-ask-user is not pinned: each host runs a local fork that keeps chat-only delivery,
+  # which upstream 0.17.2 still lacks. render accepts a local checkout with the same name.
   - npm:pi-ask-user
-  - npm:pi-mcp-adapter
-  - npm:pi-agent-goal
-  - npm:@trevonistrevon/pi-loop
-  - npm:pi-zentui
-  - npm:@dietrichgebert/ponytail
-  - npm:pi-blackhole@0.5.11
+  - npm:pi-mcp-adapter@7.0.1
+  - npm:pi-agent-goal@2026.7.18
+  - npm:@trevonistrevon/pi-loop@0.8.0
+  - npm:pi-zentui@0.34.0
+  - npm:@dietrichgebert/ponytail@5.3.3
+  - npm:pi-blackhole@0.5.18
 extensions:
   - bash-timeout-guard
   - comment-discipline

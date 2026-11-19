@@ -443,6 +443,20 @@ def test_install_skips_packages_pi_already_has(tmp_path, monkeypatch):
     assert runner.calls == []
 
 
+def test_install_reinstalls_a_pinned_package_registered_at_another_version(tmp_path, monkeypatch):
+    # One host sat on pi-blackhole 0.5.7 for weeks while pi.yaml pinned 0.5.11.
+    _stack(tmp_path, monkeypatch, "")
+    _settings_file(tmp_path, {"packages": ["npm:pi-blackhole@0.5.7", "npm:pi-zentui"]})
+    runner = Runner()
+
+    report = render.install_pi_packages(
+        ["npm:pi-blackhole@0.5.18", "npm:pi-zentui"], runner=runner, which=_pi_on_path
+    )
+
+    assert runner.calls == [["pi", "install", "npm:pi-blackhole@0.5.18"]]
+    assert report == ["pi: installed npm:pi-blackhole@0.5.18"]
+
+
 def test_install_runs_pi_install_for_missing_packages(tmp_path, monkeypatch):
     _stack(tmp_path, monkeypatch, "")
     _settings_file(tmp_path, {"packages": []})

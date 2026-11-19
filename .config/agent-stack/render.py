@@ -802,7 +802,11 @@ def _local_package_identity(source: str, agent_dir: Path) -> str | None:
 
 
 def missing_pi_packages(packages: list[str], settings_path: Path) -> list[str]:
-    """The npm `packages` Pi does not provide yet, matched by name, ignoring versions."""
+    """The npm `packages` Pi does not provide yet.
+
+    An unpinned package is satisfied by any registered version or a local checkout of the
+    same name. A pinned one (`npm:name@1.2.3`) needs that exact source registered.
+    """
     entries = read_pi_json(settings_path).get("packages") or []
     if not isinstance(entries, list):
         raise ConfigError(f"{settings_path}: packages must be a list.")
@@ -812,7 +816,14 @@ def missing_pi_packages(packages: list[str], settings_path: Path) -> list[str]:
         if isinstance(e, str) or (isinstance(e, dict) and isinstance(e.get("source"), str))
     ]
     present = {_npm_identity(s) or _local_package_identity(s, settings_path.parent) for s in sources}
-    return [p for p in packages if _npm_identity(p) not in present]
+    registered = {s.strip() for s in sources}
+    missing = []
+    for package in packages:
+        spec = NPM_SPEC_PATTERN.match(package.strip().removeprefix("npm:"))
+        pinned = bool(spec and spec.group(2))
+        if (package.strip() not in registered) if pinned else (_npm_identity(package) not in present):
+            missing.append(package)
+    return missing
 
 
 def _run(args, check=False):
