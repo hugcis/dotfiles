@@ -8,6 +8,7 @@ agent, but every slot pi.yaml names must be bound or render stops.
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import os
 import re
@@ -514,6 +515,10 @@ PI_EXTENSIONS_DIR = "pi/extensions"
 EXTENSION_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 # Pi's built-in compaction.reserveTokens, used when pi.yaml does not set one.
 PI_DEFAULT_RESERVE_TOKENS = 16384
+# Untracked: this host's Pi providers in models.json's shape, plus removeProviders.
+PI_MODELS_LOCAL = "pi-models.local.json"
+# Pi resolves "$NAME" and "${NAME}" from the environment at request time.
+PI_ENV_REFERENCE = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})")
 
 
 def load_pi_config(path: Path) -> dict | None:
@@ -697,8 +702,122 @@ def read_pi_json(path: Path) -> dict:
     return content
 
 
-def build_pi(profile: dict) -> PiPlan | None:
-    """Validate pi.yaml and compute this host's Pi changes without writing."""
+def load_pi_models_local(path: Path) -> dict | None:
+    """Read the untracked provider file; None when this host has none."""
+    if not path.is_file():
+        return None
+    content = read_pi_json(path)
+    unknown = set(content) - {"__doc__", "providers", "removeProviders"}
+    if unknown:
+        raise ConfigError(f"{path}: unknown key(s): {sorted(unknown)}")
+    providers = content.get("providers")
+    remove = content.get("removeProviders", [])
+    if not isinstance(providers, dict) or not providers or not all(
+        isinstance(e, dict) and isinstance(e.get("headers", {}), dict) for e in providers.values()
+    ):
+        raise ConfigError(f"{path}: providers must map names to provider objects.")
+    if not isinstance(remove, list) or not all(isinstance(n, str) for n in remove):
+        raise ConfigError(f"{path}: removeProviders must be a list of provider names.")
+    if set(remove) & set(providers):
+        raise ConfigError(f"{path}: {sorted(set(remove) & set(providers))} both managed and removed.")
+    for name, entry in providers.items():
+        headers = entry.get("headers", {})
+        fields = {"apiKey": entry.get("apiKey")} | {f"headers.{h}": v for h, v in headers.items()}
+        for field, value in fields.items():
+            # Never echo the value: it may be a pasted key.
+            if not isinstance(value, str) or not PI_ENV_REFERENCE.fullmatch(value):
+                raise ConfigError(
+                    f"{path}: providers.{name}.{field} must be an environment reference "
+                    "such as \"$NAME\"; literal keys and !commands are not accepted."
+                )
+    return {"providers": providers, "removeProviders": remove}
+
+
+@dataclass(frozen=True)
+class PiModelsPlan:
+    path: Path
+    current: str  # the file's text, "" when absent
+    planned: str | None  # the new text, or None when already current
+    models: dict  # merged models.json, for compaction overrides
+
+
+def build_pi_models() -> PiModelsPlan | None:
+    """Merge pi-models.local.json into models.json without writing; None when unmanaged."""
+    local = load_pi_models_local(STACK / PI_MODELS_LOCAL)
+    if local is None:
+        return None
+    path = PI_HOME / ".pi/agent/models.json"
+    if path.is_symlink():
+        raise ConfigError(f"{path} is a symlink, so another tool manages it; left alone.")
+    text = path.read_text() if path.is_file() else ""
+    current = read_pi_json(path)
+    providers = current.get("providers", {})
+    if not isinstance(providers, dict):
+        raise ConfigError(f"{path}: providers must be an object.")
+    # Replacing a key keeps its position; a new provider goes last.
+    merged_providers = {n: e for n, e in providers.items() if n not in local["removeProviders"]}
+    merged_providers.update(local["providers"])
+    merged = {**current, "providers": merged_providers}
+    planned = None
+    if not text or merged != current:
+        newline = "\n" if not text or text.endswith("\n") else ""
+        planned = json.dumps(merged, indent=2, ensure_ascii=False) + newline
+    return PiModelsPlan(path=path, current=text, planned=planned, models=merged)
+
+
+def _masked_models_text(models: dict) -> list[str]:
+    """models.json as indent-2 lines, with every non-reference apiKey or header value masked."""
+    def secret(value) -> bool:
+        return not (isinstance(value, str) and PI_ENV_REFERENCE.fullmatch(value))
+
+    providers = {}
+    for name, entry in (models.get("providers") or {}).items():
+        if isinstance(entry, dict):
+            entry = dict(entry)
+            if "apiKey" in entry and secret(entry["apiKey"]):
+                entry["apiKey"] = "<redacted>"
+            if isinstance(entry.get("headers"), dict):
+                entry["headers"] = {
+                    h: "<redacted>" if secret(v) else v for h, v in entry["headers"].items()
+                }
+        providers[name] = entry
+    text = json.dumps({**models, "providers": providers}, indent=2, ensure_ascii=False)
+    return text.splitlines(keepends=True)
+
+
+def pi_models_diff(plan: PiModelsPlan) -> str:
+    """Diff of models.json's content, current to planned, with secrets masked."""
+    current = json.loads(plan.current) if plan.current else {}
+    return "".join(difflib.unified_diff(
+        _masked_models_text(current), _masked_models_text(plan.models),
+        f"{plan.path} (current)", f"{plan.path} (planned)",
+    ))
+
+
+def write_pi_models(plan: PiModelsPlan) -> list[str]:
+    """Replace models.json with the plan, keeping a copy of the previous file."""
+    if plan.planned is None:
+        return []
+    backup = None
+    if plan.path.is_file():
+        BACKUP_ROOT.mkdir(parents=True, exist_ok=True)
+        directory = Path(tempfile.mkdtemp(prefix="pi-models.pre-render-", dir=BACKUP_ROOT))
+        backup = directory / "models.json"
+        shutil.copy2(plan.path, backup)
+    plan.path.parent.mkdir(parents=True, exist_ok=True)
+    staged = plan.path.with_name(plan.path.name + ".tmp")
+    staged.write_text(plan.planned)
+    staged.chmod(plan.path.stat().st_mode & 0o777 if plan.path.is_file() else 0o600)
+    staged.replace(plan.path)
+    line = f"pi: updated {plan.path}"
+    return [f"{line} (previous copy: {backup})" if backup else line]
+
+
+def build_pi(profile: dict, models: dict | None = None) -> PiPlan | None:
+    """Validate pi.yaml and compute this host's Pi changes without writing.
+
+    `models` is the planned models.json when render also manages it; otherwise the file is read.
+    """
     config = load_pi_config(STACK / "pi.yaml")
     if config is None:
         return None
@@ -706,7 +825,8 @@ def build_pi(profile: dict) -> PiPlan | None:
     current = read_pi_json(path)
     managed = pi_managed_settings(config, profile)
     if config["compactAtTokens"]:
-        models = read_pi_json(PI_HOME / ".pi/agent/models.json")
+        if models is None:
+            models = read_pi_json(PI_HOME / ".pi/agent/models.json")
         compaction = dict(managed.get("compaction") or {})
         overrides = pi_compaction_overrides(
             models, config["compactAtTokens"],
@@ -893,7 +1013,8 @@ def build_all(
 def write_all(roster: dict, profile: dict, *, runner=None, which=None) -> None:
     """Render every harness after building and validating every output."""
     agents, planned, agents_md, profile_env = build_all(roster, profile)
-    pi_plan = build_pi(profile)
+    models_plan = build_pi_models()
+    pi_plan = build_pi(profile, models_plan.models if models_plan else None)
 
     # Phase 2: write.
     for harness, directory in TARGETS.items():
@@ -925,6 +1046,9 @@ def write_all(roster: dict, profile: dict, *, runner=None, which=None) -> None:
     for line in link_skills(STACK / "local-skills", SKILL_TARGETS):
         print(line)
 
+    if models_plan is not None:
+        for line in write_pi_models(models_plan):
+            print(line)
     if pi_plan is not None:
         for line in apply_pi(pi_plan, runner=runner, which=which):
             print(line)
@@ -939,8 +1063,10 @@ def write_all(roster: dict, profile: dict, *, runner=None, which=None) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", nargs="?", choices=("render", "validate", "doctor"),
-                        default="render")
+    parser.add_argument("command", nargs="?",
+                        choices=("render", "validate", "doctor", "pi-models"), default="render")
+    parser.add_argument("--check", action="store_true",
+                        help="pi-models: print the planned models.json diff and exit 1 on drift; write nothing.")
     parser.add_argument("--profile", type=Path,
                         default=STACK / "profile.yaml")
     parser.add_argument("--external-skill-dir", action="append", type=Path,
@@ -959,11 +1085,25 @@ def main() -> None:
                 print(message)
             print("agent-stack doctor: ok")
             return
+        if args.command == "pi-models":
+            plan = build_pi_models()
+            if plan is None:
+                print(f"pi models: no {PI_MODELS_LOCAL}; models.json is not managed here")
+            elif plan.planned is None:
+                print("pi models: current")
+            elif args.check:
+                print(pi_models_diff(plan), end="")
+                raise SystemExit(1)
+            else:
+                for line in write_pi_models(plan):
+                    print(line)
+            return
         roster = load_roster(STACK / "roster.yaml")
         profile = load_profile(args.profile)
         if args.command == "validate":
             build_all(roster, profile)
-            build_pi(profile)
+            models_plan = build_pi_models()
+            build_pi(profile, models_plan.models if models_plan else None)
             print("agent-stack render validation: ok")
             return
         write_all(roster, profile)

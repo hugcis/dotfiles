@@ -648,3 +648,173 @@ def test_public_pi_yaml_resolves_on_a_host_with_every_slot():
     managed = render.pi_managed_settings(render.load_pi_config(STACK / "pi.yaml"), profile)
 
     assert managed["subagents"]["agentOverrides"]["researcher"] == {"model": "o/x"}
+
+
+GW = {"api": "openai-completions", "apiKey": "$EXAMPLE_KEY", "baseUrl": "https://gw.example/v1",
+      "models": [{"id": "model-a", "contextWindow": 1_000_000}]}
+OTHER = {"baseUrl": "https://other.example", "apiKey": "${OTHER_KEY}", "models": [{"id": "model-b"}]}
+
+
+def _models_stack(tmp_path, monkeypatch, local: dict | None) -> Path:
+    stack = _stack(tmp_path, monkeypatch, PI_YAML)
+    if local is not None:
+        (stack / render.PI_MODELS_LOCAL).write_text(json.dumps(local))
+    return stack
+
+
+def _host_file(tmp_path, providers: dict) -> Path:
+    return _models_file(tmp_path, json.dumps({"providers": providers}, indent=2))
+
+
+def test_pi_models_is_unmanaged_without_a_local_file(tmp_path, monkeypatch):
+    _models_stack(tmp_path, monkeypatch, None)
+
+    assert render.build_pi_models() is None
+
+
+def test_pi_models_plans_no_write_when_the_provider_is_current(tmp_path, monkeypatch):
+    _models_stack(tmp_path, monkeypatch, {"providers": {"gw": GW}})
+    _host_file(tmp_path, {"other": OTHER, "gw": GW})
+
+    assert render.build_pi_models().planned is None
+
+
+def test_pi_models_adds_a_missing_provider_and_keeps_others_byte_identical(tmp_path, monkeypatch):
+    _models_stack(tmp_path, monkeypatch, {"providers": {"gw": GW}})
+    path = _host_file(tmp_path, {"other": OTHER})
+    path.chmod(0o640)
+    before = path.read_text()
+
+    [line] = render.write_pi_models(render.build_pi_models())
+
+    after = path.read_text()
+    assert json.loads(after)["providers"] == {"other": OTHER, "gw": GW}
+    # Everything up to the new provider is the old file, byte for byte.
+    assert after.startswith(before[: before.rindex("}\n  }")])
+    assert path.stat().st_mode & 0o777 == 0o640
+    assert Path(line.split("previous copy: ")[1].rstrip(")")).read_text() == before
+    assert render.build_pi_models().planned is None
+
+
+def test_pi_models_replaces_in_place_and_removes_only_the_listed_providers(tmp_path, monkeypatch):
+    local = {"providers": {"gw": GW}, "removeProviders": ["old", "absent"]}
+    _models_stack(tmp_path, monkeypatch, local)
+    _host_file(tmp_path, {"old": OTHER, "gw": {**GW, "models": []}, "other": OTHER})
+
+    planned = json.loads(render.build_pi_models().planned)
+
+    assert list(planned["providers"]) == ["gw", "other"]
+    assert planned == {"providers": {"gw": GW, "other": OTHER}}
+
+
+def test_pi_models_writes_a_missing_file(tmp_path, monkeypatch):
+    _models_stack(tmp_path, monkeypatch, {"providers": {"gw": GW}})
+
+    lines = render.write_pi_models(render.build_pi_models())
+
+    path = tmp_path / "home/.pi/agent/models.json"
+    assert json.loads(path.read_text()) == {"providers": {"gw": GW}}
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert lines == [f"pi: updated {path}"]
+
+
+@pytest.mark.parametrize("content", ["{not json", '{"providers": []}'])
+def test_pi_models_rejects_an_unusable_file_and_leaves_it(tmp_path, monkeypatch, content):
+    _models_stack(tmp_path, monkeypatch, {"providers": {"gw": GW}})
+    path = _models_file(tmp_path, content)
+
+    with pytest.raises(render.ConfigError, match=r"models\.json: "):
+        render.build_pi_models()
+
+    assert path.read_text() == content
+
+
+def test_pi_models_leaves_a_symlinked_file_alone(tmp_path, monkeypatch):
+    _models_stack(tmp_path, monkeypatch, {"providers": {"gw": GW}})
+    target = tmp_path / "store-models.json"
+    target.write_text("{}")
+    link = tmp_path / "home/.pi/agent/models.json"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(target)
+
+    with pytest.raises(render.ConfigError, match="symlink"):
+        render.build_pi_models()
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {**GW, "apiKey": "pasted-secret-value"},
+        {**GW, "apiKey": "!cat ~/key"},
+        {**GW, "apiKey": "prefix-$EXAMPLE_KEY"},
+        {k: v for k, v in GW.items() if k != "apiKey"},
+        {**GW, "headers": {"x-user": "pasted-secret-value"}},
+    ],
+)
+def test_pi_models_rejects_anything_but_an_env_reference(tmp_path, monkeypatch, entry):
+    _models_stack(tmp_path, monkeypatch, {"providers": {"gw": entry}})
+
+    with pytest.raises(render.ConfigError, match="environment reference") as error:
+        render.build_pi_models()
+
+    assert "pasted-secret" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("local", "message"),
+    [
+        ({"providers": {}}, "provider objects"),
+        ({"providers": {"gw": {**GW, "headers": []}}}, "provider objects"),
+        ({"providers": {"gw": GW}, "extra": 1}, "unknown key"),
+        ({"providers": {"gw": GW}, "removeProviders": ["gw"]}, "both managed and removed"),
+    ],
+)
+def test_pi_models_rejects_bad_local_shapes(tmp_path, monkeypatch, local, message):
+    _models_stack(tmp_path, monkeypatch, local)
+
+    with pytest.raises(render.ConfigError, match=message):
+        render.build_pi_models()
+
+
+def test_public_pi_models_example_loads():
+    assert render.load_pi_models_local(STACK / "pi-models.local.example.json") is not None
+
+
+def _pi_models_cli(monkeypatch, *args):
+    monkeypatch.setattr(sys, "argv", ["render.py", "pi-models", *args])
+    render.main()
+
+
+def test_pi_models_check_prints_a_masked_diff_and_writes_nothing(tmp_path, monkeypatch, capsys):
+    _models_stack(tmp_path, monkeypatch, {"providers": {"gw": GW}, "removeProviders": ["old"]})
+    path = _host_file(tmp_path, {"old": {**OTHER, "apiKey": "pasted-secret-value"}})
+    before = path.read_text()
+
+    with pytest.raises(SystemExit) as exit_:
+        _pi_models_cli(monkeypatch, "--check")
+
+    out = capsys.readouterr().out
+    assert exit_.value.code == 1
+    assert '-      "apiKey": "<redacted>",' in out and '+      "apiKey": "$EXAMPLE_KEY",' in out
+    assert "pasted-secret" not in out
+    assert path.read_text() == before
+
+
+def test_pi_models_check_reports_current_and_render_writes(tmp_path, monkeypatch, capsys):
+    _models_stack(tmp_path, monkeypatch, {"providers": {"gw": GW}})
+    path = _host_file(tmp_path, {"other": OTHER})
+
+    _pi_models_cli(monkeypatch)
+    _pi_models_cli(monkeypatch, "--check")
+
+    assert capsys.readouterr().out.splitlines()[-1] == "pi models: current"
+    assert json.loads(path.read_text())["providers"] == {"other": OTHER, "gw": GW}
+
+
+def test_build_pi_compacts_models_from_the_planned_models_json(tmp_path, monkeypatch):
+    stack = _stack(tmp_path, monkeypatch, "compactAtTokens: 500000\n")
+    (stack / render.PI_MODELS_LOCAL).write_text(json.dumps({"providers": {"gw": GW}}))
+
+    plan = render.build_pi(PROFILE, render.build_pi_models().models)
+
+    assert plan.settings["compaction"]["modelOverrides"] == {"gw/model-a": {"reserveTokens": 500_000}}

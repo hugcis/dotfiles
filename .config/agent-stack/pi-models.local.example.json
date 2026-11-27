@@ -1,0 +1,12 @@
+{
+  "__doc__": "Copy to pi-models.local.json (UNTRACKED: provider URLs and model ids stay off this public repo). render.py replaces each provider below in ~/.pi/agent/models.json, deletes those in removeProviders, and leaves every other provider alone. apiKey and header values must be environment references such as \"$NAME\". Check drift with: render.py pi-models --check",
+  "providers": {
+    "REPLACE-ME": {
+      "api": "openai-completions",
+      "apiKey": "$REPLACE_ME_API_KEY",
+      "baseUrl": "https://REPLACE-ME/v1",
+      "models": [{ "id": "REPLACE-ME" }]
+    }
+  },
+  "removeProviders": []
+}
