@@ -710,27 +710,51 @@ def load_pi_models_local(path: Path) -> dict | None:
     unknown = set(content) - {"__doc__", "providers", "removeProviders"}
     if unknown:
         raise ConfigError(f"{path}: unknown key(s): {sorted(unknown)}")
-    providers = content.get("providers")
+    providers = content.get("providers", {})
     remove = content.get("removeProviders", [])
-    if not isinstance(providers, dict) or not providers or not all(
-        isinstance(e, dict) and isinstance(e.get("headers", {}), dict) for e in providers.values()
-    ):
+    if not isinstance(providers, dict) or not all(isinstance(e, dict) for e in providers.values()):
         raise ConfigError(f"{path}: providers must map names to provider objects.")
     if not isinstance(remove, list) or not all(isinstance(n, str) for n in remove):
         raise ConfigError(f"{path}: removeProviders must be a list of provider names.")
+    if not providers and not remove:
+        raise ConfigError(f"{path}: names no providers to manage or remove.")
     if set(remove) & set(providers):
         raise ConfigError(f"{path}: {sorted(set(remove) & set(providers))} both managed and removed.")
     for name, entry in providers.items():
-        headers = entry.get("headers", {})
-        fields = {"apiKey": entry.get("apiKey")} | {f"headers.{h}": v for h, v in headers.items()}
-        for field, value in fields.items():
+        if "apiKey" not in entry:
+            raise ConfigError(f"{path}: providers.{name}.apiKey is missing.")
+        for field, holder, key in _pi_secret_fields(entry):
             # Never echo the value: it may be a pasted key.
-            if not isinstance(value, str) or not PI_ENV_REFERENCE.fullmatch(value):
+            if not _pi_env_reference(holder[key]):
                 raise ConfigError(
                     f"{path}: providers.{name}.{field} must be an environment reference "
                     "such as \"$NAME\"; literal keys and !commands are not accepted."
                 )
     return {"providers": providers, "removeProviders": remove}
+
+
+def _pi_env_reference(value) -> bool:
+    return isinstance(value, str) and bool(PI_ENV_REFERENCE.fullmatch(value))
+
+
+def _pi_secret_fields(entry: dict):
+    """(path, holder, key) for every value Pi resolves as a credential in one provider.
+
+    Pi's models.schema.json allows headers on the provider, on each model and on each
+    modelOverrides entry, plus the provider's apiKey.
+    """
+    if "apiKey" in entry:
+        yield "apiKey", entry, "apiKey"
+    scopes = [("", entry)]
+    models = entry.get("models")
+    scopes += [(f"models.{i}.", m) for i, m in enumerate(models if isinstance(models, list) else [])]
+    overrides = entry.get("modelOverrides")
+    if isinstance(overrides, dict):
+        scopes += [(f"modelOverrides.{k}.", o) for k, o in overrides.items()]
+    for prefix, scope in scopes:
+        headers = scope.get("headers") if isinstance(scope, dict) else None
+        for header in headers if isinstance(headers, dict) else []:
+            yield f"{prefix}headers.{header}", headers, header
 
 
 @dataclass(frozen=True)
@@ -767,22 +791,12 @@ def build_pi_models() -> PiModelsPlan | None:
 
 def _masked_models_text(models: dict) -> list[str]:
     """models.json as indent-2 lines, with every non-reference apiKey or header value masked."""
-    def secret(value) -> bool:
-        return not (isinstance(value, str) and PI_ENV_REFERENCE.fullmatch(value))
-
-    providers = {}
-    for name, entry in (models.get("providers") or {}).items():
-        if isinstance(entry, dict):
-            entry = dict(entry)
-            if "apiKey" in entry and secret(entry["apiKey"]):
-                entry["apiKey"] = "<redacted>"
-            if isinstance(entry.get("headers"), dict):
-                entry["headers"] = {
-                    h: "<redacted>" if secret(v) else v for h, v in entry["headers"].items()
-                }
-        providers[name] = entry
-    text = json.dumps({**models, "providers": providers}, indent=2, ensure_ascii=False)
-    return text.splitlines(keepends=True)
+    masked = json.loads(json.dumps(models))
+    for entry in (masked.get("providers") or {}).values():
+        for _, holder, key in _pi_secret_fields(entry) if isinstance(entry, dict) else []:
+            if not _pi_env_reference(holder[key]):
+                holder[key] = "<redacted>"
+    return json.dumps(masked, indent=2, ensure_ascii=False).splitlines(keepends=True)
 
 
 def pi_models_diff(plan: PiModelsPlan) -> str:
@@ -805,10 +819,17 @@ def write_pi_models(plan: PiModelsPlan) -> list[str]:
         backup = directory / "models.json"
         shutil.copy2(plan.path, backup)
     plan.path.parent.mkdir(parents=True, exist_ok=True)
-    staged = plan.path.with_name(plan.path.name + ".tmp")
-    staged.write_text(plan.planned)
-    staged.chmod(plan.path.stat().st_mode & 0o777 if plan.path.is_file() else 0o600)
-    staged.replace(plan.path)
+    mode = plan.path.stat().st_mode & 0o777 if plan.path.is_file() else 0o600
+    # mkstemp creates the file 0600, so other users never see unmanaged providers' keys.
+    fd, staged = tempfile.mkstemp(dir=plan.path.parent, prefix=".models.json.")
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(plan.planned)
+            os.fchmod(handle.fileno(), mode)
+        os.replace(staged, plan.path)
+    except BaseException:
+        os.unlink(staged)
+        raise
     line = f"pi: updated {plan.path}"
     return [f"{line} (previous copy: {backup})" if backup else line]
 

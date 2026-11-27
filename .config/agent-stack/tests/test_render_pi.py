@@ -707,6 +707,13 @@ def test_pi_models_replaces_in_place_and_removes_only_the_listed_providers(tmp_p
     assert planned == {"providers": {"gw": GW, "other": OTHER}}
 
 
+def test_pi_models_local_file_may_only_remove(tmp_path, monkeypatch):
+    _models_stack(tmp_path, monkeypatch, {"removeProviders": ["old"]})
+    _host_file(tmp_path, {"old": OTHER, "other": OTHER})
+
+    assert json.loads(render.build_pi_models().planned) == {"providers": {"other": OTHER}}
+
+
 def test_pi_models_writes_a_missing_file(tmp_path, monkeypatch):
     _models_stack(tmp_path, monkeypatch, {"providers": {"gw": GW}})
 
@@ -716,6 +723,7 @@ def test_pi_models_writes_a_missing_file(tmp_path, monkeypatch):
     assert json.loads(path.read_text()) == {"providers": {"gw": GW}}
     assert path.stat().st_mode & 0o777 == 0o600
     assert lines == [f"pi: updated {path}"]
+    assert [p.name for p in path.parent.iterdir()] == ["models.json"]
 
 
 @pytest.mark.parametrize("content", ["{not json", '{"providers": []}'])
@@ -747,8 +755,9 @@ def test_pi_models_leaves_a_symlinked_file_alone(tmp_path, monkeypatch):
         {**GW, "apiKey": "pasted-secret-value"},
         {**GW, "apiKey": "!cat ~/key"},
         {**GW, "apiKey": "prefix-$EXAMPLE_KEY"},
-        {k: v for k, v in GW.items() if k != "apiKey"},
         {**GW, "headers": {"x-user": "pasted-secret-value"}},
+        {**GW, "models": [{"id": "model-a", "headers": {"x-api-key": "pasted-secret-value"}}]},
+        {**GW, "modelOverrides": {"model-a": {"headers": {"x-api-key": "pasted-secret-value"}}}},
     ],
 )
 def test_pi_models_rejects_anything_but_an_env_reference(tmp_path, monkeypatch, entry):
@@ -763,8 +772,9 @@ def test_pi_models_rejects_anything_but_an_env_reference(tmp_path, monkeypatch, 
 @pytest.mark.parametrize(
     ("local", "message"),
     [
-        ({"providers": {}}, "provider objects"),
-        ({"providers": {"gw": {**GW, "headers": []}}}, "provider objects"),
+        ({"providers": {}}, "no providers to manage or remove"),
+        ({"providers": {"gw": []}}, "provider objects"),
+        ({"providers": {"gw": {k: v for k, v in GW.items() if k != "apiKey"}}}, "apiKey is missing"),
         ({"providers": {"gw": GW}, "extra": 1}, "unknown key"),
         ({"providers": {"gw": GW}, "removeProviders": ["gw"]}, "both managed and removed"),
     ],
@@ -787,7 +797,8 @@ def _pi_models_cli(monkeypatch, *args):
 
 def test_pi_models_check_prints_a_masked_diff_and_writes_nothing(tmp_path, monkeypatch, capsys):
     _models_stack(tmp_path, monkeypatch, {"providers": {"gw": GW}, "removeProviders": ["old"]})
-    path = _host_file(tmp_path, {"old": {**OTHER, "apiKey": "pasted-secret-value"}})
+    model = {"id": "model-b", "headers": {"x-api-key": "pasted-secret-value"}}
+    path = _host_file(tmp_path, {"old": {**OTHER, "apiKey": "pasted-secret-value", "models": [model]}})
     before = path.read_text()
 
     with pytest.raises(SystemExit) as exit_:
