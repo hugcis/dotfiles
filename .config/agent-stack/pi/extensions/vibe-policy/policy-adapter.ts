@@ -21,7 +21,7 @@ export type Outcome =
 
 export const POLICY_PATH = join(homedir(), ".config/agent-stack/hooks/policy.py");
 export const SHIP_CHECK_GATE_PATH = join(homedir(), ".config/agent-stack/hooks/ship_check_gate.py");
-export const POLICY_TIMEOUT_MS = 10_000;
+export const POLICY_TIMEOUT_MS = 30_000;
 
 function runHook(path: string, payload: unknown, label: string): Outcome {
   let res;
